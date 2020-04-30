@@ -11,12 +11,9 @@
 #include <console/console.h>
 #include <power/reboot.h>
 #include <logging/log_ctrl.h>
-#if defined(CONFIG_BSD_LIBRARY)
 #include <modem/bsdlib.h>
 #include <bsd.h>
 #include <modem/lte_lc.h>
-#include <modem/modem_info.h>
-#endif /* CONFIG_BSD_LIBRARY */
 #include <net/cloud.h>
 #include <net/socket.h>
 #include <net/nrf_cloud.h>
@@ -28,25 +25,11 @@
 #include "cloud_codec.h"
 #include "ui.h"
 #include "service_info.h"
-#include <modem/at_cmd.h>
-#include "watchdog.h"
 
 #include <logging/log.h>
 LOG_MODULE_REGISTER(nrf9160dk_demo, CONFIG_NRF9160DK_DEMO_LOG_LEVEL);
 
 #define CLOUD_CONNACK_WAIT_DURATION	K_SECONDS(CONFIG_CLOUD_WAIT_DURATION)
-
-#if defined(CONFIG_BSD_LIBRARY) && \
-!defined(CONFIG_LTE_LINK_CONTROL)
-#error "Missing CONFIG_LTE_LINK_CONTROL"
-#endif
-
-#if defined(CONFIG_BSD_LIBRARY) && \
-defined(CONFIG_LTE_AUTO_INIT_AND_CONNECT) && \
-defined(CONFIG_NRF_CLOUD_PROVISION_CERTIFICATES)
-#error "PROVISION_CERTIFICATES "
-	"requires CONFIG_LTE_AUTO_INIT_AND_CONNECT to be disabled!"
-#endif
 
 /* Interval in milliseconds after which the device will reboot
  * if the disconnect event has not been handled.
@@ -58,18 +41,6 @@ defined(CONFIG_NRF_CLOUD_PROVISION_CERTIFICATES)
  */
 #define CONN_CYCLE_AFTER_ASSOCIATION_REQ_MS	K_MINUTES(5)
 
-struct rsrp_data {
-	u16_t value;
-	u16_t offset;
-};
-
-#if CONFIG_MODEM_INFO
-static struct rsrp_data rsrp = {
-	.value = 0,
-	.offset = MODEM_INFO_RSRP_OFFSET_VAL,
-};
-#endif /* CONFIG_MODEM_INFO */
-
 /* Stack definition for application workqueue */
 K_THREAD_STACK_DEFINE(application_stack_area,
 		      CONFIG_APPLICATION_WORKQUEUE_STACK_SIZE);
@@ -78,20 +49,12 @@ static struct cloud_backend *cloud_backend;
 
 /* Sensor data */
 static struct cloud_channel_data button_cloud_data;
-static struct cloud_channel_data device_cloud_data = {
-	.type = CLOUD_CHANNEL_DEVICE_INFO,
-	.tag = 0x1
-};
 
 static struct cloud_channel_data msg_cloud_data = {
 	.type = CLOUD_CHANNEL_MSG,
 	.tag = 0x1
 };
 
-#if CONFIG_MODEM_INFO
-static struct modem_param_info modem_param;
-static struct cloud_channel_data signal_strength_cloud_data;
-#endif /* CONFIG_MODEM_INFO */
 static atomic_val_t send_data_enable;
 
 /* Variable to keep track of nRF cloud user association request. */
@@ -101,25 +64,9 @@ static atomic_val_t reconnect_to_cloud;
 /* Structures for work */
 static struct k_work send_button_data_work;
 static struct k_work send_msg_data_work;
-static struct k_work send_modem_at_cmd_work;
 static struct k_delayed_work cloud_reboot_work;
 static struct k_delayed_work cycle_cloud_connection_work;
 static struct k_work device_status_work;
-
-#if defined(CONFIG_AT_CMD)
-#define MODEM_AT_CMD_BUFFER_LEN (CONFIG_AT_CMD_RESPONSE_MAX_LEN + 1)
-#else
-#define MODEM_AT_CMD_NOT_ENABLED_STR "Error: AT Command driver is not enabled"
-#define MODEM_AT_CMD_BUFFER_LEN (sizeof(MODEM_AT_CMD_NOT_ENABLED_STR))
-#endif
-#define MODEM_AT_CMD_RESP_TOO_BIG_STR "Error: AT Command response is too large to be sent"
-#define MODEM_AT_CMD_MAX_RESPONSE_LEN (2000)
-static char modem_at_cmd_buff[MODEM_AT_CMD_BUFFER_LEN];
-static K_SEM_DEFINE(modem_at_cmd_sem, 1, 1);
-
-#if CONFIG_MODEM_INFO
-static struct k_delayed_work rsrp_work;
-#endif /* CONFIG_MODEM_INFO */
 
 enum error_type {
 	ERROR_CLOUD,
@@ -138,7 +85,6 @@ static void send_signon_message(void);
 
 static void shutdown_modem(void)
 {
-#if defined(CONFIG_LTE_LINK_CONTROL)
 	/* Turn off and shutdown modem */
 	LOG_ERR("LTE link disconnect");
 	int err = lte_lc_power_off();
@@ -146,11 +92,8 @@ static void shutdown_modem(void)
 	if (err) {
 		LOG_ERR("lte_lc_power_off failed: %d", err);
 	}
-#endif /* CONFIG_LTE_LINK_CONTROL */
-#if defined(CONFIG_BSD_LIBRARY)
 	LOG_ERR("Shutdown modem");
 	bsdlib_shutdown();
-#endif
 }
 
 /**@brief nRF Cloud error handler. */
@@ -296,65 +239,6 @@ static void send_msg_data_work_fn(struct k_work *work)
 	sensor_data_send(&msg_cloud_data);
 }
 
-static void send_modem_at_cmd_work_fn(struct k_work *work)
-{
-	enum at_cmd_state state;
-	int err;
-	struct cloud_channel_data modem_data = {
-		.type = CLOUD_CHANNEL_MODEM
-	};
-	struct cloud_msg msg = {
-		.qos = CLOUD_QOS_AT_MOST_ONCE,
-		.endpoint.type = CLOUD_EP_TOPIC_MSG
-	};
-	size_t len = strlen(modem_at_cmd_buff);
-
-	if (len == 0) {
-		err = -ENOBUFS;
-		state = AT_CMD_ERROR;
-	} else {
-#if defined(CONFIG_AT_CMD)
-		err = at_cmd_write(modem_at_cmd_buff, modem_at_cmd_buff,
-				sizeof(modem_at_cmd_buff), &state);
-#else
-		/* Proper error msg has already been copied to buffer */
-		err = 0;
-#endif
-	}
-
-	/* Get response length; same buffer was used for the response. */
-	len = strlen(modem_at_cmd_buff);
-
-	if (err) {
-		len = snprintf(modem_at_cmd_buff, sizeof(modem_at_cmd_buff),
-				"AT CMD error: %d, state %d", err, state);
-	} else if (len == 0) {
-		len = snprintf(modem_at_cmd_buff, sizeof(modem_at_cmd_buff),
-				"OK\r\n");
-	} else if (len > MODEM_AT_CMD_MAX_RESPONSE_LEN) {
-		len = snprintf(modem_at_cmd_buff, sizeof(modem_at_cmd_buff),
-				MODEM_AT_CMD_RESP_TOO_BIG_STR);
-	}
-
-	modem_data.data.buf = modem_at_cmd_buff;
-	modem_data.data.len = len;
-
-	err = cloud_encode_data(&modem_data, CLOUD_CMD_GROUP_COMMAND, &msg);
-	if (err) {
-		LOG_ERR("[%s:%d] cloud_encode_data failed with error %d",
-			__func__, __LINE__, err);
-	} else {
-		err = cloud_send(cloud_backend, &msg);
-		cloud_release_data(&msg);
-		if (err) {
-			LOG_ERR("[%s:%d] cloud_send failed with error %d",
-				__func__, __LINE__, err);
-		}
-	}
-
-	k_sem_give(&modem_at_cmd_sem);
-}
-
 /**@brief Send button presses to cloud */
 static void button_send(u8_t button_num, bool pressed)
 {
@@ -411,46 +295,9 @@ static void msg_send(const char *message)
 	k_work_submit_to_queue(&application_work_q, &send_msg_data_work);
 }
 
-static void cloud_cmd_handle_modem_at_cmd(const char * const at_cmd)
-{
-	if (!at_cmd) {
-		return;
-	}
-
-	if (k_sem_take(&modem_at_cmd_sem, K_MSEC(20)) != 0) {
-		LOG_ERR("[%s:%d] Modem AT cmd in progress.", __func__,
-		       __LINE__);
-		return;
-	}
-
-#if defined(CONFIG_AT_CMD)
-	const size_t max_cmd_len = sizeof(modem_at_cmd_buff);
-
-	if (strnlen(at_cmd, max_cmd_len) == max_cmd_len) {
-		LOG_ERR("[%s:%d] AT cmd is too long, max length is %zu",
-		       __func__, __LINE__, max_cmd_len - 1);
-		/* Empty string will be handled as an error */
-		modem_at_cmd_buff[0] = '\0';
-	} else {
-		strcpy(modem_at_cmd_buff, at_cmd);
-	}
-#else
-	snprintf(modem_at_cmd_buff, sizeof(modem_at_cmd_buff),
-			MODEM_AT_CMD_NOT_ENABLED_STR);
-#endif
-
-	k_work_submit_to_queue(&application_work_q, &send_modem_at_cmd_work);
-}
-
 static void cloud_cmd_handler(struct cloud_command *cmd)
 {
-	if ((cmd->channel == CLOUD_CHANNEL_MODEM) &&
-		   (cmd->group == CLOUD_CMD_GROUP_COMMAND) &&
-		   (cmd->type == CLOUD_CMD_DATA_STRING)) {
-		LOG_INF("Received AT cmd from cloud: %s",
-			log_strdup(cmd->data.data_string));
-		cloud_cmd_handle_modem_at_cmd(cmd->data.data_string);
-	} else if ((cmd->channel == CLOUD_CHANNEL_LED) &&
+	if ((cmd->channel == CLOUD_CHANNEL_LED) &&
 		   (cmd->group == CLOUD_CMD_GROUP_CFG_SET) &&
 		   (cmd->type == CLOUD_CMD_STATE)) {
 		u8_t led1 = (((u32_t)cmd->data.sv.value) & 0x00FF) != 0;
@@ -465,13 +312,6 @@ static void cloud_cmd_handler(struct cloud_command *cmd)
 		   (cmd->type == CLOUD_CMD_EMPTY)) {
 		k_work_submit_to_queue(&application_work_q,
 				       &device_status_work);
-	} else if ((cmd->channel == CLOUD_CHANNEL_LTE_LINK_RSRP) &&
-		   (cmd->group == CLOUD_CMD_GROUP_GET) &&
-		   (cmd->type == CLOUD_CMD_EMPTY)) {
-#if CONFIG_MODEM_INFO
-		k_delayed_work_submit_to_queue(&application_work_q, &rsrp_work,
-					       K_NO_WAIT);
-#endif
 	} else if ((cmd->group == CLOUD_CMD_GROUP_CFG_SET) &&
 			   (cmd->type == CLOUD_CMD_INTERVAL)) {
 		LOG_ERR("Interval command not valid for channel %d",
@@ -484,137 +324,46 @@ static void cloud_cmd_handler(struct cloud_command *cmd)
 	}
 }
 
-#if CONFIG_MODEM_INFO
-/**@brief Callback handler for LTE RSRP data. */
-static void modem_rsrp_handler(char rsrp_value)
-{
-	rsrp.value = rsrp_value;
-
-	/* If the RSRP value is 255, it's documented as 'not known or not
-	 * detectable'. Therefore, we should not send those values.
-	 */
-	if (rsrp.value == 255) {
-		return;
-	}
-
-	/* Only send the RSRP if transmission is not already scheduled.
-	 * Checking CONFIG_HOLD_TIME_RSRP gives the compiler a shortcut.
-	 */
-	if (CONFIG_HOLD_TIME_RSRP == 0 ||
-	    k_delayed_work_remaining_get(&rsrp_work) == 0) {
-		k_delayed_work_submit_to_queue(&application_work_q, &rsrp_work,
-					       K_NO_WAIT);
-	}
-}
-
-/**@brief Publish RSRP data to the cloud. */
-static void modem_rsrp_data_send(struct k_work *work)
-{
-	char buf[CONFIG_MODEM_INFO_BUFFER_SIZE] = {0};
-	static s32_t rsrp_prev; /* RSRP value last sent to cloud */
-	s32_t rsrp_current;
-	size_t len;
-
-	if (!atomic_get(&send_data_enable)) {
-		return;
-	}
-
-	/* The RSRP value is copied locally to avoid any race */
-	rsrp_current = rsrp.value - rsrp.offset;
-
-	if (rsrp_current == rsrp_prev) {
-		return;
-	}
-
-	len = snprintf(buf, CONFIG_MODEM_INFO_BUFFER_SIZE,
-		       "%d", rsrp_current);
-
-	signal_strength_cloud_data.data.buf = buf;
-	signal_strength_cloud_data.data.len = len;
-	signal_strength_cloud_data.tag += 1;
-
-	if (signal_strength_cloud_data.tag == 0) {
-		signal_strength_cloud_data.tag = 0x1;
-	}
-
-	sensor_data_send(&signal_strength_cloud_data);
-	rsrp_prev = rsrp_current;
-
-	if (CONFIG_HOLD_TIME_RSRP > 0) {
-		k_delayed_work_submit_to_queue(&application_work_q, &rsrp_work,
-					      K_SECONDS(CONFIG_HOLD_TIME_RSRP));
-	}
-}
-#endif /* CONFIG_MODEM_INFO */
-
 /**@brief Poll device info and send data to the cloud. */
 static void device_status_send(struct k_work *work)
 {
+	int ret;
+
 	if (!atomic_get(&send_data_enable)) {
 		return;
 	}
-
-	cJSON *root_obj = cJSON_CreateObject();
-
-	if (root_obj == NULL) {
-		LOG_ERR("Unable to allocate JSON object");
-		return;
-	}
-
-	size_t item_cnt = 0;
-
-#ifdef CONFIG_MODEM_INFO
-	int ret = modem_info_params_get(&modem_param);
-
-	if (ret < 0) {
-		LOG_ERR("Unable to obtain modem parameters: %d", ret);
-	} else {
-		ret = modem_info_json_object_encode(&modem_param, root_obj);
-		if (ret > 0) {
-			item_cnt = (size_t)ret;
-		}
-	}
-#endif /* CONFIG_MODEM_INFO */
 
 	const char *const ui[] = {
 		CLOUD_CHANNEL_STR_BUTTON,
 		CLOUD_CHANNEL_STR_MSG,
-#if IS_ENABLED(CONFIG_MODEM_INFO)
-		CLOUD_CHANNEL_STR_LTE_LINK_RSRP,
-#endif
 	};
 
 	const char *const fota[] = {
-#if defined(CONFIG_CLOUD_FOTA_APP)
 		SERVICE_INFO_FOTA_STR_APP,
-#endif
-#if defined(CONFIG_CLOUD_FOTA_MODEM)
 		SERVICE_INFO_FOTA_STR_MODEM
-#endif
 	};
 
-	if (service_info_json_object_encode(ui, ARRAY_SIZE(ui),
-					    fota, ARRAY_SIZE(fota),
-					    SERVICE_INFO_FOTA_VER_CURRENT,
-					    root_obj) == 0) {
-		++item_cnt;
+	struct cloud_msg msg = {
+		.qos = CLOUD_QOS_AT_MOST_ONCE,
+		.endpoint.type = CLOUD_EP_TOPIC_STATE
+	};
+
+	ret = cloud_encode_device_status_data(NULL,
+					      ui, ARRAY_SIZE(ui),
+					      fota, ARRAY_SIZE(fota),
+					      SERVICE_INFO_FOTA_VER_CURRENT,
+					      &msg);
+	if (ret) {
+		LOG_ERR("Unable to encode cloud data: %d", ret);
+	} else {
+		/* Transmits the data to the cloud. */
+		ret = cloud_send(cloud_backend, &msg);
+		cloud_release_data(&msg);
+		if (ret) {
+			LOG_ERR("sensor_data_send failed: %d", ret);
+			cloud_error_handler(ret);
+		}
 	}
-
-	if (item_cnt == 0) {
-		cJSON_Delete(root_obj);
-		return;
-	}
-
-	device_cloud_data.data.buf = (char *)root_obj;
-	device_cloud_data.data.len = item_cnt;
-	device_cloud_data.tag += 1;
-
-	if (device_cloud_data.tag == 0) {
-		device_cloud_data.tag = 0x1;
-	}
-
-	/* Transmits the data to the cloud. Frees the JSON object. */
-	sensor_data_send(&device_cloud_data);
 }
 
 /**@brief Send sensor data to nRF Cloud. **/
@@ -626,39 +375,20 @@ static void sensor_data_send(struct cloud_channel_data *data)
 			.endpoint.type = CLOUD_EP_TOPIC_MSG
 		};
 
-	if (data->type == CLOUD_CHANNEL_DEVICE_INFO) {
-		msg.endpoint.type = CLOUD_EP_TOPIC_STATE;
-	}
-
 	if (!atomic_get(&send_data_enable)) {
 		return;
 	}
 
-	if (data->type == CLOUD_CHANNEL_DEVICE_INFO) {
-		err = cloud_encode_digital_twin_data(data, &msg);
-	} else {
-		err = cloud_encode_data(data, CLOUD_CMD_GROUP_DATA, &msg);
-	}
-
+	err = cloud_encode_data(data, CLOUD_CMD_GROUP_DATA, &msg);
 	if (err) {
 		LOG_ERR("Unable to encode cloud data: %d", err);
-	}
-
-	err = cloud_send(cloud_backend, &msg);
-
-	if (data->type == CLOUD_CHANNEL_MSG) {
-		if (data->data.len) {
-			free(data->data.buf);
-			data->data.buf = NULL;
-			data->data.len = 0;
+	} else {
+		err = cloud_send(cloud_backend, &msg);
+		cloud_release_data(&msg);
+		if (err) {
+			LOG_ERR("%s failed: %d", __func__, err);
+			cloud_error_handler(err);
 		}
-	}
-
-	cloud_release_data(&msg);
-
-	if (err) {
-		LOG_ERR("%s failed: %d", __func__, err);
-		cloud_error_handler(err);
 	}
 }
 
@@ -741,7 +471,7 @@ static void send_signon_message(void)
 	     "       For example, to set LED1 on and LED2 off:\n"
 	     "          {\"appId\":\"LED\",\n"
 	     "           \"messageType\":\"CFG_SET\",\n"
-	     "           \"data\": {\"state\":[1, 0]} }\n"
+	     "           \"data\":{\"state\":[1,0]}}\n"
 	     "  3. Use the FOTA update service to try out other examples.\n"
 	     "  Getting started can be found here: https://bit.ly/37NMvuo");
 }
@@ -801,9 +531,7 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 		break;
 	case CLOUD_EVT_FOTA_DONE:
 		LOG_INF("CLOUD_EVT_FOTA_DONE");
-#if defined(CONFIG_LTE_LINK_CONTROL)
 		lte_lc_power_off();
-#endif
 		sys_reboot(SYS_REBOOT_COLD);
 		break;
 	default:
@@ -817,14 +545,10 @@ static void work_init(void)
 {
 	k_work_init(&send_button_data_work, send_button_data_work_fn);
 	k_work_init(&send_msg_data_work, send_msg_data_work_fn);
-	k_work_init(&send_modem_at_cmd_work, send_modem_at_cmd_work_fn);
 	k_delayed_work_init(&cloud_reboot_work, cloud_reboot_handler);
 	k_delayed_work_init(&cycle_cloud_connection_work,
 			    cycle_cloud_connection);
 	k_work_init(&device_status_work, device_status_send);
-#if CONFIG_MODEM_INFO
-	k_delayed_work_init(&rsrp_work, modem_rsrp_data_send);
-#endif /* CONFIG_MODEM_INFO */
 }
 
 /**@brief Configures modem to provide LTE link. Blocks until link is
@@ -832,28 +556,20 @@ static void work_init(void)
  */
 static void modem_configure(void)
 {
-#if defined(CONFIG_BSD_LIBRARY)
-	if (IS_ENABLED(CONFIG_LTE_AUTO_INIT_AND_CONNECT)) {
-		/* Do nothing, modem is already turned on
-		 * and connected.
-		 */
-	} else {
-		int err;
+	int err;
 
-		LOG_INF("Connecting to LTE network. ");
-		LOG_INF("This may take several minutes.");
-		ui_led_set_pattern(UI_LTE_CONNECTING);
+	LOG_INF("Connecting to LTE network. ");
+	LOG_INF("This may take several minutes.");
+	ui_led_set_pattern(UI_LTE_CONNECTING);
 
-		err = lte_lc_init_and_connect();
-		if (err) {
-			LOG_ERR("LTE link could not be established.");
-			error_handler(ERROR_LTE_LC, err);
-		}
-
-		LOG_INF("Connected to LTE network");
-		ui_led_set_pattern(UI_LTE_CONNECTED);
+	err = lte_lc_init_and_connect();
+	if (err) {
+		LOG_ERR("LTE link could not be established.");
+		error_handler(ERROR_LTE_LC, err);
 	}
-#endif
+
+	LOG_INF("Connected to LTE network");
+	ui_led_set_pattern(UI_LTE_CONNECTED);
 }
 
 static void button_sensor_init(void)
@@ -862,34 +578,9 @@ static void button_sensor_init(void)
 	button_cloud_data.tag = 0x1;
 }
 
-#if CONFIG_MODEM_INFO
-/**brief Initialize LTE status containers. */
-static void modem_data_init(void)
-{
-	int err;
-
-	err = modem_info_init();
-	if (err) {
-		LOG_ERR("Modem info could not be established: %d", err);
-		return;
-	}
-
-	modem_info_params_init(&modem_param);
-
-	signal_strength_cloud_data.type = CLOUD_CHANNEL_LTE_LINK_RSRP;
-	signal_strength_cloud_data.tag = 0x1;
-
-	modem_info_rsrp_register(modem_rsrp_handler);
-}
-#endif /* CONFIG_MODEM_INFO */
-
 /**@brief Initializes the sensors that are used by the application. */
 static void sensors_init(void)
 {
-#if CONFIG_MODEM_INFO
-	modem_data_init();
-#endif /* CONFIG_MODEM_INFO */
-
 	k_work_submit_to_queue(&application_work_q, &device_status_work);
 
 	button_sensor_init();
@@ -903,7 +594,6 @@ static void ui_evt_handler(struct ui_evt evt)
 
 void handle_bsdlib_init_ret(void)
 {
-	#if defined(CONFIG_BSD_LIBRARY)
 	int ret = bsdlib_get_init_ret();
 
 	/* Handle return values relating to modem firmware update */
@@ -925,7 +615,6 @@ void handle_bsdlib_init_ret(void)
 	default:
 		break;
 	}
-	#endif /* CONFIG_BSD_LIBRARY */
 }
 
 void main(void)
@@ -936,9 +625,6 @@ void main(void)
 	k_work_q_start(&application_work_q, application_stack_area,
 		       K_THREAD_STACK_SIZEOF(application_stack_area),
 		       CONFIG_APPLICATION_WORKQUEUE_PRIORITY);
-	if (IS_ENABLED(CONFIG_WATCHDOG)) {
-		watchdog_init_and_start(&application_work_q);
-	}
 	handle_bsdlib_init_ret();
 
 	cloud_backend = cloud_get_binding("NRF_CLOUD");

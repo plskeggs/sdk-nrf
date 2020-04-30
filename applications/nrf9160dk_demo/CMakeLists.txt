@@ -23,7 +23,6 @@ zephyr_include_directories(src)
 zephyr_library_include_directories(
   src/ui
   src/cloud_codec
-  src/watchdog
   )
 
 # Application sources

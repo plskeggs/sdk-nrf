@@ -21,72 +21,21 @@ extern "C" {
 
 /** @brief Cloud sensor types. */
 enum cloud_channel {
-	/** The GPS sensor on the device. */
-	CLOUD_CHANNEL_GPS,
-	/** The FLIP movement sensor on the device. */
-	CLOUD_CHANNEL_FLIP,
-	/** The IMPACT movement sensor on the device. */
-	CLOUD_CHANNEL_IMPACT,
 	/** The Button press sensor on the device. */
 	CLOUD_CHANNEL_BUTTON,
-	/** The PIN unit on the device. */
-	CLOUD_CHANNEL_PIN,
 	/** The RGB LED or some simple LEDs on the device. */
 	CLOUD_CHANNEL_LED,
-	/** The BUZZER on the device. */
-	CLOUD_CHANNEL_BUZZER,
-	/** The environmental sensors channel. */
-	CLOUD_CHANNEL_ENVIRONMENT,
-	/** The TEMP sensor on the device. */
-	CLOUD_CHANNEL_TEMP,
-	/** The Humidity sensor on the device. */
-	CLOUD_CHANNEL_HUMID,
-	/** The Air Pressure sensor on the device. */
-	CLOUD_CHANNEL_AIR_PRESS,
-	/** The Air Quality sensor on the device. */
-	CLOUD_CHANNEL_AIR_QUAL,
-	/** The RSPR data obtained from the modem. */
-	CLOUD_CHANNEL_LTE_LINK_RSRP,
 	/** The descriptive DEVICE data indicating its status. */
 	CLOUD_CHANNEL_DEVICE_INFO,
-	/** The RBG IR light levels on the device. */
-	CLOUD_CHANNEL_LIGHT_SENSOR,
-	/** The red light level on the device. */
-	CLOUD_CHANNEL_LIGHT_RED,
-	/** The green light level on the device. */
-	CLOUD_CHANNEL_LIGHT_GREEN,
-	/** The blue light level on the device. */
-	CLOUD_CHANNEL_LIGHT_BLUE,
-	/** The IR light level on the device. */
-	CLOUD_CHANNEL_LIGHT_IR,
-	/** The assisted GPS channel. */
-	CLOUD_CHANNEL_ASSISTED_GPS,
-	/** The modem channel. */
-	CLOUD_CHANNEL_MODEM,
 	/** The message channel. */
 	CLOUD_CHANNEL_MSG,
 
 	CLOUD_CHANNEL__TOTAL
 };
 
-#define CLOUD_CHANNEL_STR_GPS "GPS"
-#define CLOUD_CHANNEL_STR_FLIP "FLIP"
 #define CLOUD_CHANNEL_STR_BUTTON "BUTTON"
-#define CLOUD_CHANNEL_STR_ENVIRONMENT "ENV"
-#define CLOUD_CHANNEL_STR_TEMP "TEMP"
-#define CLOUD_CHANNEL_STR_HUMID "HUMID"
-#define CLOUD_CHANNEL_STR_AIR_PRESS "AIR_PRESS"
-#define CLOUD_CHANNEL_STR_AIR_QUAL "AIR_QUAL"
-#define CLOUD_CHANNEL_STR_LTE_LINK_RSRP "RSRP"
 #define CLOUD_CHANNEL_STR_DEVICE_INFO "DEVICE"
-#define CLOUD_CHANNEL_STR_LIGHT_SENSOR "LIGHT"
-#define CLOUD_CHANNEL_STR_LIGHT_RED "LIGHT_RED"
-#define CLOUD_CHANNEL_STR_LIGHT_GREEN "LIGHT_GREEN"
-#define CLOUD_CHANNEL_STR_LIGHT_BLUE "LIGHT_BLUE"
-#define CLOUD_CHANNEL_STR_LIGHT_IR "LIGHT_IR"
-#define CLOUD_CHANNEL_STR_ASSISTED_GPS "AGPS"
 #define CLOUD_CHANNEL_STR_LED "LED"
-#define CLOUD_CHANNEL_STR_MODEM "MODEM"
 #define CLOUD_CHANNEL_STR_MSG "MSG"
 
 struct cloud_data {
@@ -141,7 +90,6 @@ enum cloud_cmd_type {
 	CLOUD_CMD_THRESHOLD_LOW,
 	CLOUD_CMD_INTERVAL,
 	CLOUD_CMD_COLOR,
-	CLOUD_CMD_MODEM_PARAM,
 	CLOUD_CMD_DATA_STRING,
 	CLOUD_CMD_STATE,
 
@@ -160,7 +108,6 @@ enum cloud_cmd_state {
 #define CLOUD_CMD_TYPE_STR_THRESH_HI "thresh_hi"
 #define CLOUD_CMD_TYPE_STR_INTERVAL "interval"
 #define CLOUD_CMD_TYPE_STR_COLOR "color"
-#define CLOUD_CMD_TYPE_STR_MODEM_PARAM "modemParams"
 #define CLOUD_CMD_TYPE_STR_DATA_STRING "data_string"
 #define CLOUD_CMD_TYPE_STR_STATE "state"
 
@@ -174,19 +121,12 @@ struct cloud_command_state_value {
 	enum cloud_cmd_state state;
 };
 
-struct cloud_command_modem_params {
-	/* TODO: add proper members when A-GPS is implemented */
-	char *blob;
-	char *checksum;
-};
-
 struct cloud_command {
 	enum cloud_cmd_group group; /* The decoded command's group. */
 	enum cloud_channel channel; /* The command's desired channel. */
 	enum cloud_cmd_type type; /* The command type, the desired action. */
 	union {
 		struct cloud_command_state_value sv;
-		struct cloud_command_modem_params mp;
 		char *data_string;
 	} data;
 };
@@ -224,17 +164,27 @@ int cloud_decode_command(char const *input);
 int cloud_decode_init(cloud_cmd_cb_t cb);
 
 /**
- * @brief Encode data to be transmitted to the digital twin,
- *	  from sensor data structure to a cloud data structure
- *	  containing a JSON string.
+ * @brief Encode device status data to be transmitted to the
+ *        digital twin.
  *
- * @param sensor Pointer to sensor data.
+ * @param modem_param Pointer to optional modem parameter data.
+ * @param ui Pointer to array of cloud data channel name
+ *           strings.
+ * @param ui_count Size of the ui array.
+ * @param fota Pointer to array of FOTA services.
+ * @param fota_count Size of the fota array.
+ * @param fota_version Version of the FOTA service.
  * @param output Pointer to encoded data structure.
  *
- * @return 0 if the operation was successful, otherwise a (negative) error code.
+ * @return 0 if the operation was successful, otherwise a
+ *         (negative) error code.
  */
-int cloud_encode_digital_twin_data(const struct cloud_channel_data *channel,
-				   struct cloud_msg *output);
+int cloud_encode_device_status_data(
+	void *modem_param,
+	const char *const ui[], const u32_t ui_count,
+	const char *const fota[], const u32_t fota_count,
+	const u16_t fota_version,
+	struct cloud_msg *output);
 
 /**
  * @brief Releases memory used by cloud data structure.
@@ -247,17 +197,6 @@ static inline void cloud_release_data(struct cloud_msg *data)
 {
 	k_free(data->buf);
 }
-
-/**
- * @brief Checks if data could be sent to the cloud based on config.
- *
- * @param channel The cloud channel type..
- * @param value Current data value for channel.
- *
- * @return true If the data should be sent to the cloud.
- */
-bool cloud_is_send_allowed(const enum cloud_channel channel,
-			   const double value);
 
 /**
  *
