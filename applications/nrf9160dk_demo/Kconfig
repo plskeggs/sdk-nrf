@@ -29,8 +29,8 @@ config HOLD_TIME_RSRP
 	int "Minimum time [s] between RSRP subscription messages"
 	default 60
 	help
-		The minimum time in seconds where the modem
-		informer is allowed to submit RSRP data to the cloud.
+	  The minimum time in seconds where the modem
+	  informer is allowed to submit RSRP data to the cloud.
 
 endif
 
@@ -39,8 +39,15 @@ endmenu # Device
 menu "Cloud"
 
 config MQTT_KEEPALIVE
-	int
-	default 120
+	int "Time after last transmission to send a ping to keep connection on"
+	default 1200
+	help
+	  This should be set to the expected time between messages sent from
+	  this device. Making it larger than the expected data period does not
+	  conserve bandwidth, as the ping is only sent if nothing else
+	  has been within the specified period. Shorter values can prevent hidden
+	  NAT timeouts at the carrier, but also will interrupt GPS fix attempts
+	  and slow down TTFF.
 
 config CLOUD_BUTTON
 	bool "Enable button sensor"
@@ -51,12 +58,28 @@ config CLOUD_BUTTON_INPUT
 	range 1 4 if BOARD_NRF9160_PCA10090NS
 	default 1
 
+config CLOUD_CONNECT_RETRY_DELAY
+	int "Cloud connection retry delay in seconds"
+	default 480
+	help
+	  Time to wait before trying to reconnect to the cloud if the
+	  previous attempt failed (in seconds).
+
+config CLOUD_CONNECT_COUNT_MAX
+	int "Maximum number of cloud connection attempts"
+	default 8
+	help
+	  Maximum number of unsuccessful cloud connection attempts.
+	  Device will wait for the value defined by CLOUD_CONNECT_RETRY_DELAY
+	  between attempts.
+
 config CLOUD_WAIT_DURATION
 	int "Cloud connection acknowledge wait duration"
 	default 30
 	help
-	    How long the device should wait for a CONNACK
-	    event from the cloud.
+	  How long the device should wait for a CONNACK
+	  event from the cloud when connecting.  Device will reboot
+	  if an ack is not received within the duration.
 
 config CLOUD_FOTA_APP
 	bool "Enable firmware over-the-air upgrades for application"

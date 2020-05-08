@@ -58,16 +58,29 @@ static struct cloud_channel_data msg_cloud_data = {
 static atomic_val_t send_data_enable;
 
 /* Variable to keep track of nRF cloud user association request. */
-static atomic_val_t association_requested;
-static atomic_val_t reconnect_to_cloud;
+static atomic_t carrier_requested_disconnect;
+static atomic_t cloud_connect_attempts;
+
+/* Variable to keep track of nRF cloud association state. */
+enum cloud_association_state {
+	CLOUD_ASSOCIATION_STATE_INIT,
+	CLOUD_ASSOCIATION_STATE_REQUESTED,
+	CLOUD_ASSOCIATION_STATE_PAIRED,
+	CLOUD_ASSOCIATION_STATE_RECONNECT,
+	CLOUD_ASSOCIATION_STATE_READY,
+};
+static atomic_val_t cloud_association =
+	ATOMIC_INIT(CLOUD_ASSOCIATION_STATE_INIT);
 
 /* Structures for work */
 static struct k_work send_button_data_work;
 static struct k_work send_msg_data_work;
 static struct k_delayed_work cloud_reboot_work;
 static struct k_delayed_work cycle_cloud_connection_work;
+static struct k_delayed_work cloud_connect_work;
 static struct k_work device_status_work;
 
+static K_SEM_DEFINE(cloud_disconnected, 0, 1);
 enum error_type {
 	ERROR_CLOUD,
 	ERROR_BSD_RECOVERABLE,
@@ -82,6 +95,8 @@ static void sensor_data_send(struct cloud_channel_data *data);
 static void device_status_send(struct k_work *work);
 static void cycle_cloud_connection(struct k_work *work);
 static void send_signon_message(void);
+static bool data_send_enabled(void);
+static void connection_evt_handler(const struct cloud_event *const evt);
 
 static void shutdown_modem(void)
 {
@@ -99,6 +114,8 @@ static void shutdown_modem(void)
 /**@brief nRF Cloud error handler. */
 void error_handler(enum error_type err_type, int err_code)
 {
+	atomic_set(&cloud_association, CLOUD_ASSOCIATION_STATE_INIT);
+
 	if (err_type == ERROR_CLOUD) {
 		shutdown_modem();
 	}
@@ -201,6 +218,10 @@ void cloud_connect_error_handler(enum cloud_connect_result err)
 		LOG_ERR("Connect timeout. SIM card may be out of data");
 		break;
 	}
+	case CLOUD_CONNECT_RES_ERR_ALREADY_CONNECTED: {
+		LOG_ERR("Connection already exists.");
+		break;
+	}
 	case CLOUD_CONNECT_RES_ERR_MISC: {
 		break;
 	}
@@ -239,12 +260,84 @@ static void send_msg_data_work_fn(struct k_work *work)
 	sensor_data_send(&msg_cloud_data);
 }
 
+void connect_to_cloud(const s32_t connect_delay_s)
+{
+	static bool initial_connect = true;
+
+	/* Ensure no data can be sent to cloud before connection is established.
+	 */
+	atomic_set(&cloud_association, CLOUD_ASSOCIATION_STATE_INIT);
+
+	if (atomic_get(&carrier_requested_disconnect)) {
+		/* A disconnect was requested to free up the TLS socket
+		 * used by the cloud.  If enabled, the carrier library
+		 * (CONFIG_LWM2M_CARRIER) will perform FOTA updates in
+		 * the background and reboot the device when complete.
+		 */
+		return;
+	}
+
+	atomic_inc(&cloud_connect_attempts);
+
+	/* Check if max cloud connect retry count is exceeded. */
+	if (atomic_get(&cloud_connect_attempts) >
+	    CONFIG_CLOUD_CONNECT_COUNT_MAX) {
+		LOG_ERR("The max cloud connection attempt count exceeded.");
+		cloud_error_handler(-ETIMEDOUT);
+	}
+
+	if (!initial_connect) {
+		LOG_INF("Attempting reconnect in %d seconds...",
+			connect_delay_s);
+		k_delayed_work_cancel(&cloud_reboot_work);
+	} else {
+		initial_connect = false;
+	}
+
+	k_delayed_work_submit_to_queue(&application_work_q,
+				       &cloud_connect_work,
+				       K_SECONDS(connect_delay_s));
+}
+
+static void cloud_connect_work_fn(struct k_work *work)
+{
+	int ret;
+
+	LOG_INF("Connecting to cloud, attempt %d of %d",
+	       atomic_get(&cloud_connect_attempts),
+		   CONFIG_CLOUD_CONNECT_COUNT_MAX);
+
+	k_delayed_work_submit_to_queue(&application_work_q,
+			&cloud_reboot_work,
+			CLOUD_CONNACK_WAIT_DURATION);
+
+	ui_led_set_pattern(UI_CLOUD_CONNECTING);
+
+	/* Attempt cloud connection */
+	ret = cloud_connect(cloud_backend);
+	if (ret != CLOUD_CONNECT_RES_SUCCESS) {
+		k_delayed_work_cancel(&cloud_reboot_work);
+		/* Will not return from this function.
+		 * If the connect fails here, it is likely
+		 * that user intervention is required.
+		 */
+		cloud_connect_error_handler(ret);
+	} else {
+		LOG_INF("Cloud connection request sent.");
+		LOG_INF("Connection response timeout is set to %d seconds.",
+		       CLOUD_CONNACK_WAIT_DURATION / MSEC_PER_SEC);
+		k_delayed_work_submit_to_queue(&application_work_q,
+					       &cloud_reboot_work,
+					       CLOUD_CONNACK_WAIT_DURATION);
+	}
+}
+
 /**@brief Send button presses to cloud */
 static void button_send(u8_t button_num, bool pressed)
 {
 	static char data[3];
 
-	if (!atomic_get(&send_data_enable)) {
+	if (!data_send_enabled()) {
 		return;
 	}
 
@@ -279,7 +372,7 @@ static void button_send(u8_t button_num, bool pressed)
  */
 static void msg_send(const char *message)
 {
-	if (!atomic_get(&send_data_enable)) {
+	if (!data_send_enabled()) {
 		return;
 	}
 
@@ -329,7 +422,7 @@ static void device_status_send(struct k_work *work)
 {
 	int ret;
 
-	if (!atomic_get(&send_data_enable)) {
+	if (!data_send_enabled()) {
 		return;
 	}
 
@@ -375,7 +468,7 @@ static void sensor_data_send(struct cloud_channel_data *data)
 			.endpoint.type = CLOUD_EP_TOPIC_MSG
 		};
 
-	if (!atomic_get(&send_data_enable)) {
+	if (!data_send_enabled()) {
 		return;
 	}
 
@@ -398,6 +491,12 @@ static void cloud_reboot_handler(struct k_work *work)
 	error_handler(ERROR_CLOUD, -ETIMEDOUT);
 }
 
+static bool data_send_enabled(void)
+{
+	return (atomic_get(&cloud_association) ==
+		   CLOUD_ASSOCIATION_STATE_READY);
+}
+
 /**@brief Callback for sensor attached event from nRF Cloud. */
 void sensors_start(void)
 {
@@ -408,34 +507,33 @@ void sensors_start(void)
 /**@brief nRF Cloud specific callback for cloud association event. */
 static void on_user_pairing_req(const struct cloud_event *evt)
 {
-	if (atomic_get(&association_requested) == 0) {
-		atomic_set(&association_requested, 1);
+	if (atomic_get(&cloud_association) !=
+		CLOUD_ASSOCIATION_STATE_REQUESTED) {
+		atomic_set(&cloud_association,
+				   CLOUD_ASSOCIATION_STATE_REQUESTED);
 		ui_led_set_pattern(UI_CLOUD_PAIRING);
 		LOG_INF("Add device to cloud account.");
 		LOG_INF("Waiting for cloud association...");
 
-		/* If the association is not done soon enough (< ~5 min?) */
-		/* a connection cycle is needed... TBD why. */
+		/* If the association is not done soon enough (< ~5 min?)
+		 * a connection cycle is needed... TBD why.
+		 */
 		k_delayed_work_submit_to_queue(&application_work_q,
-					&cycle_cloud_connection_work,
-					CONN_CYCLE_AFTER_ASSOCIATION_REQ_MS);
+					       &cycle_cloud_connection_work,
+					       CONN_CYCLE_AFTER_ASSOCIATION_REQ_MS);
 	}
 }
 
 static void cycle_cloud_connection(struct k_work *work)
 {
-	int err;
 	s32_t reboot_wait_ms = REBOOT_AFTER_DISCONNECT_WAIT_MS;
 
 	LOG_INF("Disconnecting from cloud...");
 
-	err = cloud_disconnect(cloud_backend);
-	if (err == 0) {
-		atomic_set(&reconnect_to_cloud, 1);
-	} else {
+	if (cloud_disconnect(cloud_backend) != 0) {
 		reboot_wait_ms = K_SECONDS(5);
 		LOG_INF("Disconnect failed. Device will reboot in %d seconds",
-			(reboot_wait_ms/MSEC_PER_SEC));
+			(reboot_wait_ms / MSEC_PER_SEC));
 	}
 
 	/* Reboot fail-safe on disconnect */
@@ -446,15 +544,22 @@ static void cycle_cloud_connection(struct k_work *work)
 /** @brief Handle procedures after successful association with nRF Cloud. */
 void on_pairing_done(void)
 {
-	if (atomic_get(&association_requested)) {
-		atomic_set(&association_requested, 0);
+	if (atomic_get(&cloud_association) ==
+			CLOUD_ASSOCIATION_STATE_REQUESTED) {
 		k_delayed_work_cancel(&cycle_cloud_connection_work);
 
-		/* After successful association, the device must */
-		/* reconnect to the cloud. */
+		/* After successful association, the device must
+		 * reconnect to the cloud.
+		 */
 		LOG_INF("Device associated with cloud.");
 		LOG_INF("Reconnecting for cloud policy to take effect.");
-		cycle_cloud_connection(NULL);
+		atomic_set(&cloud_association,
+				   CLOUD_ASSOCIATION_STATE_RECONNECT);
+		k_delayed_work_submit_to_queue(&application_work_q,
+					       &cycle_cloud_connection_work,
+					       K_NO_WAIT);
+	} else {
+		atomic_set(&cloud_association, CLOUD_ASSOCIATION_STATE_PAIRED);
 	}
 }
 
@@ -484,9 +589,9 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 
 	switch (evt->type) {
 	case CLOUD_EVT_CONNECTED:
-		LOG_INF("CLOUD_EVT_CONNECTED");
-		k_delayed_work_cancel(&cloud_reboot_work);
-		ui_led_set_pattern(UI_CLOUD_CONNECTED);
+	case CLOUD_EVT_CONNECTING:
+	case CLOUD_EVT_DISCONNECTED:
+		connection_evt_handler(evt);
 		break;
 	case CLOUD_EVT_READY:
 		LOG_INF("CLOUD_EVT_READY");
@@ -496,15 +601,8 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 		/* Mark image as good to avoid rolling back after update */
 		boot_write_img_confirmed();
 #endif
-
+		atomic_set(&cloud_association, CLOUD_ASSOCIATION_STATE_READY);
 		sensors_start();
-		send_signon_message();
-		break;
-	case CLOUD_EVT_DISCONNECTED:
-		LOG_INF("CLOUD_EVT_DISCONNECTED");
-		ui_led_set_pattern(UI_LTE_DISCONNECTED);
-		/* Expect an error event (POLLNVAL) on the cloud socket poll */
-		/* Handle reconnect there if desired */
 		break;
 	case CLOUD_EVT_ERROR:
 		LOG_INF("CLOUD_EVT_ERROR");
@@ -512,15 +610,18 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 	case CLOUD_EVT_DATA_SENT:
 		LOG_INF("CLOUD_EVT_DATA_SENT");
 		break;
-	case CLOUD_EVT_DATA_RECEIVED:
-		LOG_INF("CLOUD_EVT_DATA_RECEIVED: %s",
-			log_strdup(evt->data.msg.buf));
-		int err = cloud_decode_command(evt->data.msg.buf);
+	case CLOUD_EVT_DATA_RECEIVED: {
+		int err;
+
+		LOG_INF("CLOUD_EVT_DATA_RECEIVED");
+		err = cloud_decode_command(evt->data.msg.buf);
 
 		if (err == -ENOTSUP) {
 			LOG_ERR("Unsupported command");
 		}
+
 		break;
+	}
 	case CLOUD_EVT_PAIR_REQUEST:
 		LOG_INF("CLOUD_EVT_PAIR_REQUEST");
 		on_user_pairing_req(evt);
@@ -540,6 +641,65 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 	}
 }
 
+void connection_evt_handler(const struct cloud_event *const evt)
+{
+	if (evt->type == CLOUD_EVT_CONNECTING) {
+		LOG_INF("CLOUD_EVT_CONNECTING");
+		ui_led_set_pattern(UI_CLOUD_CONNECTING);
+		k_delayed_work_cancel(&cloud_reboot_work);
+
+		if (evt->data.err != CLOUD_CONNECT_RES_SUCCESS) {
+			cloud_connect_error_handler(evt->data.err);
+		}
+		return;
+	} else if (evt->type == CLOUD_EVT_CONNECTED) {
+		LOG_INF("CLOUD_EVT_CONNECTED");
+		k_delayed_work_cancel(&cloud_reboot_work);
+		k_sem_take(&cloud_disconnected, K_NO_WAIT);
+		atomic_set(&cloud_connect_attempts, 0);
+		ui_led_set_pattern(UI_CLOUD_CONNECTED);
+		LOG_INF("Persistent Sessions = %u",
+			evt->data.persistent_session);
+	} else if (evt->type == CLOUD_EVT_DISCONNECTED) {
+		s32_t connect_wait_s = CONFIG_CLOUD_CONNECT_RETRY_DELAY;
+
+		LOG_INF("CLOUD_EVT_DISCONNECTED: %d", evt->data.err);
+		ui_led_set_pattern(UI_LTE_CONNECTED);
+
+		switch (evt->data.err) {
+		case CLOUD_DISCONNECT_INVALID_REQUEST:
+			LOG_INF("Cloud connection closed.");
+			if ((atomic_get(&cloud_connect_attempts) == 1) &&
+			    (atomic_get(&cloud_association) ==
+			     CLOUD_ASSOCIATION_STATE_INIT)) {
+				LOG_INF("This can occur during initial nRF Cloud provisioning.");
+
+				connect_wait_s = 10;
+			} else {
+				LOG_INF("This can occur if the device has the wrong nRF Cloud certificates.");
+			}
+			break;
+		case CLOUD_DISCONNECT_USER_REQUEST:
+			if (atomic_get(&cloud_association) ==
+			    CLOUD_ASSOCIATION_STATE_RECONNECT ||
+			    atomic_get(&cloud_association) ==
+			    CLOUD_ASSOCIATION_STATE_REQUESTED ||
+			    (atomic_get(&carrier_requested_disconnect))) {
+				connect_wait_s = 10;
+			}
+			break;
+		case CLOUD_DISCONNECT_CLOSED_BY_REMOTE:
+			LOG_INF("Disconnected by the cloud.");
+			break;
+		case CLOUD_DISCONNECT_MISC:
+		default:
+			break;
+		}
+		k_sem_give(&cloud_disconnected);
+		connect_to_cloud(connect_wait_s);
+	}
+}
+
 /**@brief Initializes and submits delayed work. */
 static void work_init(void)
 {
@@ -548,28 +708,59 @@ static void work_init(void)
 	k_delayed_work_init(&cloud_reboot_work, cloud_reboot_handler);
 	k_delayed_work_init(&cycle_cloud_connection_work,
 			    cycle_cloud_connection);
+	k_delayed_work_init(&cloud_connect_work, cloud_connect_work_fn);
 	k_work_init(&device_status_work, device_status_send);
+}
+
+static void cloud_api_init(void)
+{
+	int ret;
+
+	cloud_backend = cloud_get_binding("NRF_CLOUD");
+	__ASSERT(cloud_backend != NULL, "nRF Cloud backend not found");
+
+	ret = cloud_init(cloud_backend, cloud_event_handler);
+	if (ret) {
+		LOG_ERR("Cloud backend could not be initialized, error: %d",
+			ret);
+		cloud_error_handler(ret);
+	}
+
+	ret = cloud_decode_init(cloud_cmd_handler);
+	if (ret) {
+		LOG_ERR("Cloud command decoder could not be initialized, error: %d",
+			ret);
+		cloud_error_handler(ret);
+	}
 }
 
 /**@brief Configures modem to provide LTE link. Blocks until link is
  * successfully established.
  */
-static void modem_configure(void)
+static int modem_configure(void)
 {
-	int err;
-
-	LOG_INF("Connecting to LTE network. ");
-	LOG_INF("This may take several minutes.");
-	ui_led_set_pattern(UI_LTE_CONNECTING);
-
-	err = lte_lc_init_and_connect();
-	if (err) {
-		LOG_ERR("LTE link could not be established.");
-		error_handler(ERROR_LTE_LC, err);
+	if (IS_ENABLED(CONFIG_LTE_AUTO_INIT_AND_CONNECT)) {
+		/* Do nothing, modem is already turned on */
+		/* and connected */
+		goto connected;
 	}
 
-	LOG_INF("Connected to LTE network");
+	ui_led_set_pattern(UI_LTE_CONNECTING);
+	LOG_INF("Connecting to LTE network.");
+	LOG_INF("This may take several minutes.");
+
+
+	int err = lte_lc_init_and_connect();
+	if (err) {
+		LOG_ERR("LTE link could not be established.");
+		return err;
+	}
+
+connected:
+	LOG_INF("Connected to LTE network.");
 	ui_led_set_pattern(UI_LTE_CONNECTED);
+
+	return 0;
 }
 
 static void button_sensor_init(void)
@@ -619,97 +810,23 @@ void handle_bsdlib_init_ret(void)
 
 void main(void)
 {
-	int ret;
-
 	LOG_INF("nRF9160DK Demo Started");
+
 	k_work_q_start(&application_work_q, application_stack_area,
 		       K_THREAD_STACK_SIZEOF(application_stack_area),
 		       CONFIG_APPLICATION_WORKQUEUE_PRIORITY);
+
 	handle_bsdlib_init_ret();
-
-	cloud_backend = cloud_get_binding("NRF_CLOUD");
-	__ASSERT(cloud_backend != NULL, "nRF Cloud backend not found");
-
-	ret = cloud_init(cloud_backend, cloud_event_handler);
-	if (ret) {
-		LOG_ERR("Cloud backend could not be initialized, error: %d",
-			ret);
-		cloud_error_handler(ret);
-	}
-
+	cloud_api_init();
 	ui_init(ui_evt_handler);
-
-	ret = cloud_decode_init(cloud_cmd_handler);
-	if (ret) {
-		LOG_ERR("Cloud command decoder initialization error: %d", ret);
-		cloud_error_handler(ret);
-	}
-
 	work_init();
-	modem_configure();
-connect:
-	ret = cloud_connect(cloud_backend);
-	if (ret != CLOUD_CONNECT_RES_SUCCESS) {
-		cloud_connect_error_handler(ret);
-	} else {
-		atomic_set(&reconnect_to_cloud, 0);
-		k_delayed_work_submit_to_queue(&application_work_q,
-					       &cloud_reboot_work,
-					       CLOUD_CONNACK_WAIT_DURATION);
+
+	while (modem_configure() != 0) {
+		LOG_WRN("Failed to establish LTE connection.");
+		LOG_WRN("Will retry in %d seconds.",
+				CONFIG_CLOUD_CONNECT_RETRY_DELAY);
+		k_sleep(K_SECONDS(CONFIG_CLOUD_CONNECT_RETRY_DELAY));
 	}
 
-	struct pollfd fds[] = {
-		{
-			.fd = cloud_backend->config->socket,
-			.events = POLLIN
-		}
-	};
-
-	while (true) {
-		ret = poll(fds, ARRAY_SIZE(fds),
-			   cloud_keepalive_time_left(cloud_backend));
-		if (ret < 0) {
-			LOG_ERR("poll() returned an error: %d", ret);
-			error_handler(ERROR_CLOUD, ret);
-			continue;
-		}
-
-		if (ret == 0) {
-			cloud_ping(cloud_backend);
-			continue;
-		}
-
-		if ((fds[0].revents & POLLIN) == POLLIN) {
-			cloud_input(cloud_backend);
-		}
-
-		if ((fds[0].revents & POLLNVAL) == POLLNVAL) {
-			if (atomic_get(&reconnect_to_cloud)) {
-				k_delayed_work_cancel(&cloud_reboot_work);
-				LOG_INF("Attempting reconnect...");
-				goto connect;
-			}
-			LOG_ERR("Socket error: POLLNVAL");
-			LOG_ERR("The cloud socket was unexpectedly closed.");
-			error_handler(ERROR_CLOUD, -EIO);
-			return;
-		}
-
-		if ((fds[0].revents & POLLHUP) == POLLHUP) {
-			LOG_ERR("Socket error: POLLHUP");
-			LOG_ERR("Connection was closed by the cloud.");
-			error_handler(ERROR_CLOUD, -EIO);
-			return;
-		}
-
-		if ((fds[0].revents & POLLERR) == POLLERR) {
-			LOG_ERR("Socket error: POLLERR");
-			LOG_ERR("Cloud connection was unexpectedly closed.");
-			error_handler(ERROR_CLOUD, -EIO);
-			return;
-		}
-	}
-
-	cloud_disconnect(cloud_backend);
-	goto connect;
+	connect_to_cloud(0);
 }
