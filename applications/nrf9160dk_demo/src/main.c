@@ -250,14 +250,197 @@ void bsd_recoverable_error_handler(uint32_t err)
 	error_handler(ERROR_BSD_RECOVERABLE, (int)err);
 }
 
+/**@brief Reboot the device if CONNACK has not arrived. */
+static void cloud_reboot_handler(struct k_work *wbuilork)
+{
+	error_handler(ERROR_CLOUD, -ETIMEDOUT);
+}
+
+/**@brief Send button presses to cloud */
+static void button_send(u8_t button_num, bool pressed)
+{
+	static char data[3];
+
+	if (!data_send_enabled()) {
+		return;
+	}
+
+	data[0] = button_num + '0';
+	if (pressed) {
+		data[1] = '1';
+	} else {
+		data[1] = '0';
+	}
+	data[2] = '\0';
+
+	button_cloud_data.data.buf = data;
+	button_cloud_data.data.len = strlen(data);
+	button_cloud_data.tag += 1;
+
+	if (button_cloud_data.tag == 0) {
+		button_cloud_data.tag = 0x1;
+	}
+
+	LOG_INF("Sending button event for button %d=%s", button_num,
+		pressed ? "pressed" : "released");
+	k_work_submit_to_queue(&application_work_q, &send_button_data_work);
+
+	if ((button_num == 4) && pressed) {
+		send_signon_message();
+	}
+}
+
 static void send_button_data_work_fn(struct k_work *work)
 {
 	sensor_data_send(&button_cloud_data);
 }
 
+/**@brief Send a text message to the cloud; work function
+ * will need to free the duplicated string; duplication is done
+ * in case message is in a temporary buffer
+ */
+static void msg_send(const char *message)
+{
+	if (!data_send_enabled()) {
+		return;
+	}
+
+	msg_cloud_data.data.buf = strdup(message);
+	msg_cloud_data.data.len = strlen(message);
+	msg_cloud_data.tag += 1;
+
+	if (msg_cloud_data.tag == 0) {
+		msg_cloud_data.tag = 0x1;
+	}
+
+	LOG_INF("Sending message: %s", message);
+	k_work_submit_to_queue(&application_work_q, &send_msg_data_work);
+}
+
 static void send_msg_data_work_fn(struct k_work *work)
 {
 	sensor_data_send(&msg_cloud_data);
+}
+
+/** @brief Send helpful text to 9160DK user in nRFCloud
+ *         Terminal card
+ */
+static void send_signon_message(void)
+{
+	msg_send(
+	     "**Welcome to the Nordic Semiconductor nrf9160 Development Kit**\n"
+	     "  1. Change buttons or switches to receive messages below.\n"
+	     "  2. Type commands in the Send a message box:\n"
+	     "       Use the state array [LED1,LED2] to turn on(1) or off(0).\n"
+	     "       For example, to set LED1 on and LED2 off:\n"
+	     "          {\"appId\":\"LED\",\n"
+	     "           \"messageType\":\"CFG_SET\",\n"
+	     "           \"data\":{\"state\":[1,0]}}\n"
+	     "  3. Use the FOTA update service to try out other examples.\n"
+	     "  Getting started can be found here: https://bit.ly/37NMvuo");
+}
+
+
+/**@brief Poll device info and send data to the cloud. */
+static void device_status_send(struct k_work *work)
+{
+	int ret;
+
+	if (!data_send_enabled()) {
+		return;
+	}
+
+	const char *const ui[] = {
+		CLOUD_CHANNEL_STR_BUTTON,
+		CLOUD_CHANNEL_STR_MSG,
+	};
+
+	const char *const fota[] = {
+		SERVICE_INFO_FOTA_STR_BOOTLOADER,
+		SERVICE_INFO_FOTA_STR_APP,
+		SERVICE_INFO_FOTA_STR_MODEM
+	};
+
+	struct cloud_msg msg = {
+		.qos = CLOUD_QOS_AT_MOST_ONCE,
+		.endpoint.type = CLOUD_EP_TOPIC_STATE
+	};
+
+	ret = cloud_encode_device_status_data(NULL,
+					      ui, ARRAY_SIZE(ui),
+					      fota, ARRAY_SIZE(fota),
+					      SERVICE_INFO_FOTA_VER_CURRENT,
+					      &msg);
+	if (ret) {
+		LOG_ERR("Unable to encode cloud data: %d", ret);
+	} else {
+		/* Transmits the data to the cloud. */
+		ret = cloud_send(cloud_backend, &msg);
+		cloud_release_data(&msg);
+		if (ret) {
+			LOG_ERR("sensor_data_send failed: %d", ret);
+			cloud_error_handler(ret);
+		}
+	}
+}
+
+/**@brief Send sensor data to nRF Cloud. **/
+static void sensor_data_send(struct cloud_channel_data *data)
+{
+	int err = 0;
+	struct cloud_msg msg = {
+			.qos = CLOUD_QOS_AT_MOST_ONCE,
+			.endpoint.type = CLOUD_EP_TOPIC_MSG
+		};
+
+	if (!data_send_enabled()) {
+		return;
+	}
+
+	err = cloud_encode_data(data, CLOUD_CMD_GROUP_DATA, &msg);
+	if (err) {
+		LOG_ERR("Unable to encode cloud data: %d", err);
+	} else {
+		err = cloud_send(cloud_backend, &msg);
+		cloud_release_data(&msg);
+		if (err) {
+			LOG_ERR("%s failed: %d", __func__, err);
+			cloud_error_handler(err);
+		}
+	}
+}
+
+static void button_sensor_init(void)
+{
+	button_cloud_data.type = CLOUD_CHANNEL_BUTTON;
+	button_cloud_data.tag = 0x1;
+}
+
+/**@brief Initializes the sensors that are used by the application. */
+static void sensors_init(void)
+{
+	k_work_submit_to_queue(&application_work_q, &device_status_work);
+
+	button_sensor_init();
+}
+
+/**@brief Callback for sensor attached event from nRF Cloud. */
+void sensors_start(void)
+{
+	atomic_set(&send_data_enable, 1);
+	sensors_init();
+}
+
+static bool data_send_enabled(void)
+{
+	return (atomic_get(&cloud_association) ==
+		   CLOUD_ASSOCIATION_STATE_READY);
+}
+
+/**@brief User interface event handler. */
+static void ui_evt_handler(struct ui_evt evt)
+{
+	button_send(evt.button, evt.type == UI_EVT_BUTTON_ACTIVE ? 1 : 0);
 }
 
 void connect_to_cloud(const s32_t connect_delay_s)
@@ -332,62 +515,6 @@ static void cloud_connect_work_fn(struct k_work *work)
 	}
 }
 
-/**@brief Send button presses to cloud */
-static void button_send(u8_t button_num, bool pressed)
-{
-	static char data[3];
-
-	if (!data_send_enabled()) {
-		return;
-	}
-
-	data[0] = button_num + '0';
-	if (pressed) {
-		data[1] = '1';
-	} else {
-		data[1] = '0';
-	}
-	data[2] = '\0';
-
-	button_cloud_data.data.buf = data;
-	button_cloud_data.data.len = strlen(data);
-	button_cloud_data.tag += 1;
-
-	if (button_cloud_data.tag == 0) {
-		button_cloud_data.tag = 0x1;
-	}
-
-	LOG_INF("Sending button event for button %d=%s", button_num,
-		pressed ? "pressed" : "released");
-	k_work_submit_to_queue(&application_work_q, &send_button_data_work);
-
-	if ((button_num == 4) && pressed) {
-		send_signon_message();
-	}
-}
-
-/**@brief Send a text message to the cloud; work function
- * will need to free the duplicated string; duplication is done
- * in case message is in a temporary buffer
- */
-static void msg_send(const char *message)
-{
-	if (!data_send_enabled()) {
-		return;
-	}
-
-	msg_cloud_data.data.buf = strdup(message);
-	msg_cloud_data.data.len = strlen(message);
-	msg_cloud_data.tag += 1;
-
-	if (msg_cloud_data.tag == 0) {
-		msg_cloud_data.tag = 0x1;
-	}
-
-	LOG_INF("Sending message: %s", message);
-	k_work_submit_to_queue(&application_work_q, &send_msg_data_work);
-}
-
 static void cloud_cmd_handler(struct cloud_command *cmd)
 {
 	if ((cmd->channel == CLOUD_CHANNEL_LED) &&
@@ -415,93 +542,6 @@ static void cloud_cmd_handler(struct cloud_command *cmd)
 			cmd->group, cloud_get_group_name(cmd->group),
 			cmd->type, cloud_get_type_name(cmd->type));
 	}
-}
-
-/**@brief Poll device info and send data to the cloud. */
-static void device_status_send(struct k_work *work)
-{
-	int ret;
-
-	if (!data_send_enabled()) {
-		return;
-	}
-
-	const char *const ui[] = {
-		CLOUD_CHANNEL_STR_BUTTON,
-		CLOUD_CHANNEL_STR_MSG,
-	};
-
-	const char *const fota[] = {
-		SERVICE_INFO_FOTA_STR_APP,
-		SERVICE_INFO_FOTA_STR_MODEM
-	};
-
-	struct cloud_msg msg = {
-		.qos = CLOUD_QOS_AT_MOST_ONCE,
-		.endpoint.type = CLOUD_EP_TOPIC_STATE
-	};
-
-	ret = cloud_encode_device_status_data(NULL,
-					      ui, ARRAY_SIZE(ui),
-					      fota, ARRAY_SIZE(fota),
-					      SERVICE_INFO_FOTA_VER_CURRENT,
-					      &msg);
-	if (ret) {
-		LOG_ERR("Unable to encode cloud data: %d", ret);
-	} else {
-		/* Transmits the data to the cloud. */
-		ret = cloud_send(cloud_backend, &msg);
-		cloud_release_data(&msg);
-		if (ret) {
-			LOG_ERR("sensor_data_send failed: %d", ret);
-			cloud_error_handler(ret);
-		}
-	}
-}
-
-/**@brief Send sensor data to nRF Cloud. **/
-static void sensor_data_send(struct cloud_channel_data *data)
-{
-	int err = 0;
-	struct cloud_msg msg = {
-			.qos = CLOUD_QOS_AT_MOST_ONCE,
-			.endpoint.type = CLOUD_EP_TOPIC_MSG
-		};
-
-	if (!data_send_enabled()) {
-		return;
-	}
-
-	err = cloud_encode_data(data, CLOUD_CMD_GROUP_DATA, &msg);
-	if (err) {
-		LOG_ERR("Unable to encode cloud data: %d", err);
-	} else {
-		err = cloud_send(cloud_backend, &msg);
-		cloud_release_data(&msg);
-		if (err) {
-			LOG_ERR("%s failed: %d", __func__, err);
-			cloud_error_handler(err);
-		}
-	}
-}
-
-/**@brief Reboot the device if CONNACK has not arrived. */
-static void cloud_reboot_handler(struct k_work *work)
-{
-	error_handler(ERROR_CLOUD, -ETIMEDOUT);
-}
-
-static bool data_send_enabled(void)
-{
-	return (atomic_get(&cloud_association) ==
-		   CLOUD_ASSOCIATION_STATE_READY);
-}
-
-/**@brief Callback for sensor attached event from nRF Cloud. */
-void sensors_start(void)
-{
-	atomic_set(&send_data_enable, 1);
-	sensors_init();
 }
 
 /**@brief nRF Cloud specific callback for cloud association event. */
@@ -563,24 +603,6 @@ void on_pairing_done(void)
 	}
 }
 
-/** @brief Send helpful text to 9160DK user in nRFCloud
- *         Terminal card
- */
-static void send_signon_message(void)
-{
-	msg_send(
-	     "**Welcome to the Nordic Semiconductor nrf9160 Development Kit**\n"
-	     "  1. Change buttons or switches to receive messages below.\n"
-	     "  2. Type commands in the Send a message box:\n"
-	     "       Use the state array [LED1,LED2] to turn on(1) or off(0).\n"
-	     "       For example, to set LED1 on and LED2 off:\n"
-	     "          {\"appId\":\"LED\",\n"
-	     "           \"messageType\":\"CFG_SET\",\n"
-	     "           \"data\":{\"state\":[1,0]}}\n"
-	     "  3. Use the FOTA update service to try out other examples.\n"
-	     "  Getting started can be found here: https://bit.ly/37NMvuo");
-}
-
 void cloud_event_handler(const struct cloud_backend *const backend,
 			 const struct cloud_event *const evt,
 			 void *user_data)
@@ -603,6 +625,7 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 #endif
 		atomic_set(&cloud_association, CLOUD_ASSOCIATION_STATE_READY);
 		sensors_start();
+		send_signon_message();
 		break;
 	case CLOUD_EVT_ERROR:
 		LOG_INF("CLOUD_EVT_ERROR");
@@ -761,26 +784,6 @@ connected:
 	ui_led_set_pattern(UI_LTE_CONNECTED);
 
 	return 0;
-}
-
-static void button_sensor_init(void)
-{
-	button_cloud_data.type = CLOUD_CHANNEL_BUTTON;
-	button_cloud_data.tag = 0x1;
-}
-
-/**@brief Initializes the sensors that are used by the application. */
-static void sensors_init(void)
-{
-	k_work_submit_to_queue(&application_work_q, &device_status_work);
-
-	button_sensor_init();
-}
-
-/**@brief User interface event handler. */
-static void ui_evt_handler(struct ui_evt evt)
-{
-	button_send(evt.button, evt.type == UI_EVT_BUTTON_ACTIVE ? 1 : 0);
 }
 
 void handle_bsdlib_init_ret(void)
