@@ -22,7 +22,6 @@ For this reason, set the following options:
 
 * :option:`CONFIG_ADC` - the module implementation uses Zephyr ADC driver.
 * :option:`CONFIG_ADC_ASYNC` - the module implementation uses asynchronous calls.
-* :option:`CONFIG_ADC_0` - the module implementation uses ``ADC_0``.
 * :option:`CONFIG_ADC_NRFX_SAADC` - the module implementation uses nrfx SAADC driver for nRF52 MCU series.
 
 Set ``CONFIG_DESKTOP_BATTERY_MEAS`` to enable the module.
