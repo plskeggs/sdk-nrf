@@ -23,6 +23,6 @@ mcuboot_primary_app:
 mcuboot_secondary:
   address: 0x7d000
   size: 0x1000
-settings_storage:
+storage:
   address: 0x7e000
   size: 0x2000

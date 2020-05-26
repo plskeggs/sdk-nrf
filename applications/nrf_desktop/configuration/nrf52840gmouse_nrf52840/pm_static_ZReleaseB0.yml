@@ -35,6 +35,6 @@ s1:
 s1_image:
   address: 0x82000
   size: 0x7c000
-settings_storage:
+storage:
   address: 0xfe000
   size: 0x2000
