@@ -13,3 +13,5 @@ if(CONFIG_BOARD_NRF9160_PCA20035NS)
 	zephyr_library()
 	zephyr_library_sources(board_nonsecure.c)
 endif()
+
+zephyr_library_sources(nrf52840_reset.c)

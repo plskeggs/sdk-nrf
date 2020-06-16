@@ -46,13 +46,13 @@
  */
 
 &sram0 {
-	reg = <0x20000000 DT_SIZE_K(64)>;
+	reg = <0x20000000 DT_SIZE_K(32)>;
 };
 
 &sram0_bsd {
-	reg = <0x20010000 DT_SIZE_K(64)>;
+	reg = <0x20008000 DT_SIZE_K(64)>;
 };
 
 &sram0_ns {
-	reg = <0x20020000 DT_SIZE_K(128)>;
+	reg = <0x20018000 DT_SIZE_K(160)>;
 };
