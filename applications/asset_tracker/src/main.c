@@ -866,7 +866,7 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 		ui_led_set_pattern(UI_CLOUD_CONNECTED);
 		break;
 	case CLOUD_EVT_READY:
-		LOG_INF("CLOUD_EVT_READY");
+		LOG_INF("CLOUD_EVT_READY %s %s", __DATE__, __TIME__);
 		ui_led_set_pattern(UI_CLOUD_CONNECTED);
 
 #if defined(CONFIG_BOOTLOADER_MCUBOOT)
