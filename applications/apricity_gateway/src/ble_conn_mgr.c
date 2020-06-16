@@ -9,11 +9,22 @@
 #include "cJSON.h"
 #include "ble.h"
 
+#include <logging/log.h>
+LOG_MODULE_REGISTER(ble_conn_mgr, CONFIG_LOG_DEFAULT_LEVEL);
+
 static connected_ble_devices connected_ble_device[CONFIG_BT_MAX_CONN];
 
-#define CONN_MGR_STACK_SIZE 2048
-#define CONN_MGR_PRIORITY 1
+typedef struct
+{
+        char addr[DEVICE_ADDR_LEN];
+        bool active;
 
+} desired_conns;
+
+static desired_conns desired_connection[CONFIG_BT_MAX_CONN];
+
+#define CONN_MGR_STACK_SIZE 1600
+#define CONN_MGR_PRIORITY 1
 
 void connection_manager(int unused1, int unused2, int unused3)
 {
@@ -28,7 +39,7 @@ void connection_manager(int unused1, int unused2, int unused3)
                         //Manager is busy. Do nothing.
                         if(connected_ble_device[i].discovering)
                         {
-                                printk("Connection work busy.\n");
+                                LOG_DBG("Connection work busy.");
                                 goto end;
                         }
                 }
@@ -44,7 +55,7 @@ void connection_manager(int unused1, int unused2, int unused3)
                                         ble_add_to_whitelist(connected_ble_device[i].addr, connected_ble_device[i].addr_type);
                                         connected_ble_device[i].added_to_whitelist = true;
                                         device_shadow_data_encode(connected_ble_device[i].addr, true, false); //Maybe not the right spot to send this. IDK.
-                                        printk("Device added to whitelist.\n");
+                                        LOG_INF("Device added to whitelist.");
 
                                 }
 
@@ -56,10 +67,10 @@ void connection_manager(int unused1, int unused2, int unused3)
                                 }
 
                                 //Connected. Do discoverying if not discoveryed or currently discovering
-                                if( connected_ble_device[i].connected == true && connected_ble_device[i].discovered == false)
+                                if( connected_ble_device[i].connected == true && connected_ble_device[i].discovered == false && !connected_ble_device[i].discovering)
                                 {
 
-                                        err = ble_discover(connected_ble_device[i].addr);
+                                        err = ble_discover(connected_ble_device[i].addr, connected_ble_device[i].addr_type);
 
                                         if(!err)
                                         {
@@ -82,6 +93,7 @@ void connection_manager(int unused1, int unused2, int unused3)
                                         device_shadow_data_encode(connected_ble_device[i].addr, false, true); //Maybe not the right spot to send this. IDK.
 
                                 }
+
                         }
 
                 }
@@ -97,22 +109,91 @@ K_THREAD_DEFINE(conn_mgr_thread, CONN_MGR_STACK_SIZE,
                 CONN_MGR_PRIORITY, 0, K_NO_WAIT);
 
 
-void ble_conn_mgr_generate_path(connected_ble_devices* conn_ptr, u8_t handle, char* path, bool ccc)
+static void ble_conn_mgr_conn_reset(u8_t conn)
+{
+        connected_ble_device[conn].free = true;
+        connected_ble_device[conn].added_to_whitelist = false;
+        connected_ble_device[conn].connected = false;
+        connected_ble_device[conn].discovered = false;
+        connected_ble_device[conn].encode_discovered = false;
+        connected_ble_device[conn].disconnect = false;
+}
+
+void ble_conn_mgr_update_connections()
+{
+
+        for(int i=0; i<CONFIG_BT_MAX_CONN; i++)
+        {
+
+                if(connected_ble_device[i].connected == true)
+                {
+                        connected_ble_device[i].disconnect = true;
+
+                        for(int j=0; j<CONFIG_BT_MAX_CONN; j++)
+                        {
+                                if(desired_connection[j].active)
+                                {
+                                        if(!strcmp(desired_connection[j].addr, connected_ble_device[i].addr))
+                                        {
+                                                //If in the list then don't disconnect
+                                                connected_ble_device[i].disconnect = false;
+                                        }
+                                }
+                        }
+
+
+
+                        if(connected_ble_device[i].disconnect)
+                        {
+
+                                LOG_INF("Device disconnecting");
+                                ble_remove_from_whitelist(connected_ble_device[i].addr, connected_ble_device[i].addr_type);
+                                disconnect_device_by_addr(connected_ble_device[i].addr, connected_ble_device[i].addr_type);
+                                ble_conn_mgr_conn_reset(i);
+                        }
+
+                }
+        }
+}
+
+
+void ble_conn_mgr_update_desired(char* addr, u8_t index)
+{
+
+        if(index <= CONFIG_BT_MAX_CONN)
+        {
+
+                memcpy(desired_connection[index].addr, addr, strlen(addr));
+                desired_connection[index].active = true;
+
+                LOG_INF("Desired Connection Added: %s", desired_connection[index].addr);
+        }
+
+}
+
+void ble_conn_mgr_clear_desired()
+{
+
+        LOG_INF("Desired Connections Cleared.");
+
+        for(int i = 0; i<CONFIG_BT_MAX_CONN; i++)
+        {
+                desired_connection[i].active = false;
+        }
+
+}
+
+void ble_conn_mgr_generate_path(connected_ble_devices* conn_ptr, u16_t handle, char* path, bool ccc)
 {
 
         char path_str[BT_MAX_PATH_LEN];
-        char temp_str[BT_MAX_PATH_LEN];
         char service_uuid[BT_UUID_STR_LEN];
         char ccc_uuid[BT_UUID_STR_LEN];
         char chrc_uuid[BT_UUID_STR_LEN];
 
         u8_t path_depth = 0;
-        int pos = 0;
-        u8_t num_bytes;
 
-        //bt_uuid_get_str(&conn_ptr->uuid_handle_pair[chrc_location+i].uuid_128.uuid, uuid, BT_MAX_UUID_LEN);
-
-        printk("Num Pairs: %d\n", conn_ptr->num_pairs);
+        LOG_DBG("Num Pairs: %d", conn_ptr->num_pairs);
 
         for(int i=0; i< conn_ptr->num_pairs; i++)
         {
@@ -121,7 +202,7 @@ void ble_conn_mgr_generate_path(connected_ble_devices* conn_ptr, u8_t handle, ch
                 {
 
                         path_depth = conn_ptr->uuid_handle_pair[i].path_depth;
-                        printk("Path Depth %d\n", path_depth);
+                        LOG_DBG("Path Depth %d", path_depth);
 
                         bt_uuid_get_str(&conn_ptr->uuid_handle_pair[i].uuid_128.uuid, chrc_uuid, BT_MAX_UUID_LEN);
                         bt_uuid_get_str(&conn_ptr->uuid_handle_pair[i+1].uuid_128.uuid, ccc_uuid, BT_MAX_UUID_LEN);
@@ -131,7 +212,7 @@ void ble_conn_mgr_generate_path(connected_ble_devices* conn_ptr, u8_t handle, ch
                                 if(conn_ptr->uuid_handle_pair[j].is_service)
                                 {
                                         bt_uuid_get_str(&conn_ptr->uuid_handle_pair[j].uuid_128.uuid, service_uuid, BT_MAX_UUID_LEN);
-                                        //printk("service uuid in path %s\n", service_uuid);
+                                        LOG_DBG("service uuid in path %s", service_uuid);
                                         break;
                                 }
                         }
@@ -149,7 +230,7 @@ void ble_conn_mgr_generate_path(connected_ble_devices* conn_ptr, u8_t handle, ch
         memset(path, 0, BT_MAX_PATH_LEN);
         memcpy(path, path_str, strlen(path_str));
 
-        printk("Generated Path: %s\n", path_str);
+        LOG_INF("Generated Path: %s", path_str);
 
 }
 
@@ -167,7 +248,7 @@ u8_t ble_conn_mgr_add_conn(char* addr, char* addr_type)
                 {
                         if(!strcmp(addr, connected_ble_device[i].addr))
                         {
-                                printk("Connection already exsists\n");
+                                LOG_DBG("Connection already exsists");
                                 return 1;
                         }
                 }
@@ -177,7 +258,7 @@ u8_t ble_conn_mgr_add_conn(char* addr, char* addr_type)
 
         if(err)
         {
-                printk("No free connections\n");
+                LOG_ERR("No free connections");
                 return err;
         }
 
@@ -185,7 +266,7 @@ u8_t ble_conn_mgr_add_conn(char* addr, char* addr_type)
         memcpy(connected_ble_ptr->addr_type, addr_type, DEVICE_ADDR_TYPE_LEN);
         connected_ble_ptr->free = false;
 
-        printk("Ble conn added to manager\n");
+        LOG_INF("Ble conn added to manager");
         return err;
 
 }
@@ -200,7 +281,7 @@ u8_t ble_conn_set_connected(char* addr, bool connected)
 
         if(err)
         {
-                printk("Conn not found\n");
+                LOG_ERR("Conn not found");
                 return err;
         }
 
@@ -212,7 +293,7 @@ u8_t ble_conn_set_connected(char* addr, bool connected)
         {
                 connected_ble_ptr->connected = false;
         }
-        printk("Conn updated\n");
+        LOG_INF("Conn updated");
         return err;
 
 }
@@ -226,16 +307,40 @@ u8_t ble_conn_set_disconnected(char* addr)
 
         if(err)
         {
-                printk("Can't find conn to disconnect\n");
+                LOG_ERR("Can't find conn to disconnect");
                 return err;
         }
 
-        connected_ble_ptr->num_pairs = 0;
+
         connected_ble_ptr->connected = false;
         connected_ble_ptr->discovered = false; //Should we need to discover again on reconnect?
+        connected_ble_ptr->num_pairs = 0;
         connected_ble_ptr->shadow_updated = false;
-        printk("Conn Disconnected\n");
+        //connected_ble_ptr->added_to_whitelist = false;
+        LOG_INF("Conn Disconnected");
         return err;
+}
+
+u8_t ble_conn_mgr_rediscover(char* addr)
+{
+
+        int err = 0;
+        connected_ble_devices* connected_ble_ptr;
+
+        err = ble_conn_mgr_get_conn_by_addr(addr, &connected_ble_ptr);
+
+        if(err)
+        {
+                LOG_ERR("Can't find conn to disconnect");
+                return err;
+        }
+
+        if(!connected_ble_ptr->discovering)
+        {
+            connected_ble_ptr->discovered = false; //Should we need to discover again on reconnect?
+            connected_ble_ptr->num_pairs = 0;
+        }
+
 }
 
 u8_t ble_conn_mgr_remove_conn(char* addr)
@@ -247,7 +352,7 @@ u8_t ble_conn_mgr_remove_conn(char* addr)
 
         if(err)
         {
-                printk("Can't find conn to remove\n");
+                LOG_ERR("Can't find conn to remove");
                 return err;
         }
 
@@ -256,7 +361,7 @@ u8_t ble_conn_mgr_remove_conn(char* addr)
         connected_ble_ptr->free = true;
         connected_ble_ptr->connected = false;
         connected_ble_ptr->discovered = false;
-        printk("Conn Removed\n");
+        LOG_INF("Conn Removed");
         return err;
 }
 
@@ -269,7 +374,7 @@ u8_t ble_conn_mgr_get_free_conn(connected_ble_devices** conn_ptr)
                 if(connected_ble_device[i].free == true)
                 {
                         *conn_ptr = &connected_ble_device[i];
-                        printk("Found Free connection: %d\n", i);
+                        LOG_DBG("Found Free connection: %d", i);
                         return 0;
                 }
         }
@@ -289,17 +394,17 @@ u8_t ble_conn_mgr_get_conn_by_addr(char* addr, connected_ble_devices** conn_ptr)
                 if(!strcmp(addr, connected_ble_device[i].addr))
                 {
                         *conn_ptr = &connected_ble_device[i];
-                        printk("Conn Found\n");
+                        LOG_DBG("Conn Found");
                         return 0;
                 }
         }
 
-        printk("No Conn Found\n");
+        LOG_ERR("No Conn Found");
         return 1;
 
 }
 
-u8_t ble_conn_mgr_set_subscribed(u8_t handle, u8_t sub_index, connected_ble_devices* conn_ptr)
+u8_t ble_conn_mgr_set_subscribed(u16_t handle, u8_t sub_index, connected_ble_devices* conn_ptr)
 {
 
         for(int i=0; i< conn_ptr->num_pairs; i++)
@@ -317,7 +422,7 @@ u8_t ble_conn_mgr_set_subscribed(u8_t handle, u8_t sub_index, connected_ble_devi
 }
 
 
-u8_t ble_conn_mgr_remove_subscribed(u8_t handle, connected_ble_devices* conn_ptr)
+u8_t ble_conn_mgr_remove_subscribed(u16_t handle, connected_ble_devices* conn_ptr)
 {
 
         for(int i=0; i< conn_ptr->num_pairs; i++)
@@ -333,7 +438,7 @@ u8_t ble_conn_mgr_remove_subscribed(u8_t handle, connected_ble_devices* conn_ptr
 }
 
 
-u8_t ble_conn_mgr_get_subscribed(u8_t handle, connected_ble_devices* conn_ptr, bool* status, u8_t* sub_index)
+u8_t ble_conn_mgr_get_subscribed(u16_t handle, connected_ble_devices* conn_ptr, bool* status, u8_t* sub_index)
 {
 
         for(int i=0; i< conn_ptr->num_pairs; i++)
@@ -349,7 +454,7 @@ u8_t ble_conn_mgr_get_subscribed(u8_t handle, connected_ble_devices* conn_ptr, b
         return 1;
 }
 
-u8_t ble_conn_mgr_get_uuid_by_handle(u8_t handle, char* uuid, connected_ble_devices* conn_ptr)
+u8_t ble_conn_mgr_get_uuid_by_handle(u16_t handle, char* uuid, connected_ble_devices* conn_ptr)
 {
 
         char uuid_str[BT_UUID_STR_LEN];
@@ -363,57 +468,57 @@ u8_t ble_conn_mgr_get_uuid_by_handle(u8_t handle, char* uuid, connected_ble_devi
                         bt_uuid_get_str(&conn_ptr->uuid_handle_pair[i].uuid_128.uuid, uuid_str, BT_MAX_UUID_LEN);
                         bt_to_upper(uuid_str, strlen(uuid_str));
                         memcpy(uuid, uuid_str, strlen(uuid_str));
-                        printk("Found UUID: %s For Handle: %d\n", uuid_str, handle);
+                        LOG_INF("Found UUID: %s For Handle: %d", uuid_str, handle);
                         return 0;
                 }
         }
 
-        printk("Handle Not Found\n");
+        LOG_ERR("Handle Not Found");
 
         return 1;
 
 }
 
 
-u8_t ble_conn_mgr_get_handle_by_uuid(u8_t* handle, char* uuid, connected_ble_devices* conn_ptr)
+u8_t ble_conn_mgr_get_handle_by_uuid(u16_t* handle, char* uuid, connected_ble_devices* conn_ptr)
 {
 
         char str[BT_UUID_STR_LEN];
 
-        //printk("Num Pairs: %d\n", conn_ptr->num_pairs);
+        LOG_DBG("Num Pairs: %d", conn_ptr->num_pairs);
 
         for(int i=0; i< conn_ptr->num_pairs; i++)
         {
 
                 bt_uuid_get_str(&conn_ptr->uuid_handle_pair[i].uuid_16.uuid, str, sizeof(str));
                 bt_to_upper(str, strlen(str));
-                //printk("UUID IN: %s UUID FOUND: %s\n", uuid, str);
+                LOG_DBG("UUID IN: %s UUID FOUND: %s", uuid, str);
 
                 if(!strcmp(uuid, str))
                 {
                         *handle = conn_ptr->uuid_handle_pair[i].handle;
-                        //printk("16 Bit UUID Found\n");
+                        LOG_DBG("16 Bit UUID Found");
                         return 0;
                 }
 
                 bt_uuid_get_str(&conn_ptr->uuid_handle_pair[i].uuid_128.uuid, str, sizeof(str));
                 bt_to_upper(str, strlen(str));
-                //printk("UUID IN: %s UUID FOUND: %s\n", uuid, str);
+                LOG_DBG("UUID IN: %s UUID FOUND: %s", uuid, str);
                 if(!strcmp(uuid, str))
                 {
                         *handle = conn_ptr->uuid_handle_pair[i].handle;
-                        //printk("128 Bit UUID Found\n");
+                        LOG_DBG("128 Bit UUID Found");
                         return 0;
                 }
 
         }
 
-        printk("Handle Not Found\n");
+        LOG_ERR("Handle Not Found");
 
         return 1;
 }
 
-u8_t ble_conn_mgr_add_uuid_pair(struct bt_uuid *uuid, u8_t handle, u8_t path_depth, u8_t properties, u8_t attr_type, connected_ble_devices* conn_ptr, bool is_service)
+u8_t ble_conn_mgr_add_uuid_pair(struct bt_uuid *uuid, u16_t handle, u8_t path_depth, u8_t properties, u8_t attr_type, connected_ble_devices* conn_ptr, bool is_service)
 {
 
         int err = 0;
@@ -422,11 +527,11 @@ u8_t ble_conn_mgr_add_uuid_pair(struct bt_uuid *uuid, u8_t handle, u8_t path_dep
 
         if(conn_ptr->num_pairs >= MAX_UUID_PAIRS)
         {
-                printk("Max uuid pair limit reached\n");
+                LOG_ERR("Max uuid pair limit reached");
                 return 1;
         }
 
-        printk("Handle Added: %d\n", handle);
+        LOG_INF("Handle Added: %d", handle);
 
         if (!uuid) {
 
@@ -435,20 +540,18 @@ u8_t ble_conn_mgr_add_uuid_pair(struct bt_uuid *uuid, u8_t handle, u8_t path_dep
 
         switch (uuid->type) {
         case BT_UUID_TYPE_16:
-                //printk("16 Bit Type\n");
                 memcpy(&conn_ptr->uuid_handle_pair[conn_ptr->num_pairs].uuid_16, BT_UUID_16(uuid), sizeof(struct bt_uuid_16));
                 conn_ptr->uuid_handle_pair[conn_ptr->num_pairs].uuid_type = BT_UUID_TYPE_16;
                 bt_uuid_get_str(&conn_ptr->uuid_handle_pair[conn_ptr->num_pairs].uuid_16.uuid, str, sizeof(str));
 
-                printk("\tCONN MGR Characteristic: 0x%s\n",str);
+                LOG_DBG("\tCONN MGR Characteristic: 0x%s",str);
                 break;
         case BT_UUID_TYPE_128:
-                //printk("128 Bit Type\n");
                 memcpy(&conn_ptr->uuid_handle_pair[conn_ptr->num_pairs].uuid_128, BT_UUID_128(uuid), sizeof(struct bt_uuid_128));
                 conn_ptr->uuid_handle_pair[conn_ptr->num_pairs].uuid_type = BT_UUID_TYPE_128;
                 bt_uuid_get_str(&conn_ptr->uuid_handle_pair[conn_ptr->num_pairs].uuid_128.uuid, str, sizeof(str));
 
-                printk("\tCONN MGR Characteristic: 0x%s\n",str);
+                LOG_DBG("\tCONN MGR Characteristic: 0x%s",str);
                 break;
         default:
 
@@ -463,8 +566,6 @@ u8_t ble_conn_mgr_add_uuid_pair(struct bt_uuid *uuid, u8_t handle, u8_t path_dep
 
         conn_ptr->num_pairs++;
 
-        //printk("UUID pair added\n");
-
         return err;
 }
 
@@ -478,6 +579,7 @@ void ble_conn_mgr_init()
                 connected_ble_device[i].connected = false;
                 connected_ble_device[i].discovered = false;
                 connected_ble_device[i].encode_discovered = false;
+                connected_ble_device[i].disconnect = false;
 
         }
 

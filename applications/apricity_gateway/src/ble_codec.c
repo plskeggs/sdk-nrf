@@ -11,8 +11,11 @@
 #include "ble.h"
 #include "nrf_cloud_transport.h"
 
-#define MAX_BUF_SIZE 13500
+#define MAX_BUF_SIZE 11000
 #define MAX_SERVICE_BUF_SIZE 300
+
+#include <logging/log.h>
+LOG_MODULE_REGISTER(ble_codec, CONFIG_APRICITY_GATEWAY_LOG_LEVEL);
 
 extern ble_scanned_devices ble_scanned_device[MAX_SCAN_RESULTS];
 extern char gateway_id[10];
@@ -50,7 +53,7 @@ u8_t device_error_encode(char* ble_address, char* error_msg)
 
         cJSON_PrintPreallocated(root_obj, buffer, MAX_BUF_SIZE, 0);
 
-        printk("Device JSON: %s\n", buffer);
+        LOG_DBG("Device JSON: %s", buffer);
 
         g2c_send(buffer);                   //TODO: Move out of decode.
 
@@ -110,7 +113,7 @@ u8_t device_found_encode(u8_t num_devices_found)
 
         cJSON_PrintPreallocated(root_obj, buffer, MAX_BUF_SIZE, 0);
 
-        printk("Device JSON: %s\n", buffer);
+        LOG_DBG("Device JSON: %s", buffer);
 
         g2c_send(buffer);                   //TODO: Move out of decode.
 
@@ -148,7 +151,45 @@ u8_t device_connect_result_encode(char* ble_address, bool conn_status)
 
         cJSON_PrintPreallocated(root_obj, buffer, MAX_BUF_SIZE, 0);
 
-        printk("Device JSON: %s\n", buffer);
+        LOG_DBG("Device JSON: %s", buffer);
+
+        g2c_send(buffer);                   //TODO: Move out of decode.
+
+        cJSON_Delete(root_obj);
+
+        return 0;
+
+}
+
+u8_t device_disconnect_result_encode(char* ble_address, bool conn_status)
+{
+
+        cJSON *root_obj = cJSON_CreateObject();
+        cJSON *event = cJSON_CreateObject();
+        cJSON *device = cJSON_CreateObject();
+        cJSON *address = cJSON_CreateObject();
+        cJSON *status = cJSON_CreateObject();
+
+        if (root_obj == NULL) {
+                return -ENOMEM;
+        }
+
+        cJSON_AddItemToObject(root_obj, "type", cJSON_CreateString("event"));
+        cJSON_AddItemToObject(root_obj, "gatewayId", cJSON_CreateString(gateway_id)); //TODO: get real gateway
+        cJSON_AddItemToObject(root_obj, "requestId", cJSON_CreateNull());
+        cJSON_AddItemToObject(root_obj, "event", event);
+        cJSON_AddItemToObject(event, "type", cJSON_CreateString("device_disconnect"));
+        cJSON_AddItemToObject(event, "timestamp", cJSON_CreateString("2020-02-19T18:38:50.363Z"));
+        cJSON_AddItemToObject(event, "device", device);
+        cJSON_AddItemToObject(device, "id", cJSON_CreateString(ble_address));
+        cJSON_AddItemToObject(device, "address", address);
+        cJSON_AddItemToObject(address, "address", cJSON_CreateString(ble_address));
+        cJSON_AddItemToObject(device, "status", status);
+        cJSON_AddBoolToObject(status, "connected", conn_status); //TODO: not sure
+
+        cJSON_PrintPreallocated(root_obj, buffer, MAX_BUF_SIZE, 0);
+
+        LOG_DBG("Device JSON: %s", buffer);
 
         g2c_send(buffer);                   //TODO: Move out of decode.
 
@@ -196,7 +237,7 @@ u8_t device_value_changed_encode(char* ble_address, char* uuid, char* path, char
 
         cJSON_PrintPreallocated(root_obj, buffer, MAX_BUF_SIZE, 0);
 
-        printk("Device JSON: %s\n", buffer);
+        LOG_DBG("Device JSON: %s", buffer);
 
         g2c_send(buffer);                   //TODO: Move out of decode.
 
@@ -244,7 +285,7 @@ u8_t device_value_write_result_encode(char* ble_address, char* uuid, char* path,
 
         cJSON_PrintPreallocated(root_obj, buffer, MAX_BUF_SIZE, 0);
 
-        printk("Device JSON: %s\n", buffer);
+        LOG_DBG("Device JSON: %s", buffer);
 
         g2c_send(buffer);                   //TODO: Move out of decode.
 
@@ -292,7 +333,7 @@ u8_t device_descriptor_value_changed_encode(char* ble_address, char* uuid, char*
 
         cJSON_PrintPreallocated(root_obj, buffer, MAX_BUF_SIZE, 0);
 
-        printk("Device JSON: %s\n", buffer);
+        LOG_DBG("Device JSON: %s", buffer);
 
         g2c_send(buffer);                   //TODO: Move out of decode.
 
@@ -340,7 +381,7 @@ u8_t device_chrc_read_encode(char* ble_address, char* uuid, char* path, char* va
 
         cJSON_PrintPreallocated(root_obj, buffer, MAX_BUF_SIZE, 0);
 
-        printk("Device JSON: %s\n", buffer);
+        LOG_DBG("Device JSON: %s", buffer);
 
         g2c_send(buffer);                   //TODO: Move out of decode.
 
@@ -377,54 +418,15 @@ u8_t create_device_wrapper(char* ble_address, bool conn_status)
         cJSON_AddItemToObject(event, "services", services);
 
         cJSON_PrintPreallocated(root_obj, buffer, MAX_BUF_SIZE, 0);
+
         cJSON_Delete(root_obj);
 
         buffer[strlen(buffer)-3] = 0;
 
         if (buffer == NULL) {
-                printk("No memory for JSON\n");
+                LOG_ERR("No memory for JSON");
                 return -ENOMEM;
         }
-
-        return 0;
-
-}
-
-u8_t device_shadow_delete_encode()
-{
-
-        cJSON *root_obj = cJSON_CreateObject();
-        cJSON *reported_obj = cJSON_CreateObject();
-        cJSON *state_obj = cJSON_CreateObject();
-        cJSON *desired_obj = cJSON_CreateObject();
-        cJSON *paring_obj = NULL;
-        cJSON *topics= NULL;
-
-        cJSON_AddItemToObject(root_obj, "state", state_obj);
-
-        cJSON_AddItemToObject(state_obj, "desired", desired_obj);
-        cJSON_AddItemToObject(desired_obj, "pairing", paring_obj = cJSON_CreateObject());
-        cJSON_AddItemToObject(paring_obj, "state", cJSON_CreateString("not_associated"));
-        cJSON_AddItemToObject(paring_obj, "topics", cJSON_CreateNull());
-
-        cJSON_AddItemToObject(desired_obj, "nrfcloud_mqtt_topic_prefix", cJSON_CreateNull());
-
-        cJSON_AddItemToObject(state_obj, "reported", reported_obj);
-        cJSON_AddItemToObject(reported_obj, "connected", cJSON_CreateBool(false));
-        cJSON_AddItemToObject(reported_obj, "sessionIdentifier", cJSON_CreateNull());
-        cJSON_AddItemToObject(reported_obj, "pairing", paring_obj = cJSON_CreateObject());
-        cJSON_AddItemToObject(paring_obj, "state", cJSON_CreateString("not_associated"));
-        cJSON_AddItemToObject(paring_obj, "topics", cJSON_CreateNull());
-
-        cJSON_AddItemToObject(reported_obj, "nrfcloud_mqtt_topic_prefix", cJSON_CreateNull());
-
-        cJSON_PrintPreallocated(root_obj, buffer, MAX_BUF_SIZE, 0);
-
-        printk("Device JSON: %s\n", buffer);
-
-        shadow_publish(buffer);                   //TODO: Move out of decode.
-
-        cJSON_Delete(root_obj);
 
         return 0;
 
@@ -440,8 +442,21 @@ int device_shadow_data_encode(char* ble_address, bool connecting, bool connected
         cJSON *device = cJSON_CreateObject();
         cJSON *status = cJSON_CreateObject();
 
+        cJSON *gateway_device = cJSON_CreateObject();
+        cJSON *service_info = cJSON_CreateObject();
+        //cJSON *fota_version = cJSON_CreateObject();
+        cJSON *fota_arr = cJSON_CreateArray();
+
         cJSON_AddItemToObject(root_obj, "state", state_obj);
         cJSON_AddItemToObject(state_obj, "reported", reported_obj);
+
+        cJSON_AddItemToObject(reported_obj, "device", gateway_device);
+        cJSON_AddItemToObject(gateway_device, "serviceInfo", service_info);
+        cJSON_AddItemToObject(service_info, "fota_v1", fota_arr);
+        cJSON_AddItemToArray(fota_arr, cJSON_CreateString("APP"));
+        cJSON_AddItemToArray(fota_arr, cJSON_CreateString("MODEM"));
+        cJSON_AddItemToArray(fota_arr, cJSON_CreateString("BOOT"));
+
         cJSON_AddItemToObject(reported_obj, "statusConnections", status_connections);
         cJSON_AddItemToObject(status_connections, ble_address, device);
         cJSON_AddItemToObject(device, "id", cJSON_CreateString(ble_address));
@@ -469,9 +484,13 @@ u8_t device_discover_add_service(char *discovered_json)
         }
 
         strcat(buffer, discovered_json+1);
-        buffer[strlen(buffer)-3] = 0;
 
-        printk("JSON Size: %d\n", strlen(buffer));
+        if(strlen(buffer) >=3)
+        {
+          buffer[strlen(buffer)-3] = 0;
+        }
+
+        LOG_INF("JSON Size: %d", strlen(buffer));
 
         memset(discovered_json, 0, MAX_SERVICE_BUF_SIZE);
         first_service = false;
@@ -490,9 +509,12 @@ u8_t device_discover_add_chrc(char *discovered_json)
 
         strcat(buffer, discovered_json+1);
 
-        buffer[strlen(buffer)-1] = 0;
+        if(strlen(buffer) >=1)
+        {
+          buffer[strlen(buffer)-1] = 0;
+        }
 
-        printk("JSON Size: %d\n", strlen(buffer));
+        LOG_DBG("JSON Size: %d", strlen(buffer));
 
         memset(discovered_json, 0, MAX_SERVICE_BUF_SIZE);
 
@@ -504,13 +526,16 @@ u8_t device_discover_add_chrc(char *discovered_json)
 u8_t device_discover_add_ccc(char *discovered_json)
 {
 
-        buffer[strlen(buffer)-2] = 0;
+        if(strlen(buffer) >=2)
+        {
+          buffer[strlen(buffer)-2] = 0;
+        }
 
         strcat(buffer, discovered_json+1);
 
         strcat(buffer, "}");
 
-        printk("JSON Size: %d\n", strlen(buffer));
+        LOG_DBG("JSON Size: %d", strlen(buffer));
 
         memset(discovered_json, 0, MAX_SERVICE_BUF_SIZE);
 
@@ -525,7 +550,7 @@ u8_t device_discovery_send()
         //Add the remaing brackets to the JSON string that was assembled.
         strcat(buffer, "}}}}}");
 
-        printk("JSON Size: %d\n", strlen(buffer));
+        LOG_DBG("JSON Size: %d", strlen(buffer));
 
         g2c_send(buffer);                   //TODO: Move out of decode.
 
@@ -542,15 +567,14 @@ static void svc_attr_encode( char* uuid, char* path, connected_ble_devices* ble_
         cJSON * services = cJSON_CreateObject();
         cJSON * service = cJSON_CreateObject();
         cJSON * chrcs = cJSON_CreateObject();
-        //printk("\n\tService: 0x%s\tEnd Handle: 0x%04X\n",str, gatt_service->end_handle);
 
-        cJSON_AddItemToObject(services, uuid, service = cJSON_CreateObject());
+        cJSON_AddItemToObject(services, uuid, service);
         cJSON_AddItemToObject(service, "uuid", cJSON_CreateString(uuid));
-        cJSON_AddItemToObject(service, "characteristics", chrcs  = cJSON_CreateObject());
+        cJSON_AddItemToObject(service, "characteristics", chrcs);
 
         //Print services and add to wrapper
         cJSON_PrintPreallocated(services, service_buffer, MAX_SERVICE_BUF_SIZE, 0);
-        //printk("JSON: %s\n", service_buffer);
+        LOG_DBG("JSON: %s", service_buffer);
         cJSON_Delete(services);
         device_discover_add_service(service_buffer);
 
@@ -565,10 +589,7 @@ static void chrc_attr_encode(char* uuid, char* path, u8_t properties, connected_
         cJSON *descriptors = cJSON_CreateObject();
         cJSON *props = cJSON_CreateObject();
         cJSON *value_arr = cJSON_CreateArray();
-
         cJSON * parent_chrc = cJSON_CreateObject();
-
-        //printk("\tCharacteristic: 0x%s\tProperties: 0x%04X\tHandle: %d\n",str, gatt_chrc->properties, gatt_chrc->value_handle);
 
         cJSON_AddItemToObject(parent_chrc, uuid, chrc);
         cJSON_AddItemToObject(chrc, "uuid", cJSON_CreateString(uuid));
@@ -638,16 +659,16 @@ static void chrc_attr_encode(char* uuid, char* path, u8_t properties, connected_
                 break;
 
         default:
-                printk("Unknown CHRC property: %d\n", properties);
+                LOG_ERR("Unknown CHRC property: %d\n", properties);
                 break;
 
         }
 
-        cJSON_AddItemToObject(chrc, "descriptors", descriptors = cJSON_CreateObject());
+        cJSON_AddItemToObject(chrc, "descriptors", descriptors);
 
         //Print parent_chrhc and add to service
         cJSON_PrintPreallocated(parent_chrc, service_buffer, MAX_SERVICE_BUF_SIZE, 0);
-        //printk("JSON: %s\n", service_buffer);
+        LOG_DBG("JSON: %s", service_buffer);
         cJSON_Delete(parent_chrc);
         device_discover_add_chrc(service_buffer);
 }
@@ -661,9 +682,6 @@ static void ccc_attr_encode(char* uuid, char* path, connected_ble_devices* ble_c
         cJSON *value_arr = cJSON_CreateArray();
         cJSON *parent_ccc =  cJSON_CreateObject();
 
-//  printk("\tCCD: 0x%s",uuid);
-//  printk("\tHandle: %d\n",handle);
-
         cJSON_AddItemToObject(parent_ccc, uuid, descriptor);
         cJSON_AddItemToObject(descriptor, "uuid", cJSON_CreateString(uuid));
         cJSON_AddItemToObject(descriptor, "value", value_arr);
@@ -674,7 +692,7 @@ static void ccc_attr_encode(char* uuid, char* path, connected_ble_devices* ble_c
 
         //Print parent_ccc and add to service
         cJSON_PrintPreallocated(parent_ccc, service_buffer, MAX_SERVICE_BUF_SIZE, 0);
-        //printk("JSON: %s\n", service_buffer);
+        LOG_DBG("JSON: %s", service_buffer);
         cJSON_Delete(parent_ccc);
         device_discover_add_ccc(service_buffer);
 
@@ -689,19 +707,19 @@ static void attr_encode( u16_t attr_type, char* uuid_str, char* path, u8_t prope
         bt_to_upper(path, strlen(path));
 
         if (attr_type ==  BT_ATTR_SERVICE) {
-                printk("Encoding Service : UUID: %s  PATH: %s\n", uuid_str, path);
+                LOG_INF("Encoding Service : UUID: %s", uuid_str);
                 svc_attr_encode(uuid_str, path, ble_conn_ptr);
 
         } else if (attr_type == BT_ATTR_CHRC) {
-                printk("Encoding Characteristic : UUID: %s  PATH: %s\n", uuid_str, path);
+                LOG_INF("Encoding Characteristic : UUID: %s  PATH: %s", uuid_str, path);
                 chrc_attr_encode(uuid_str, path, properties, ble_conn_ptr);
 
         } else if (attr_type == BT_ATTR_CCC) {
-                printk("Encoding CCC : UUID: %s  PATH: %s\n", uuid_str, path);
+                LOG_INF("Encoding CCC : UUID: %s  PATH: %s", uuid_str, path);
                 ccc_attr_encode(uuid_str, path, ble_conn_ptr);
         }
         else{
-                printk("Unknown Attr Type\n");
+                LOG_ERR("Unknown Attr Type");
         }
 
 }
@@ -717,7 +735,7 @@ u8_t device_discovery_encode(connected_ble_devices* conn_ptr)
 
         first_service = true;
 
-        printk("Num Pairs: %d\n", conn_ptr->num_pairs);
+        LOG_INF("Num Pairs: %d", conn_ptr->num_pairs);
 
         create_device_wrapper(conn_ptr->addr, true);
 
@@ -750,7 +768,6 @@ u8_t device_discovery_encode(connected_ble_devices* conn_ptr)
                                 }
 
                                 snprintk(path_str, BT_MAX_PATH_LEN, "%s/%s", service_attr_str, uuid_str);
-                                //printk("\t\tCONN MGR Path: %s\n",path_str);
                                 break;
 
                         case 2:
@@ -765,7 +782,6 @@ u8_t device_discovery_encode(connected_ble_devices* conn_ptr)
                                 }
 
                                 snprintk(path_str, BT_MAX_PATH_LEN, "%s/%s/%s", service_attr_str, path_dep_two_str, uuid_str);
-                                //printk("\t\tCONN MGR Path: %s\n",path_str);
                                 break;
                         }
 
@@ -776,8 +792,6 @@ u8_t device_discovery_encode(connected_ble_devices* conn_ptr)
                 case BT_UUID_TYPE_128:
 
                         bt_uuid_get_str(&conn_ptr->uuid_handle_pair[i].uuid_128.uuid, uuid_str, BT_MAX_UUID_LEN);
-                        //printk("\tCONN MGR Characteristic: %s\n",uuid_str);
-                        //printk("\tCONN MGR Characteristic Depth: %d\n", conn_ptr->uuid_handle_pair[i].path_depth);
 
                         switch(conn_ptr->uuid_handle_pair[i].path_depth)
                         {
@@ -800,7 +814,7 @@ u8_t device_discovery_encode(connected_ble_devices* conn_ptr)
                                 }
 
                                 snprintk(path_str, BT_MAX_PATH_LEN, "%s/%s", service_attr_str, uuid_str);
-                                //printk("\t\tCONN MGR Path: %s\n",path_str);
+
                                 break;
 
                         case 2:
@@ -815,7 +829,6 @@ u8_t device_discovery_encode(connected_ble_devices* conn_ptr)
                                 }
 
                                 snprintk(path_str, BT_MAX_PATH_LEN, "%s/%s/%s", service_attr_str, path_dep_two_str, uuid_str);
-                                //printk("\t\tCONN MGR Path: %s\n",path_str);
 
                                 break;
                         }
@@ -826,7 +839,7 @@ u8_t device_discovery_encode(connected_ble_devices* conn_ptr)
 
                 default:
 
-                        printk("ERROR: unknown UUID type\n");
+                        LOG_ERR("ERROR: unknown UUID type");
                         break;
                 }
         }

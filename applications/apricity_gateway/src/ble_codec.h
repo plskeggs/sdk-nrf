@@ -18,4 +18,5 @@ u8_t device_value_write_result_encode(char* ble_address, char* uuid, char* path,
 u8_t device_descriptor_value_changed_encode(char* ble_address, char* uuid, char* path, char* value, u16_t value_length);
 u8_t device_error_encode(char* ble_address, char* error_msg);
 u8_t device_shadow_delete_encode();
+u8_t device_disconnect_result_encode(char* ble_address, bool conn_status);
 #endif

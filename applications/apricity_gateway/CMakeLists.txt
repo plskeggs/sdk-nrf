@@ -19,17 +19,24 @@ set(spm_CONF_FILE
   
 include($ENV{ZEPHYR_BASE}/../nrf/cmake/boilerplate.cmake)
 include($ENV{ZEPHYR_BASE}/cmake/app/boilerplate.cmake NO_POLICY_SCOPE)
-project(apricity-gateway)
+project(lte-ble-gateway)
 zephyr_compile_definitions(PROJECT_NAME=${PROJECT_NAME})
 zephyr_compile_definitions(_POSIX_C_SOURCE=200809L)
 
 # NORDIC SDK APP START
 target_sources(app PRIVATE src/main.c)
 # NORDIC SDK APP END
-zephyr_include_directories(src)
+zephyr_include_directories(
+src
+src/ui
+src/watchdog
+)
 
 target_sources(app PRIVATE src/ble.c)
 target_sources(app PRIVATE src/ble_codec.c)
 target_sources(app PRIVATE src/ble_conn_mgr.c)
 target_sources(app PRIVATE src/gateway.c)
+target_sources(app PRIVATE src/dfu/peripheral_dfu.c)
 
+add_subdirectory(src/ui)
+add_subdirectory_ifdef(CONFIG_WATCHDOG src/watchdog)

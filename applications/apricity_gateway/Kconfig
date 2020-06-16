@@ -4,15 +4,77 @@
 # SPDX-License-Identifier: LicenseRef-BSD-5-Clause-Nordic
 #
 
-menu "Apricity Gateway"
+menu "Application sample"
+
+rsource "src/ui/Kconfig"
 
 config APPLICATION_WORKQUEUE_STACK_SIZE
 	int "Application workqueue stack size"
-	default 2048
+	default 4096
 
 config APPLICATION_WORKQUEUE_PRIORITY
 	int "Application workqueue priority"
 	default SYSTEM_WORKQUEUE_PRIORITY
+
+menu "Cloud"
+
+config MQTT_KEEPALIVE
+	int "Time after last transmission to send a ping to keep connection on"
+	default 1200
+	help
+	  This should be set to the expected time between messages sent from
+	  this device. Making it larger than the expected data period does not
+	  conserve bandwidth, as the ping is only sent if nothing else
+	  has been within the specified period. Shorter values can prevent hidden
+	  NAT timeouts at the carrier, but also will interrupt GPS fix attempts
+	  and slow down TTFF.
+
+config CLOUD_BUTTON
+	bool "Enable button sensor"
+	default y
+
+config CLOUD_BUTTON_INPUT
+	int "Set button sensor button number"
+	range 1 4 if BOARD_NRF9160_PCA10090NS
+	range 1 1 if BOARD_NRF9160_PCA20035NS
+	default 1
+
+config CLOUD_CONNECT_RETRY_DELAY
+	int "Cloud connection retry delay in seconds"
+	default 480
+	help
+	  Time to wait before trying to connect to the cloud again if the
+	  previous attempt failed (in seconds).
+
+config CLOUD_CONNECT_COUNT_MAX
+	int "Maximum number of cloud connection attempts"
+	default 8
+
+config CLOUD_WAIT_DURATION
+	int "Cloud connection acknowledge wait duration"
+	default 30
+	help
+	  How long the device should wait for a CONNACK
+	  event from the cloud.
+
+config CLOUD_FOTA_APP
+	bool "Enable firmware over-the-air upgrades for application"
+	depends on AWS_FOTA
+	depends on DFU_TARGET_MCUBOOT
+	default y
+
+config CLOUD_FOTA_MODEM
+	bool "Enable firmware over-the-air upgrades for modem"
+	depends on AWS_FOTA
+	depends on DFU_TARGET_MODEM
+	default y
+
+config CLOUD_CONNECT_ERR_REBOOT_S
+	int "Seconds to wait before rebooting when a cloud connect error occurs"
+	default 300
+
+endmenu # Cloud
+
 
 choice
 	prompt "GPS device"
@@ -56,17 +118,6 @@ config GPS_DEV_NAME
 
 endif
 
-config MQTT_KEEPALIVE
-	int
-	default 1200
-
-config CLOUD_WAIT_DURATION
-	int "Cloud connection acknowledge wait duration"
-	default 30
-	help
-	    How long the device should wait for a CONNACK
-	    event from the cloud.
-
 choice
 	prompt "nRF Cloud user association"
 	default CLOUD_UA_BUTTONS
@@ -92,33 +143,18 @@ config CLOUD_UA_CONSOLE
 
 endchoice
 
-config CLOUD_FOTA_APP
-	bool "Enable firmware over-the-air upgrades for application"
-	depends on AWS_FOTA
-	depends on DFU_TARGET_MCUBOOT
-	default y
-
-config CLOUD_FOTA_MODEM
-	bool "Enable firmware over-the-air upgrades for modem"
-	depends on AWS_FOTA
-	depends on DFU_TARGET_MODEM
-	default y
-
-config DEVICE_ID
-	string "Device ID"
-	default "REPLACE_ME"
-  help
-    Device id in certificate
-	
 config APR_GATEWAY
 	bool "Apricity Gateway"
 	default y
   help
     Defines if gateway
-	
 
 endmenu
 
 menu "Zephyr Kernel"
 source "$ZEPHYR_BASE/Kconfig.zephyr"
 endmenu
+
+module = APRICITY_GATEWAY
+module-str = Apricity Gateway
+source "${ZEPHYR_BASE}/subsys/logging/Kconfig.template.log_config"

@@ -15,11 +15,17 @@
 #include "bluetooth/bluetooth.h"
 #include "ble_codec.h"
 #include <power/reboot.h>
+#include <power/reboot.h>
+#include "ble_conn_mgr.h"
 
-#define CLOUD_PROC_STACK_SIZE 4096
+#include <logging/log.h>
+LOG_MODULE_REGISTER(gateway, CONFIG_APRICITY_GATEWAY_LOG_LEVEL);
+
+#define CLOUD_PROC_STACK_SIZE 2048
 #define CLOUD_PROC_PRIORITY 5
 
 u8_t value_buf[256];
+
 
 struct cloud_data_t
 {
@@ -47,14 +53,12 @@ void cloud_data_process(int unused1, int unused2, int unused3)
                         u32_t lock = irq_lock();
                         if(cloud_data->read)
                         {
-                                //printk("Value Handle %d\n", rx_data->read_params.single.handle);
                                 gatt_read(cloud_data->addr, cloud_data->uuid);
 
                         }
                         else if(cloud_data->sub)
                         {
 
-                                //printk("Value Handle %d\n", rx_data->sub_params.value_handle);
                                 if(cloud_data->indicate)
                                 {
                                         ble_subscribe(cloud_data->addr, cloud_data->uuid, BT_GATT_CCC_NOTIFY);
@@ -122,7 +126,7 @@ u8_t gateway_handler(const struct nct_gw_data *gw_data)
         root_obj = cJSON_Parse(gw_data->data.ptr);
 
         if (root_obj == NULL) {
-                printk("cJSON_Parse failed: %s",
+                LOG_ERR("cJSON_Parse failed: %s",
                        log_strdup((char *)gw_data->data.ptr));
                 return -ENOENT;
         }
@@ -227,6 +231,8 @@ u8_t gateway_handler(const struct nct_gw_data *gw_data)
                                 for (int i = 0; i < value_len; i++)
                                 {
                                         cJSON * item = cJSON_GetArrayItem(value_arr, i);
+
+                                        //TODO: add check i < max buf size
                                         value_buf[i] = item->valueint;
                                 }
 
@@ -259,15 +265,10 @@ u8_t gateway_handler(const struct nct_gw_data *gw_data)
 
                                 if(ble_address != NULL)
                                 {
-                                        ble_discover(ble_address->valuestring);
-                                }
-                        }
 
-                        else if(compare(desired_obj->valuestring, "delete_yourself"))
-                        {
-                                device_shadow_delete_encode();
-                                k_sleep(3000); //Give the delete message time to send out.
-                                sys_reboot(0);
+                                          ble_conn_mgr_rediscover(ble_address->valuestring);
+
+                                }
                         }
                 }
         }

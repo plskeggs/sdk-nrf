@@ -25,22 +25,32 @@
 #define SEND_NOTIFY_STACK_SIZE 2048
 #define SEND_NOTIFY_PRIORITY 9
 
-#define MAX_SUBSCRIPTIONS 4
+#define SUBSCRIPTION_LIMIT 4
+
+#include <logging/log.h>
+LOG_MODULE_REGISTER(ble, CONFIG_APRICITY_GATEWAY_LOG_LEVEL);
 
 bool discover_in_progress = false;
 bool ok_to_send = true;
+bool scan_waiting = false;
+
 int num_devices_found = 0;
-u8_t read_buf[512];
+u8_t read_buf[READ_BUF_SIZE];
 
 struct k_timer rec_timer;
 struct k_timer scan_timer;
+struct k_timer auto_conn_start_timer;
+
 struct k_work scan_off_work;
 struct k_work ble_device_encode_work;
+struct k_work start_auto_conn_work;
 
 char uuid[BT_MAX_UUID_LEN];
 char path[BT_MAX_PATH_LEN];
 
 ble_scanned_devices ble_scanned_device[MAX_SCAN_RESULTS];
+
+
 
 struct rec_data_t
 {
@@ -98,7 +108,7 @@ void bt_uuid_get_str(const struct bt_uuid *uuid, char *str, size_t len)
 
 }
 
-static void svc_attr_data_add(const struct bt_gatt_service_val *gatt_service, u8_t handle, connected_ble_devices* ble_conn_ptr)
+static void svc_attr_data_add(const struct bt_gatt_service_val *gatt_service, u16_t handle, connected_ble_devices* ble_conn_ptr)
 {
 
         char str[UUID_STR_LEN];
@@ -114,18 +124,16 @@ static void svc_attr_data_add(const struct bt_gatt_service_val *gatt_service, u8
 static void chrc_attr_data_add(const struct bt_gatt_chrc *gatt_chrc,  connected_ble_devices* ble_conn_ptr)
 {
 
-        u8_t handle = gatt_chrc->value_handle;
-
-        //printk("\tCharacteristic: 0x%s\tProperties: 0x%04X\tHandle: %d\n",str, gatt_chrc->properties, gatt_chrc->value_handle);
+        u16_t handle = gatt_chrc->value_handle;
 
         ble_conn_mgr_add_uuid_pair(gatt_chrc->uuid, handle, 1, gatt_chrc->properties, BT_ATTR_CHRC, ble_conn_ptr, false);
 
 }
 
-static void ccc_attr_data_add(const struct bt_gatt_ccc *gatt_ccc, struct bt_uuid* uuid, u8_t handle, connected_ble_devices* ble_conn_ptr)
+static void ccc_attr_data_add(const struct bt_gatt_ccc *gatt_ccc, struct bt_uuid* uuid, u16_t handle, connected_ble_devices* ble_conn_ptr)
 {
 
-        //printk("\tHandle: %d\n",handle);
+        LOG_DBG("\tHandle: %d",handle);
 
         ble_conn_mgr_add_uuid_pair(uuid, handle, 2, 0, BT_ATTR_CCC, ble_conn_ptr, false);
 
@@ -171,8 +179,6 @@ void ble_dm_data_add(const struct bt_gatt_dm *dm)
 
         bt_to_upper(addr_trunc, BT_ADDR_LE_STR_LEN);
 
-        //printk("Trunc Addr %s\n", addr_trunc);
-
         ble_conn_mgr_get_conn_by_addr(addr_trunc, &ble_conn_ptr);
 
         discover_in_progress = true;
@@ -202,13 +208,13 @@ void send_notify_data(int unused1, int unused2, int unused3)
 
                 if(rx_data!= NULL)
                 {
-                        //printk("Trunc Addr %s\n", rx_data->addr_trunc);
+                        LOG_DBG("Trunc Addr %s", rx_data->addr_trunc);
 
                         ble_conn_mgr_get_conn_by_addr(rx_data->addr_trunc, &connected_ptr);
 
                         if(rx_data->read)
                         {
-                                //printk("Value Handle %d\n", rx_data->read_params.single.handle);
+                                LOG_DBG("Value Handle %d", rx_data->read_params.single.handle);
 
                                 ble_conn_mgr_get_uuid_by_handle(rx_data->read_params.single.handle, uuid, connected_ptr);
 
@@ -218,7 +224,7 @@ void send_notify_data(int unused1, int unused2, int unused3)
                         }
                         else
                         {
-                                //printk("Value Handle %d\n", rx_data->sub_params.value_handle);
+                                LOG_DBG("Value Handle %d", rx_data->sub_params.value_handle);
 
                                 ble_conn_mgr_get_uuid_by_handle(rx_data->sub_params.value_handle, uuid, connected_ptr);
 
@@ -241,7 +247,7 @@ K_THREAD_DEFINE(rec_thread, SEND_NOTIFY_STACK_SIZE,
 static void discovery_completed(struct bt_gatt_dm *disc, void *ctx)
 {
 
-        printk("Attribute count: %d\n", bt_gatt_dm_attr_cnt(disc));
+        LOG_DBG("Attribute count: %d", bt_gatt_dm_attr_cnt(disc));
 
         ble_dm_data_add(disc);
 
@@ -255,7 +261,7 @@ static void discovery_completed(struct bt_gatt_dm *disc, void *ctx)
 static void discovery_service_not_found(struct bt_conn *conn, void *ctx)
 {
 
-        printk("Service not found!\n");
+        LOG_DBG("Service not found!");
 
         char addr[BT_ADDR_LE_STR_LEN];
         char addr_trunc[BT_ADDR_STR_LEN];
@@ -274,11 +280,17 @@ static void discovery_service_not_found(struct bt_conn *conn, void *ctx)
         connected_ptr->discovering = false;
         discover_in_progress = false;
 
+        //check scan waiting
+        if(scan_waiting)
+        {
+          scan_start();
+        }
+
 }
 
 static void discovery_error_found(struct bt_conn *conn, int err, void *ctx)
 {
-        printk("The discovery procedure failed, err %d\n", err);
+        LOG_ERR("The discovery procedure failed, err %d", err);
 
         char addr[BT_ADDR_LE_STR_LEN];
         char addr_trunc[BT_ADDR_STR_LEN];
@@ -291,9 +303,20 @@ static void discovery_error_found(struct bt_conn *conn, int err, void *ctx)
         bt_to_upper(addr_trunc, BT_ADDR_LE_STR_LEN);
 
         ble_conn_mgr_get_conn_by_addr(addr_trunc, &connected_ptr);
+        connected_ptr->num_pairs = 0;
         connected_ptr->discovering = false;
         connected_ptr->discovered = false;
         discover_in_progress = false;
+
+        //Disconnect?
+        bt_conn_disconnect(conn, 0x16);
+
+        //check scan waiting
+        if(scan_waiting)
+        {
+          scan_start();
+        }
+
 }
 
 static u8_t gatt_read_callback(struct bt_conn *conn, u8_t err,
@@ -304,20 +327,16 @@ static u8_t gatt_read_callback(struct bt_conn *conn, u8_t err,
         char addr[BT_ADDR_LE_STR_LEN];
         char addr_trunc[BT_ADDR_STR_LEN];
 
-        printk("GATT Read\n");
-
         if(length > 0 && data != NULL)
         {
                 bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
-
-                printk("Data Addr: %s\n", addr);
 
                 memcpy(addr_trunc, addr, BT_ADDR_LE_DEVICE_LEN);
                 addr_trunc[BT_ADDR_LE_DEVICE_LEN] = 0;
 
                 bt_to_upper(addr_trunc, BT_ADDR_LE_STR_LEN);
 
-                printk("Addr %s\n", addr_trunc);
+                LOG_INF("Read Addr %s", addr_trunc);
 
                 struct rec_data_t read_data = { .length = length, .read = true};
 
@@ -354,15 +373,15 @@ void gatt_read(char* ble_addr, char* chrc_uuid)
         struct bt_conn *conn;
         bt_addr_le_t addr;
         connected_ble_devices* connected_ptr;
-        u8_t handle;
+        u16_t handle;
 
         ble_conn_mgr_get_conn_by_addr(ble_addr, &connected_ptr);
 
         err = ble_conn_mgr_get_handle_by_uuid(&handle, chrc_uuid, connected_ptr);
 
         if (err) {
-                printk("Could not find handle\n");
-                goto end;
+                LOG_ERR("Could not find handle");
+                return;
         }
 
         params.handle_count = 1;
@@ -371,23 +390,22 @@ void gatt_read(char* ble_addr, char* chrc_uuid)
 
         err = bt_addr_le_from_str(ble_addr, "random", &addr);
         if (err) {
-                printk("Address from string failed (err %d)\n", err);
+                LOG_ERR("Address from string failed (err %d)", err);
         }
 
         conn = bt_conn_lookup_addr_le(BT_ID_DEFAULT, &addr);
         if (conn == NULL) {
-                //printk("Null Conn object (err)\n");
-                goto end;
+                LOG_ERR("Null Conn object (err)");
+                return;
         }
 
         bt_gatt_read(conn, &params);
 
-end:
-        printk("End\n");
-        //bt_conn_unref(conn);
+        bt_conn_unref(conn);
+
+
 
 }
-
 
 static void on_sent(struct bt_conn *conn, u8_t err,
                     struct bt_gatt_write_params *params)
@@ -399,7 +417,7 @@ static void on_sent(struct bt_conn *conn, u8_t err,
         data = params->data;
         length = params->length;
 
-        printk("Sent Data of Length: %d\n", length);
+        LOG_DBG("Sent Data of Length: %d", length);
 }
 
 void gatt_write(char* ble_addr, char* chrc_uuid, u8_t* data, u16_t data_len)
@@ -409,7 +427,7 @@ void gatt_write(char* ble_addr, char* chrc_uuid, u8_t* data, u16_t data_len)
         struct bt_conn *conn;
         bt_addr_le_t addr;
         connected_ble_devices* connected_ptr;
-        u8_t handle;
+        u16_t handle;
         static struct bt_gatt_write_params params;
 
         ble_conn_mgr_get_conn_by_addr(ble_addr, &connected_ptr);
@@ -418,21 +436,21 @@ void gatt_write(char* ble_addr, char* chrc_uuid, u8_t* data, u16_t data_len)
 
         err = bt_addr_le_from_str(ble_addr, "random", &addr);
         if (err) {
-                printk("Address from string failed (err %d)\n", err);
+                LOG_ERR("Address from string failed (err %d)", err);
         }
 
         conn = bt_conn_lookup_addr_le(BT_ID_DEFAULT, &addr);
         if (conn == NULL) {
-                printk("Null Conn object (err)\n");
-                goto end;
+                LOG_ERR("Null Conn object (err)\n");
+                return;
         }
 
         for(int i =0; i< data_len; i++)
         {
-                printk("Writing: %x\n", data[i]);
+                LOG_DBG("Writing: %x", data[i]);
         }
 
-        printk("Writing to addr: %s to chrc %s with handle %d\n:", ble_addr, chrc_uuid, handle);
+        LOG_INF("Writing to addr: %s to chrc %s with handle %d\n:", ble_addr, chrc_uuid, handle);
 
         params.func = on_sent;
         params.handle = handle;
@@ -442,13 +460,11 @@ void gatt_write(char* ble_addr, char* chrc_uuid, u8_t* data, u16_t data_len)
 
         bt_gatt_write(conn, &params);
 
+        bt_conn_unref(conn);
+
 
 //TODO: Add function for write without response.
 //  bt_gatt_write_without_response(conn, handle, data, data_len, false);
-
-end:
-
-        printk("GATT Write end\n");
 
 }
 
@@ -482,14 +498,12 @@ static u8_t on_received(struct bt_conn *conn,
 
                 bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
-                //printk("Data Addr: %s\n", addr);
-
                 memcpy(addr_trunc, addr, BT_ADDR_LE_DEVICE_LEN);
                 addr_trunc[BT_ADDR_LE_DEVICE_LEN] = 0;
 
                 bt_to_upper(addr_trunc, BT_ADDR_LE_STR_LEN);
 
-                //printk("Trunc Addr %s\n", addr_trunc);
+                LOG_DBG("Received on addr %s", addr_trunc);
 
                 struct rec_data_t tx_data = { .length = length};
 
@@ -529,11 +543,11 @@ void ble_subscribe(char* ble_addr, char* chrc_uuid, u8_t value_type)
         static int index = 0;
         static u8_t curr_subs = 0;
         /* Must be statically allocated */
-        static struct bt_gatt_subscribe_params param[BT_MAX_SUBSCRIBES];
+        static struct bt_gatt_subscribe_params param[BT_MAX_SUBSCRIBES];     //TODO: The param needs to remain the entire time the sub exists. Should probably be stored with the conn manager.
         struct bt_conn *conn;
         bt_addr_le_t addr;
         connected_ble_devices* connected_ptr;
-        u8_t handle;
+        u16_t handle;
         bool subscribed;
         u8_t param_index;
 
@@ -556,28 +570,28 @@ void ble_subscribe(char* ble_addr, char* chrc_uuid, u8_t value_type)
         param[index].value_handle = handle;
         param[index].ccc_handle = handle+1;
 
-        printk("Subscribing Address: %s\n", ble_addr);
-        printk("Value Handle: %d\n", param[index].value_handle);
-        printk("CCC Handle: %d\n", param[index].ccc_handle);
+        LOG_INF("Subscribing Address: %s", ble_addr);
+        LOG_INF("Value Handle: %d", param[index].value_handle);
+        LOG_INF("CCC Handle: %d", param[index].ccc_handle);
 
         err = bt_addr_le_from_str(ble_addr, "random", &addr);
         if (err) {
-                printk("Address from string failed (err %d)\n", err);
+                LOG_ERR("Address from string failed (err %d)", err);
         }
 
         conn = bt_conn_lookup_addr_le(BT_ID_DEFAULT, &addr);
         if (conn == NULL) {
-                printk("Null Conn object (err %d)\n", err);
+                LOG_ERR("Null Conn object (err %d)", err);
                 goto end;
         }
 
         ble_conn_mgr_generate_path(connected_ptr, handle, path, true);
 
-        if(!subscribed && curr_subs < MAX_SUBSCRIPTIONS)
+        if(!subscribed && curr_subs < SUBSCRIPTION_LIMIT)
         {
                 err = bt_gatt_subscribe(conn, &param[index]);
                 if (err) {
-                        printk("Subscribe failed (err %d)\n", err);
+                        LOG_ERR("Subscribe failed (err %d)", err);
                         goto end;
                 }
 
@@ -590,8 +604,7 @@ void ble_subscribe(char* ble_addr, char* chrc_uuid, u8_t value_type)
 
 end:
 
-                printk("Subscribed to %d\n", handle+1);
-                //bt_conn_unref(conn);
+                LOG_INF("Subscribed to %d", handle+1);
                 curr_subs++;
                 index++;
         }
@@ -599,7 +612,7 @@ end:
         {
 
                 bt_gatt_unsubscribe(conn, &param[param_index]);
-                printk("Unsubscribed to %d\n", handle+1);
+                LOG_INF("Unsubscribed to %d", handle+1);
                 ble_conn_mgr_remove_subscribed(handle, connected_ptr);
 
                 u8_t value[2] = {0,0};
@@ -608,11 +621,15 @@ end:
                 curr_subs--;
         }
 
-        else if(curr_subs >= MAX_SUBSCRIPTIONS) //Send error when limit is reached.
+        else if(curr_subs >= SUBSCRIPTION_LIMIT) //Send error when limit is reached.
         {
 
                 device_error_encode(ble_addr, "Reached subscription limit of 4");
 
+        }
+
+        if (conn != NULL) {
+                bt_conn_unref(conn);
         }
 }
 
@@ -623,7 +640,7 @@ static struct bt_gatt_dm_cb discovery_cb = {
 };
 
 
-u8_t ble_discover(char* ble_addr)
+u8_t ble_discover(char* ble_addr, char* type)
 {
 
         int err;
@@ -631,19 +648,23 @@ u8_t ble_discover(char* ble_addr)
         bt_addr_le_t addr;
         connected_ble_devices* connection_ptr;
 
+
+        printk("Discover Addr: %s\n", ble_addr);
+        printk("Discover Type: %s\n", type);
+
         if(!discover_in_progress)
         {
 
-                err = bt_addr_le_from_str(ble_addr, "random", &addr);
+                err = bt_addr_le_from_str(ble_addr, type, &addr);
                 if (err) {
-                        printk("Address from string failed (err %d)\n", err);
+                        LOG_ERR("Address from string failed (err %d)", err);
                         return err;
                 }
 
 
                 conn = bt_conn_lookup_addr_le(BT_ID_DEFAULT, &addr);
                 if (conn == NULL) {
-                        //printk("Null Conn object (err %d)\n", err);
+                        LOG_DBG("Null Conn object (err %d)", err);
                         return 1;
                 }
 
@@ -653,10 +674,17 @@ u8_t ble_discover(char* ble_addr)
                 {
                         err = bt_gatt_dm_start(conn, NULL, &discovery_cb, NULL);
                         if (err) {
-                                printk("Could not start service discovery, err %d\n", err);
+                                LOG_ERR("Could not start service discovery, err %d", err);
                                 connection_ptr->discovering = false;
+
+                                //Disconnect device.
+                                LOG_INF("Disconnecting from device...");
+                                bt_conn_disconnect(conn, 0x16);
+
+                                bt_conn_unref(conn);
                                 return err;
                         }
+                        discover_in_progress = true;
                         connection_ptr->discovering = true;
                 }
                 else
@@ -668,16 +696,73 @@ u8_t ble_discover(char* ble_addr)
         {
                 return 1;
         }
+
+        bt_conn_unref(conn);
         return err;
 
 }
 
-static void connected(struct bt_conn *conn, u8_t conn_err)
+
+u8_t disconnect_device_by_addr(char* ble_addr, char* type)
 {
 
         int err;
+        struct bt_conn *conn;
+        bt_addr_le_t addr;
+
+        err = bt_addr_le_from_str(ble_addr, type, &addr);
+        if (err) {
+                LOG_ERR("Address from string failed (err %d)", err);
+                return err;
+        }
+
+        conn = bt_conn_lookup_addr_le(BT_ID_DEFAULT, &addr);
+        if (conn == NULL) {
+                LOG_DBG("Null Conn object (err %d)", err);
+                return 1;
+        }
+
+        //Disconnect device.
+        bt_conn_disconnect(conn, 0x16);
+
+        bt_conn_unref(conn);
+
+        return err;
+
+}
+
+void auto_conn_start_work_handler(struct k_work *work)
+{
+
+        int err;
+
+        //Restart to scanning for whitelisted devices
+        err = bt_conn_create_auto_le(BT_LE_CONN_PARAM_DEFAULT);
+
+        if (err) {
+                LOG_INF("Connection exists");
+        } else {
+
+                LOG_INF("Connection creation pending");
+        }
+
+}
+K_WORK_DEFINE(auto_conn_start_work, auto_conn_start_work_handler);
+
+void auto_conn_start_timer_handler(struct k_timer *timer)
+{
+
+        k_work_submit(&auto_conn_start_work);
+
+}
+K_TIMER_DEFINE(auto_conn_start_timer, auto_conn_start_timer_handler, NULL);
+
+static void connected(struct bt_conn *conn, u8_t conn_err)
+{
+
         char addr[BT_ADDR_LE_STR_LEN];
         char addr_trunc[BT_ADDR_STR_LEN];
+        connected_ble_devices* connection_ptr;
 
         bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
@@ -686,30 +771,28 @@ static void connected(struct bt_conn *conn, u8_t conn_err)
 
         bt_to_upper(addr_trunc, BT_ADDR_LE_STR_LEN);
 
+        ble_conn_mgr_get_conn_by_addr(addr_trunc, &connection_ptr);
+
         if (conn_err) {
 
-                printk("Failed to connect to %s (%u)\n", addr, conn_err);
+                LOG_ERR("Failed to connect to %s (%u)", addr, conn_err);
                 ble_conn_set_connected(addr_trunc, false);
                 bt_conn_unref(conn);
                 return;
         }
 
-        printk("Connected: %s\n", addr);
+        LOG_INF("Connected: %s", addr);
 
         device_connect_result_encode(addr_trunc, true);
+
         device_shadow_data_encode(addr_trunc, false, true);
 
         ble_conn_set_connected(addr_trunc, true);
 
-        //Restart to scanning for whitelisted devices
-        err = bt_conn_create_auto_le(BT_LE_CONN_PARAM_DEFAULT);
+        ble_remove_from_whitelist(addr_trunc, connection_ptr->addr_type);
 
-        if (err) {
-                printk("Connection exists\n");
-        } else {
-
-                printk("Connection creation pending\n");
-        }
+        //Start the timer to begin scanning again.
+        k_timer_start(&auto_conn_start_timer, K_SECONDS(3), 0);
 
 }
 
@@ -717,9 +800,8 @@ static void disconnected(struct bt_conn *conn, u8_t reason)
 {
 
         char addr[BT_ADDR_LE_STR_LEN];
-        int err;
         char addr_trunc[BT_ADDR_STR_LEN];
-
+        connected_ble_devices* connection_ptr;
 
         bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
@@ -728,24 +810,23 @@ static void disconnected(struct bt_conn *conn, u8_t reason)
 
         bt_to_upper(addr_trunc, BT_ADDR_LE_STR_LEN);
 
-        device_connect_result_encode(addr_trunc, false);
+        ble_conn_mgr_get_conn_by_addr(addr_trunc, &connection_ptr);
+
+        device_disconnect_result_encode(addr_trunc, false);
+
         device_shadow_data_encode(addr_trunc, false, false);
 
         ble_conn_set_disconnected(addr_trunc);
 
-        printk("Disconnected: %s (reason 0x%02x)\n", addr, reason);
+        LOG_INF("Disconnected: %s (reason 0x%02x)", addr, reason);
 
-        bt_conn_unref(conn);
-
-        //Restart to scanning for whitelisted devices
-        err = bt_conn_create_auto_le(BT_LE_CONN_PARAM_DEFAULT);
-
-        if (err) {
-                printk("Connection exists\n");
-        } else {
-
-                printk("Connection creation pending\n");
+        if(!connection_ptr->free)
+        {
+                ble_add_to_whitelist(connection_ptr->addr, connection_ptr->addr_type);
         }
+
+        //Start the timer to begin scanning again.
+        k_timer_start(&auto_conn_start_timer, K_SECONDS(3), 0);
 
 }
 
@@ -763,13 +844,13 @@ void scan_filter_match(struct bt_scan_device_info *device_info,
 
         bt_addr_le_to_str(device_info->addr, addr, sizeof(addr));
 
-        printk("Device found: %s\n", addr);
+        LOG_INF("Device found: %s", addr);
 
 }
 
 void scan_connecting_error(struct bt_scan_device_info *device_info)
 {
-        printk("Connection to peer failed!\n");
+        LOG_ERR("Connection to peer failed!");
 }
 
 
@@ -840,9 +921,9 @@ static void device_found(const bt_addr_le_t *addr, s8_t rssi, u8_t type,
 
         if((num_devices_found < MAX_SCAN_RESULTS) && (dup_addr == false))
         {
-                printk("Device found: %s (RSSI %d)\n", ble_scanned_device[num_devices_found].addr, rssi);
-                printk("Device Name: %s\n", ble_scanned_device[num_devices_found].name);
-                printk("Type: %s\n", ble_scanned_device[num_devices_found].type);
+                LOG_INF("Device found: %s (RSSI %d)", ble_scanned_device[num_devices_found].addr, rssi);
+                LOG_INF("Device Name: %s", ble_scanned_device[num_devices_found].name);
+                LOG_INF("Type: %s", ble_scanned_device[num_devices_found].type);
 
                 num_devices_found++;
         }
@@ -854,19 +935,14 @@ void scan_off_handler(struct k_work *work)
 
         err = bt_le_scan_stop();
         if (err) {
-                printk("Stopping scanning failed (err %d)\n", err);
+                LOG_INF("Stopping scanning failed (err %d)", err);
         } else {
-                printk("Scan successfully stopped\n");
+                LOG_INF("Scan successfully stopped");
         }
 
-        //Restart the scanning
-        err = bt_conn_create_auto_le(BT_LE_CONN_PARAM_DEFAULT);
 
-        if (err) {
-                printk("Connection exists\n");
-        } else {
-                printk("Connection creation pending\n");
-        }
+        //Start the timer to begin scanning again.
+        k_timer_start(&auto_conn_start_timer, K_SECONDS(3), 0);
 
         k_work_submit(&ble_device_encode_work);
 
@@ -889,29 +965,47 @@ void ble_add_to_whitelist(char* addr_str, char* conn_type)
         int err;
         bt_addr_le_t addr;
 
-        printk("Whitelisting Address: %s\n", addr_str);
-        printk("Whitelisting Address Type: %s\n", conn_type);
+        LOG_INF("Whitelisting Address: %s", addr_str);
+        LOG_INF("Whitelisting Address Type: %s", conn_type);
 
         err = bt_addr_le_from_str(addr_str, conn_type, &addr);
         if (err) {
-                printk("Invalid peer address (err %d)\n", err);
+                LOG_ERR("Invalid peer address (err %d)", err);
+                return;
         }
 
         bt_conn_create_auto_stop();
 
         bt_le_whitelist_add(&addr);
 
-        err = bt_conn_create_auto_le(BT_LE_CONN_PARAM_DEFAULT);
-
-        if (err) {
-                printk("Connection exists\n");
-        } else {
-                printk("Connection creation pending\n");
-        }
+        //Start the timer to begin scanning again.
+        k_timer_start(&auto_conn_start_timer, K_SECONDS(3), 0);
 
 }
 
+void ble_remove_from_whitelist(char* addr_str, char* conn_type)
+{
 
+        int err;
+        bt_addr_le_t addr;
+
+        LOG_INF("Removing Whitelist Address: %s", addr_str);
+        LOG_INF("Whitelisting Address Type: %s", conn_type);
+
+        err = bt_addr_le_from_str(addr_str, conn_type, &addr);
+        if (err) {
+                LOG_ERR("Invalid peer address (err %d)", err);
+                return;
+        }
+
+        bt_conn_create_auto_stop();
+
+        bt_le_whitelist_rem(&addr);
+
+        //Start the timer to begin scanning again.
+        k_timer_start(&auto_conn_start_timer, K_SECONDS(3), 0);
+
+}
 
 void scan_start(void)
 {
@@ -919,6 +1013,7 @@ void scan_start(void)
         int err;
 
         num_devices_found = 0;
+        memset(ble_scanned_device, 0, sizeof(ble_scanned_device));
 
         struct bt_le_scan_param param = {
                 .type       = BT_HCI_LE_SCAN_ACTIVE,
@@ -927,25 +1022,42 @@ void scan_start(void)
                 .window     = BT_GAP_SCAN_FAST_WINDOW
         };
 
-        //Stop the auto connect
-        bt_conn_create_auto_stop();
+        if(!discover_in_progress)
+        {
 
-        err = bt_le_scan_start(&param, device_found);
-        if (err) {
-                printk("Bluetooth set active scan failed "
-                       "(err %d)\n", err);
-        } else {
-                printk("Bluetooth active scan enabled\n");
+              //Stop the auto connect
+              bt_conn_create_auto_stop();
 
-                k_timer_start(&scan_timer, K_SECONDS(5), 0);      //TODO: Get scan timeout from scan message
+              err = bt_le_scan_start(&param, device_found);
+              if (err) {
+                      LOG_ERR("Bluetooth set active scan failed "
+                              "(err %d)\n", err);
+              } else {
+                      LOG_INF("Bluetooth active scan enabled");
+
+                      k_timer_start(&scan_timer, K_SECONDS(5), 0);      //TODO: Get scan timeout from scan message
+              }
+
+              scan_waiting = false;
+        }
+        else
+        {
+              LOG_INF("Scan waiting... Discover in progress");
+              scan_waiting = true;
+
         }
 
+}
+
+void ble_clear_discover_inprogress()
+{
+    discover_in_progress = false;
 }
 
 static void ble_ready(int err)
 {
 
-        printk("Bluetooth ready\n");
+        LOG_INF("Bluetooth ready");
 
         bt_conn_cb_register(&conn_callbacks);
 
@@ -955,10 +1067,10 @@ void ble_init(void)
 {
         int err;
 
-        printk("Initializing Bluetooth..\n");
+        LOG_INF("Initializing Bluetooth..");
         err = bt_enable(ble_ready);
         if (err) {
-                printk("Bluetooth init failed (err %d)\n", err);
+                LOG_ERR("Bluetooth init failed (err %d)", err);
                 return;
         }
 
