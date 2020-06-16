@@ -43,6 +43,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <ctype.h>
+#include <zephyr.h>
 
 #ifdef ENABLE_LOCALES
 #include <locale.h>

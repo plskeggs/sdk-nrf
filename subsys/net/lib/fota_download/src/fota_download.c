@@ -65,7 +65,7 @@ int set_peripheral_update()
 {
 
   update_peripheral = true;
-
+  return 0;
 }
 
 
@@ -89,13 +89,14 @@ static int download_client_callback(const struct download_client_evt *event)
                 /*Send to the peripheral fota handler here?*/
                 //Not sure what we care about. Should just chunk and write to GATT?
                 //Step 1: set Flag
+#ifdef CONFIG_APR_GATEWAY
                 if(update_peripheral)
                 {
                   peripheral_dfu(event->fragment.buf,
                                   event->fragment.len);
                   return err;
                 }
-
+#endif
 
 		if (first_fragment) {
 			err = download_client_file_size_get(&dlc, &file_size);

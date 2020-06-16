@@ -87,6 +87,7 @@ LOG_MODULE_REGISTER(nrf_cloud_transport, CONFIG_NRF_CLOUD_LOG_LEVEL);
 #define NCT_SHADOW_GET AWS "%s/shadow/get"
 #define NCT_SHADOW_GET_LEN (AWS_LEN + NRF_CLOUD_CLIENT_ID_LEN + 11)
 
+#ifdef CONFIG_APR_GATEWAY
 #define NCT_C2G_TOPIC_LEN (66)              //TODO: Get length instead of hard code: 64 + 1 for \0;
 char nct_c2g_topic_buf[NCT_C2G_TOPIC_LEN];
 
@@ -94,6 +95,7 @@ char nct_c2g_topic_buf[NCT_C2G_TOPIC_LEN];
 char nct_g2c_topic_buf[NCT_G2C_TOPIC_LEN];
 
 char gateway_id[NRF_CLOUD_CLIENT_ID_LEN];
+#endif
 
 /* Buffer for keeping the client_id + \0 */
 static char client_id_buf[NRF_CLOUD_CLIENT_ID_LEN + 1];
@@ -245,6 +247,7 @@ static u32_t dc_send(const struct nct_dc_data *dc_data, u8_t qos)
 	return mqtt_publish(&nct.client, &publish);
 }
 
+#ifdef CONFIG_APR_GATEWAY
 void shadow_publish(char* buffer)
 {
 
@@ -330,6 +333,7 @@ void set_gw_tx_topic(char* topic_prefix)
       LOG_INF("Gateway TX Topic: %s", nct_g2c_topic_buf);
 
 }
+#endif
 
 static bool strings_compare(const char *s1, const char *s2, u32_t s1_len,
 			    u32_t s2_len)
@@ -338,6 +342,7 @@ static bool strings_compare(const char *s1, const char *s2, u32_t s1_len,
 }
 
 
+#ifdef CONFIG_APR_GATEWAY
 /* Verify if the topic is a gw topic or not. */
 static bool gw_topic_match(const struct mqtt_topic *topic)
 {
@@ -351,6 +356,7 @@ static bool gw_topic_match(const struct mqtt_topic *topic)
         }
 	return false;
 }
+#endif
 
 /* Verify if the topic is a control channel topic or not. */
 static bool control_channel_topic_match(u32_t list_id,
@@ -390,8 +396,10 @@ static int nct_client_id_get(char *id)
 	int bytes_written;
 	int bytes_read;
 	char imei_buf[NRF_IMEI_LEN + 1];
+#ifdef CONFIG_APR_GATEWAY
         char psk_buf[100];
         char err_msg[5];
+#endif
 	int ret;
 
 	at_socket_fd = nrf_socket(NRF_AF_LTE, 0, NRF_PROTO_AT);
@@ -690,9 +698,11 @@ static void nct_mqtt_evt_handler(struct mqtt_client *const mqtt_client,
 	struct nct_evt evt = { .status = _mqtt_evt->result };
 	struct nct_cc_data cc;
 	struct nct_dc_data dc;
+#ifdef CONFIG_APR_GATEWAY
         struct nct_gw_data gw;
-	bool event_notify = false;
         bool gateway_notify = false;
+#endif
+	bool event_notify = false;
 
 #if defined(CONFIG_AWS_FOTA)
 	err = aws_fota_mqtt_evt_handler(mqtt_client, _mqtt_evt);
@@ -728,7 +738,9 @@ static void nct_mqtt_evt_handler(struct mqtt_client *const mqtt_client,
 		int err = publish_get_payload(mqtt_client,
 					      p->message.payload.len);
 
+#ifdef CONFIG_APR_GATEWAY
                 LOG_DBG("publish payload: %s\n", nct.payload_buf);
+#endif
 
 		if (err < 0) {
 			LOG_ERR("publish_get_payload: failed %d", err);
@@ -750,13 +762,14 @@ static void nct_mqtt_evt_handler(struct mqtt_client *const mqtt_client,
 			evt.param.cc = &cc;
 			event_notify = true;
 
+#ifdef CONFIG_APR_GATEWAY
 		}else if (gw_topic_match(&p->message.topic)) {
 
 			gw.id = p->message_id;
 			gw.data.ptr = nct.payload_buf;
 			gw.data.len = p->message.payload.len;
                         gateway_notify = true;
-
+#endif
                 } else {
 			/* Try to match it with one of the data topics. */
 			dc.id = p->message_id;
