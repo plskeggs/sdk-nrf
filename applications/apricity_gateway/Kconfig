@@ -4,7 +4,15 @@
 # SPDX-License-Identifier: LicenseRef-BSD-5-Clause-Nordic
 #
 
-menu "Application sample"
+menu "Apricity Gateway"
+
+config APPLICATION_WORKQUEUE_STACK_SIZE
+	int "Application workqueue stack size"
+	default 2048
+
+config APPLICATION_WORKQUEUE_PRIORITY
+	int "Application workqueue priority"
+	default SYSTEM_WORKQUEUE_PRIORITY
 
 choice
 	prompt "GPS device"
@@ -48,6 +56,17 @@ config GPS_DEV_NAME
 
 endif
 
+config MQTT_KEEPALIVE
+	int
+	default 1200
+
+config CLOUD_WAIT_DURATION
+	int "Cloud connection acknowledge wait duration"
+	default 30
+	help
+	    How long the device should wait for a CONNACK
+	    event from the cloud.
+
 choice
 	prompt "nRF Cloud user association"
 	default CLOUD_UA_BUTTONS
@@ -73,6 +92,18 @@ config CLOUD_UA_CONSOLE
 
 endchoice
 
+config CLOUD_FOTA_APP
+	bool "Enable firmware over-the-air upgrades for application"
+	depends on AWS_FOTA
+	depends on DFU_TARGET_MCUBOOT
+	default y
+
+config CLOUD_FOTA_MODEM
+	bool "Enable firmware over-the-air upgrades for modem"
+	depends on AWS_FOTA
+	depends on DFU_TARGET_MODEM
+	default y
+
 config DEVICE_ID
 	string "Device ID"
 	default "REPLACE_ME"
@@ -85,6 +116,7 @@ config APR_GATEWAY
   help
     Defines if gateway
 	
+
 endmenu
 
 menu "Zephyr Kernel"

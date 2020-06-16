@@ -17,9 +17,11 @@ set(spm_CONF_FILE
   ${CMAKE_CURRENT_LIST_DIR}/child_secure_partition_manager.conf
   )
   
-include(../ncs/nrf/cmake/boilerplate.cmake)
+include($ENV{ZEPHYR_BASE}/../nrf/cmake/boilerplate.cmake)
 include($ENV{ZEPHYR_BASE}/cmake/app/boilerplate.cmake NO_POLICY_SCOPE)
 project(apricity-gateway)
+zephyr_compile_definitions(PROJECT_NAME=${PROJECT_NAME})
+zephyr_compile_definitions(_POSIX_C_SOURCE=200809L)
 
 # NORDIC SDK APP START
 target_sources(app PRIVATE src/main.c)
