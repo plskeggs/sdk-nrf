@@ -92,8 +92,9 @@ static int download_client_callback(const struct download_client_evt *event)
 #ifdef CONFIG_APR_GATEWAY
                 if(update_peripheral)
                 {
-                  peripheral_dfu(event->fragment.buf,
-                                  event->fragment.len);
+                  //peripheral_dfu(event->fragment.buf,
+                  //                event->fragment.len);
+		err = 0;
                   return err;
                 }
 #endif
