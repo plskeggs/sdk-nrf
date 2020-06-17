@@ -37,7 +37,11 @@
 
 
 #include <logging/log.h>
+#if !defined(CONFIG_NRF91_SOCKET_SEND_SPLIT_LARGE_BLOCKS)
+LOG_MODULE_REGISTER(apricity_gateway_certs, CONFIG_APRICITY_GATEWAY_LOG_LEVEL);
+#else
 LOG_MODULE_REGISTER(apricity_gateway, CONFIG_APRICITY_GATEWAY_LOG_LEVEL);
+#endif
 
 #define CALIBRATION_PRESS_DURATION 	K_SECONDS(5)
 #define CLOUD_CONNACK_WAIT_DURATION	K_SECONDS(CONFIG_CLOUD_WAIT_DURATION)
@@ -592,7 +596,7 @@ void main(void)
 {
 	int ret;
 
-	LOG_INF("Gateway started");
+	LOG_INF("Gateway started; main.c changed: %s %s", __DATE__, __TIME__);
 
         ble_init();
 
