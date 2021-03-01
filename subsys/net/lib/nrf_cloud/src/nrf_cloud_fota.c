@@ -843,6 +843,7 @@ static int start_job(struct nrf_cloud_fota_job *const job)
 	return ret;
 }
 
+extern uint32_t heap_stats(bool print);
 static void cleanup_job(struct nrf_cloud_fota_job *const job)
 {
 	__ASSERT_NO_MSG(job != NULL);
@@ -854,6 +855,7 @@ static void cleanup_job(struct nrf_cloud_fota_job *const job)
 	}
 	memset(job, 0, sizeof(*job));
 	job->info.type = NRF_CLOUD_FOTA_TYPE__INVALID;
+	heap_stats(true);
 }
 
 static int publish(const struct mqtt_publish_param *const pub)
