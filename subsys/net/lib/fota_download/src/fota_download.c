@@ -314,6 +314,8 @@ int fota_download_start(const char *host, const char *file, int sec_tag,
 	}
 
 #endif /* CONFIG_TRUSTED_EXECUTION_NONSECURE */
+	LOG_INF("selected s%d", s0_active ? 0 : 1);
+	LOG_INF("original path: %s", log_strdup(file_buf));
 
 	err = dfu_ctx_mcuboot_set_b1_file(file_buf, s0_active, &update);
 	if (err != 0) {
