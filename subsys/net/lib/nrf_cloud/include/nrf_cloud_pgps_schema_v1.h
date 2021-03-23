@@ -27,15 +27,13 @@ extern "C" {
 
 #define NRF_CLOUD_PGPS_NUM_SV 				(32U)
 
-struct nrf_cloud_pgps_ephemeris {
-	enum nrf_cloud_agps_type ephemeris_type;
-	struct nrf_cloud_agps_ephemeris ephemeris;
-} __packed;
-
-struct nrf_cloud_gpgs_prediction {
-	enum nrf_cloud_agps_type time_and_tow_type;
+struct nrf_cloud_pgps_prediction {
+	uint8_t time_and_tow_type;
+	uint16_t time_and_tow_count;
 	struct nrf_cloud_agps_system_time time_and_tow;
-	struct nrf_cloud_pgps_ephemeris ephemerii[NRF_CLOUD_PGPS_NUM_SV];
+	uint8_t ephemeris_type;
+	uint16_t ephemeris_count;
+	struct nrf_cloud_agps_ephemeris ephemerii[NRF_CLOUD_PGPS_NUM_SV];
 } __packed;
 
 struct nrf_cloud_pgps_header {
