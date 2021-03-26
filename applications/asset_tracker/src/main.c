@@ -25,6 +25,9 @@
 #if defined(CONFIG_NRF_CLOUD_AGPS)
 #include <net/nrf_cloud_agps.h>
 #endif
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+#include <net/nrf_cloud_pgps.h>
+#endif
 
 #if defined(CONFIG_LWM2M_CARRIER)
 #include <lwm2m_carrier.h>
@@ -420,6 +423,26 @@ static void send_agps_request(struct k_work *work)
 
 	LOG_INF("A-GPS request sent");
 #endif /* defined(CONFIG_AGPS) */
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+	int err;
+	struct nrf_cloud_pgps_prediction *prediction;
+
+	err = nrf_cloud_find_prediction(&prediction);
+	if (err < 0) {
+		/* maybe this should be done on a schedule separately: */
+		err = nrf_cloud_pgps_init();
+		if (err) {
+			LOG_ERR("Unable to request PGPS: %d", err);
+		}
+	} else {
+		LOG_INF("Found PGPS prediction");
+		err = nrf_cloud_pgps_inject(&prediction, NULL0;
+		if (err) {
+			LOG_ERR("Unable to send prediction to modem: %d", err);
+		}
+	}
+	
+#endif
 }
 
 void cloud_connect_error_handler(enum cloud_connect_result err)
@@ -1473,6 +1496,13 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 #endif /* defined(CONFIG_AGPS_SINGLE_CELL_ONLY) */
 		LOG_INF("A-GPS data processed");
 #endif /* defined(CONFIG_AGPS) */
+#if defined(CONFIG_PGPS)
+		err = nrf_cloud_pgps_process(evt->data.msg.buf,
+					    evt->data.msg.len);
+		if (err) {
+			LOG_ERR("Error processing PGPS packet: %d", err);
+		}
+#endif
 		break;
 	}
 	case CLOUD_EVT_PAIR_REQUEST:
@@ -1515,6 +1545,14 @@ void connection_evt_handler(const struct cloud_event *const evt)
 #if !IS_ENABLED(CONFIG_MQTT_CLEAN_SESSION)
 		LOG_INF("Persistent Sessions = %u",
 			evt->data.persistent_session);
+#endif
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+		int err;
+
+		err = nrf_cloud_pgps_init();
+		if (err) {
+			LOG_ERR("Error from PGPS init: %d", err);
+		}
 #endif
 	} else if (evt->type == CLOUD_EVT_DISCONNECTED) {
 		int32_t connect_wait_s = CONFIG_CLOUD_CONNECT_RETRY_DELAY;
