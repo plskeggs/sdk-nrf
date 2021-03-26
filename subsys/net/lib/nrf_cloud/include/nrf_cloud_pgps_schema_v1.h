@@ -25,7 +25,7 @@ extern "C" {
 #define NRF_CLOUD_PGPS_BIN_COUNT_OFFSET			(1)
 #define NRF_CLOUD_PGPS_BIN_COUNT_SIZE			(2)
 
-#define NRF_CLOUD_PGPS_NUM_SV 				(32U)
+#define NRF_CLOUD_PGPS_NUM_SV				(32U)
 
 struct nrf_cloud_pgps_prediction {
 	uint8_t time_and_tow_type;

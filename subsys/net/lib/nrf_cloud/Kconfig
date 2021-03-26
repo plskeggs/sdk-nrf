@@ -200,6 +200,7 @@ config NRF_CLOUD_PGPS
 	depends on NRF9160_GPS
 	depends on MODEM_INFO
 	depends on MODEM_INFO_ADD_NETWORK
+	select STREAM_FLASH_ERASE
 
 if NRF_CLOUD_PGPS
 
@@ -215,12 +216,12 @@ config NRF_CLOUD_PGPS_PREDICTION_PERIOD
 
 config NRF_CLOUD_PGPS_NUM_PREDICTIONS
 	int "Desired number of predictions."
-       range 1 48
+	range 1 48
 	default 42
 	help
 	  This value, together with the prediction period, determines the
-         overall timespan that the GPS predictions will cover. The
-         default values allows for one week of predictions.
+	  overall timespan that the GPS predictions will cover. The
+	  default values allows for one week of predictions.
 
 module = NRF_CLOUD_PGPS
 module-str = nRF Cloud P-GPS
