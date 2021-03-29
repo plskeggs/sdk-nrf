@@ -48,6 +48,24 @@ struct nrf_cloud_pgps_header {
 	struct nrf_cloud_pgps_prediction predictions[];
 } __packed;
 
+struct agps_header {
+	uint8_t type;
+	uint16_t count;
+	uint8_t data[];
+} __packed;
+
+struct pgps_sys_time {
+	uint8_t type;
+	uint16_t count;
+	struct nrf_cloud_agps_system_time time;
+} __packed;
+
+struct pgps_location {
+	uint8_t type;
+	uint16_t count;
+	struct nrf_cloud_agps_location location;
+} __packed;
+
 #ifdef __cplusplus
 }
 #endif

@@ -75,8 +75,11 @@ static struct nrf_cloud_pgps_header *pgps_storage =
 static struct stream_flash_ctx stream;
 static uint8_t write_buf[4096];
 
-/* todo: get the correct value from somewhere */
+/* todo: get the correct values from somewhere */
 static int gps_leap_seconds = GPS_TO_UTC_LEAP_SECONDS;
+static int32_t latitude;
+static int32_t longitude;
+
 static uint16_t end_gps_day;
 static uint16_t end_gps_time_of_day;
 
@@ -158,6 +161,20 @@ static int validate_prediction(struct nrf_cloud_pgps_prediction *p,
 	if ((p->ephemeris_type != NRF_CLOUD_AGPS_EPHEMERIDES) ||
 	    (p->ephemeris_count != NRF_CLOUD_PGPS_NUM_SV)) {
 		err = -EINVAL;
+	}
+
+	if (exact) {
+		uint32_t expected_sentinel;
+		uint32_t stored_sentinel;
+
+		expected_sentinel = gps_day_time_to_sec(gps_day, gps_time_of_day);
+		stored_sentinel = *((uint32_t *)p++);
+		if (expected_sentinel != stored_sentinel) {
+			LOG_ERR("prediction at %p has stored_sentinel:0x%08X, "
+				"expected:0x%08X", p, stored_sentinel,
+				expected_sentinel);
+			err = -EINVAL;
+		}
 	}
 	return err;
 }
@@ -241,44 +258,6 @@ static cJSON *json_create_req_obj(const char *const app_id,
 
 	return resp_obj;
 }
-
-#if defined(CONFIG_PGPS_INCLUDE_MODEM_INFO)
-static int json_format_data_obj(cJSON *const data_obj,
-	const struct modem_param_info *const modem_info)
-{
-	__ASSERT_NO_MSG(data_obj != NULL);
-	__ASSERT_NO_MSG(modem_info != NULL);
-
-	if (!cJSON_AddNumberToObject(data_obj, PGPS_JSON_MCC_KEY,
-		modem_info->network.mcc.value) ||
-	    !cJSON_AddNumberToObject(data_obj, PGPS_JSON_MNC_KEY,
-		modem_info->network.mnc.value) ||
-	    !cJSON_AddNumberToObject(data_obj, PGPS_JSON_AREA_CODE_KEY,
-		modem_info->network.area_code.value) ||
-	    !cJSON_AddNumberToObject(data_obj, PGPS_JSON_CELL_ID_KEY,
-		(uint32_t)modem_info->network.cellid_dec) ||
-	    !cJSON_AddNumberToObject(data_obj, PGPS_JSON_PHYCID_KEY, 0)) {
-		return -ENOMEM;
-	}
-
-	return 0;
-}
-
-static int json_add_modem_info(cJSON *const data_obj)
-{
-	__ASSERT_NO_MSG(data_obj != NULL);
-
-	struct modem_param_info modem_info = {0};
-	int err;
-
-	err = get_modem_info(&modem_info);
-	if (err) {
-		return err;
-	}
-
-	return json_format_data_obj(data_obj, &modem_info);
-}
-#endif
 
 static int json_send_to_cloud(cJSON *const pgps_request)
 {
@@ -396,89 +375,6 @@ int nrf_cloud_pgps_request_all(void)
 	return nrf_cloud_pgps_request(&request);
 }
 
-static int copy_ephemeris(nrf_gnss_pgps_data_ephemeris_t *dst,
-			  struct nrf_cloud_apgs_element *src)
-{
-	if ((src == NULL) || (dst == NULL)) {
-		return -EINVAL;
-	}
-
-	dst->sv_id	= src->ephemeris->sv_id;
-	dst->health	= src->ephemeris->health;
-	dst->iodc	= src->ephemeris->iodc;
-	dst->toc	= src->ephemeris->toc;
-	dst->af2	= src->ephemeris->af2;
-	dst->af1	= src->ephemeris->af1;
-	dst->af0	= src->ephemeris->af0;
-	dst->tgd	= src->ephemeris->tgd;
-	dst->ura	= src->ephemeris->ura;
-	dst->fit_int	= src->ephemeris->fit_int;
-	dst->toe	= src->ephemeris->toe;
-	dst->w		= src->ephemeris->w;
-	dst->delta_n	= src->ephemeris->delta_n;
-	dst->m0		= src->ephemeris->m0;
-	dst->omega_dot	= src->ephemeris->omega_dot;
-	dst->e		= src->ephemeris->e;
-	dst->idot	= src->ephemeris->idot;
-	dst->sqrt_a	= src->ephemeris->sqrt_a;
-	dst->i0		= src->ephemeris->i0;
-	dst->omega0	= src->ephemeris->omega0;
-	dst->crs	= src->ephemeris->crs;
-	dst->cis	= src->ephemeris->cis;
-	dst->cus	= src->ephemeris->cus;
-	dst->crc	= src->ephemeris->crc;
-	dst->cic	= src->ephemeris->cic;
-	dst->cuc	= src->ephemeris->cuc;
-
-	return 0;
-}
-
-static int copy_location(nrf_gnss_pgps_data_location_t *dst,
-			 struct nrf_cloud_apgs_element *src)
-{
-	if ((src == NULL) || (dst == NULL)) {
-		return -EINVAL;
-	}
-
-	dst->latitude		= src->location->latitude;
-	dst->longitude		= src->location->longitude;
-	dst->altitude		= src->location->altitude;
-	dst->unc_semimajor	= src->location->unc_semimajor;
-	dst->unc_semiminor	= src->location->unc_semiminor;
-	dst->orientation_major	= src->location->orientation_major;
-	dst->unc_altitude	= src->location->unc_altitude;
-	dst->confidence		= src->location->confidence;
-
-	return 0;
-}
-
-static int copy_time_and_tow(nrf_gnss_pgps_data_system_time_and_sv_tow_t *dst,
-			     struct nrf_cloud_apgs_element *src)
-{
-	if ((src == NULL) || (dst == NULL)) {
-		return -EINVAL;
-	}
-
-	dst->date_day		= src->time_and_tow->date_day;
-	dst->time_full_s	= src->time_and_tow->time_full_s;
-	dst->time_frac_ms	= src->time_and_tow->time_frac_ms;
-	dst->sv_mask		= src->time_and_tow->sv_mask;
-
-	if (src->time_and_tow->sv_mask == 0U) {
-		LOG_DBG("SW TOW mask is zero, not copying TOW array");
-		memset(dst->sv_tow, 0, sizeof(dst->sv_tow));
-
-		return 0;
-	}
-
-	for (size_t i = 0; i < NRF_CLOUD_AGPS_MAX_SV_TOW; i++) {
-		dst->sv_tow[i].flags = src->time_and_tow->sv_tow[i].flags;
-		dst->sv_tow[i].tlm = src->time_and_tow->sv_tow[i].tlm;
-	}
-
-	return 0;
-}
-
 static size_t get_next_pgps_element(struct nrf_cloud_apgs_element *element,
 				    const char *buf)
 {
@@ -557,21 +453,94 @@ static int store_prediction_header(struct nrf_cloud_pgps_header *header)
 	return err;
 }
 
-static int store_prediction(struct nrf_cloud_pgps_prediction *p, bool flush)
+static int store_prediction(struct nrf_cloud_pgps_prediction *p, bool last,
+			    uint32_t sentinel)
 {
 	int err;
 
+	/* create unique value for this set of predictions, to be stored
+	 * right after the final prediction
+	 */
+
 	err = stream_flash_buffered_write(&stream, (uint8_t *)p,
-					  sizeof(*p), flush);
+					  sizeof(*p), false);
 	if (err) {
 		LOG_ERR("Error writing pgps prediction: %d", err);
+	}
+	if (last) {
+		err = stream_flash_buffered_write(&stream, sentinel,
+						  sizeof(sentinel), true);
 	}
 	return err;
 }
 
 int nrf_cloud_pgps_inject(struct nrf_cloud_pgps_prediction *p, const int *socket)
 {
+	struct pgps_sys_time sys_time;
+	struct pgps_location location;
+	uint16_t day;
+	uint32_t sec;
+	int err;
+	int ret = 0;
 
+	/* start with time this prediction starts */
+	sys_time.type = NRF_CLOUD_AGPS_GPS_SYSTEM_CLOCK;
+	sys_time.count = 1;
+	sys_time.time.date_day = p->time_and_tow.date_day;
+	sys_time.time.time_full_s = p->time_and_tow.time_full_s;
+	sys_time.time.time_frac_ms = 0;
+	sys_time.time.sv_mask = 0;
+
+	/* use current time if available */
+	err = nrf_cloud_pgps_get_time(NULL, &day, &sec);
+	if (!err) {
+		sys_time.time.date_day = day;
+		sys_time.time.time_full_s = sec;
+		/* it is ok to ignore this err in the function return below */
+	}
+
+	/* send time */
+	err = nrf_cloud_agps_process((const char *)&sys_time,
+				     sizeof(sys_time) - sizeof(sys_time.time.sv_tow),
+				     socket);
+	if (err) {
+		LOG_ERR("Error injecting PGPS sys_time (%u, %u): %d",
+			sys_time.time.date_day, sys_time.time.time_full_s,
+			err);
+		ret = err;
+	}
+
+	location.type = NRF_CLOUD_AGPS_LOCATION;
+	location.count = 1;
+	location.location.latitude = latitude;
+	location.location.longitude = longitude;
+	location.location.altitude = 0;
+	location.location.unc_semimajor = 0;
+	location.location.unc_semiminor = 0;
+	location.location.orientation_major = 0;
+	location.location.unc_altitude = 0xFF; /* tell modem it is invalid */
+	location.location.confidence = 0;
+
+	/* send location */
+	err = nrf_cloud_agps_process((const char *)&location, sizeof(location),
+				     socket);
+	if (err) {
+		LOG_ERR("Error injecting PGPS location (%u, %u): %d",
+			location.location.latitude, location.location.longitude,
+			err);
+		ret = err;
+	}
+
+	/* send ephemerii */
+	err = nrf_cloud_agps_process((const char *)&p->ephemeris_type,
+				     sizeof(p->ephemeris_type) +
+				     sizeof(p->ephemeris_count) +
+				     sizeof(p->ephemerii), socket);
+	if (err) {
+		LOG_ERR("Error injecting ephermerii: %d", err);
+		ret = err;
+	}
+	return ret; /* just return last non-zero error, if any */
 }
 
 int nrf_cloud_pgps_process(const char *buf, size_t buf_len)
@@ -596,34 +565,34 @@ int nrf_cloud_pgps_process(const char *buf, size_t buf_len)
 		pcount = 0;
 		prev_expected_sec = expected_sec = 0;
 
+		header = (struct nrf_cloud_pgps_header *)buf;
+
+		if (header->schema_version != NRF_CLOUD_PGPS_BIN_SCHEMA_VERSION) {
+			LOG_ERR("Cannot parse schema version: %d",
+				header->schema_version);
+			state = PGPS_NONE;
+			return -EINVAL;
+		}
+		if (header->num_items != 1) {
+			LOG_ERR("num elements wrong: %u", header->num_elements);
+			state = PGPS_NONE;
+			return -EINVAL;
+		}
+
 		err = open_storage();
 		if (err) {
 			state = PGPS_NONE;
 			return err;
 		}
-	}
 
-	header = (struct nrf_cloud_pgps_header *)buf;
+		LOG_INF("Received PGPS data. Schema version:%u, type:%u, num:%u, "
+			"count:%u",
+			header->schema_version, header->array_type,
+			header->num_items, header->prediction_count);
+		LOG_INF("  size:%u, period (minutes):%u, GPS day:%u, GPS time:%u",
+			header->prediction_size, header->prediction_period_min,
+			header->gps_day, header->gps_time_of_day);
 
-	if (header->schema_version != NRF_CLOUD_PGPS_BIN_SCHEMA_VERSION) {
-		LOG_ERR("Cannot parse schema version: %d", header->schema_version);
-		state = PGPS_NONE;
-		return -EINVAL;
-	}
-	if (header->num_items != 1) {
-		LOG_ERR("num elements wrong: %u", header->num_elements);
-		state = PGPS_NONE;
-		return -EINVAL;
-	}
-
-	LOG_INF("Received PGPS data. Schema version:%u, type:%u, num:%u, count:%u",
-		header->schema_version, header->array_type, header->num_items,
-		header->prediction_count);
-	LOG_INF("  size:%u, period (minutes):%u, GPS day:%u, GPS time:%u",
-		header->prediction_size, header->prediction_period_min,
-		header->gps_day, header->gps_time_of_day);
-
-	if (first) {
 		expected_count = header->prediction_count;
 		LOG_INF("Storing PGPS header");
 		store_prediction_header(header);
@@ -631,9 +600,14 @@ int nrf_cloud_pgps_process(const char *buf, size_t buf_len)
 		start_sec = gps_day_time_to_sec(header->gps_day,
 						header->gps_time_of_day);
 		period_sec = header->prediction_period_min * SEC_PER_MIN;
+		expected_sec = start_sec;
+
+		p = (uint8_t *)&header->predictions[0];
+		buf_len -= sizeof(*header);
+	} else {
+		p = buf;
 	}
 
-	p = (uint8_t *)&header->predictions[0];
 	while (parsed_len < buf_len) {
 		struct agps_header *elem = (struct agps_header *)p;
 		size_t element_size = get_next_pgps_element(&element, p);
@@ -669,11 +643,15 @@ int nrf_cloud_pgps_process(const char *buf, size_t buf_len)
 		} else {
 			LOG_INF("Storing prediction %u for gps sec %ld",
 				pcount, gps_sec);
-			store_prediction(p, last);
+			store_prediction(p, last, gps_sec);
 			prev_expected_sec = expected_sec;
 			expected_sec += period_sec;
 			pcount++;
 		}
+	} else {
+		LOG_ERR("Parsing incomplete; aborting.");
+		state = PGPS_NONE;
+		return -EINVAL;
 	}
 
 	if (last) {
@@ -753,6 +731,7 @@ int nrf_cloud_pgps_init(void)
 		if (i < count) {
 			struct gps_pgps_request request;
 
+			LOG_INF("Requesting %u predictions...", count - i);
 			request.gps_day = gps_day;
 			request.gps_time_of_day;
 			request.prediction_count = count - i;
@@ -763,6 +742,7 @@ int nrf_cloud_pgps_init(void)
 			}
 		} else {
 			state = PGPS_READY;
+			LOG_INF("PGPS data is up to date.");
 		}
 	}
 	return err;
