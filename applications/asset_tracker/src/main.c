@@ -392,9 +392,9 @@ void cloud_error_handler(int err)
 static void send_agps_request(struct k_work *work)
 {
 	ARG_UNUSED(work);
+	int err;
 
 #if defined(CONFIG_AGPS)
-	int err;
 	static int64_t last_request_timestamp;
 
 #if defined(CONFIG_AGPS_SINGLE_CELL_ONLY)
@@ -424,7 +424,6 @@ static void send_agps_request(struct k_work *work)
 	LOG_INF("A-GPS request sent");
 #endif /* defined(CONFIG_AGPS) */
 #if defined(CONFIG_NRF_CLOUD_PGPS)
-	int err;
 	struct nrf_cloud_pgps_prediction *prediction;
 
 	err = nrf_cloud_find_prediction(&prediction);
@@ -436,7 +435,7 @@ static void send_agps_request(struct k_work *work)
 		}
 	} else {
 		LOG_INF("Found PGPS prediction");
-		err = nrf_cloud_pgps_inject(&prediction, NULL);
+		err = nrf_cloud_pgps_inject(prediction, NULL);
 		if (err) {
 			LOG_ERR("Unable to send prediction to modem: %d", err);
 		}
