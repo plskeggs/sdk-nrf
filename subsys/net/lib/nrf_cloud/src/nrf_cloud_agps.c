@@ -14,10 +14,13 @@
 #include <cJSON_os.h>
 #include <modem/modem_info.h>
 #include <net/nrf_cloud_agps.h>
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+#include <net/nrf_cloud_pgps.h>
+#endif
 
 #include <logging/log.h>
 
-LOG_MODULE_REGISTER(nrf_cloud_agps, CONFIG_NRF_CLOUD_AGPS_LOG_LEVEL);
+LOG_MODULE_REGISTER(nrf_cloud_agps, CONFIG_NRF_CLOUD_GPS_LOG_LEVEL);
 
 #include "nrf_cloud_transport.h"
 #include "nrf_cloud_agps_schema_v1.h"
@@ -46,7 +49,7 @@ LOG_MODULE_REGISTER(nrf_cloud_agps, CONFIG_NRF_CLOUD_AGPS_LOG_LEVEL);
 extern void agps_print(enum nrf_cloud_agps_type type, void *data);
 
 static int fd = -1;
-static bool agps_print_enabled;
+static bool agps_print_enabled = true;
 static const struct device *gps_dev;
 static bool json_initialized;
 
@@ -630,6 +633,9 @@ static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 	case NRF_CLOUD_AGPS_UTC_PARAMETERS: {
 		nrf_gnss_agps_data_utc_t utc;
 
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+		nrf_cloud_set_leap_seconds(utc.delta_tls);
+#endif
 		copy_utc(&utc, agps_data);
 		LOG_DBG("A-GPS type: NRF_CLOUD_AGPS_UTC_PARAMETERS");
 

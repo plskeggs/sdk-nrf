@@ -18,10 +18,11 @@
 #include <date_time.h>
 #include <net/nrf_cloud_agps.h>
 #include <net/nrf_cloud_pgps.h>
+#include <settings/settings.h>
 
 #include <logging/log.h>
 
-LOG_MODULE_REGISTER(nrf_cloud_pgps, CONFIG_NRF_CLOUD_PGPS_LOG_LEVEL);
+LOG_MODULE_REGISTER(nrf_cloud_pgps, CONFIG_NRF_CLOUD_GPS_LOG_LEVEL);
 
 #include "nrf_cloud_transport.h"
 #include "nrf_cloud_pgps_schema_v1.h"
@@ -80,13 +81,128 @@ static uint8_t write_buf[4096];
 
 /* todo: get the correct values from somewhere */
 static int gps_leap_seconds = GPS_TO_UTC_LEAP_SECONDS;
-static int32_t latitude;
-static int32_t longitude;
+
+struct gps_location {
+	int32_t latitude;
+	int32_t longitude;
+	int64_t gps_sec;
+};
+
+static struct gps_location saved_location;
 
 //static uint16_t end_gps_day;
 //static uint16_t end_gps_time_of_day;
 
 static bool json_initialized;
+
+static int nrf_cloud_pgps_get_time(int64_t *gps_sec, uint16_t *gps_day,
+			    uint32_t *gps_time_of_day);
+static int settings_set(const char *key, size_t len_rd,
+			settings_read_cb read_cb, void *cb_arg);
+
+#define SETTINGS_NAME "nrf_cloud_pgps"
+#define SETTINGS_KEY_LOCATION "location"
+#define SETTINGS_FULL_LOCATION SETTINGS_NAME "/" SETTINGS_KEY_LOCATION
+#define SETTINGS_KEY_LEAP_SEC "g2u_leap_sec"
+#define SETTINGS_FULL_LEAP_SEC SETTINGS_NAME "/" SETTINGS_KEY_LEAP_SEC
+
+SETTINGS_STATIC_HANDLER_DEFINE(nrf_cloud_pgps, SETTINGS_NAME, NULL, settings_set,
+			       NULL, NULL);
+
+static int settings_set(const char *key, size_t len_rd,
+			settings_read_cb read_cb, void *cb_arg)
+{
+	if (!key) {
+		return -EINVAL;
+	}
+
+	LOG_DBG("Settings key: %s, size: %d", log_strdup(key), len_rd);
+
+	if (!strncmp(key, SETTINGS_KEY_LOCATION,
+		     strlen(SETTINGS_KEY_LOCATION)) &&
+	    (len_rd == sizeof(saved_location))) {
+		if (read_cb(cb_arg, (void *)&saved_location, len_rd) == len_rd) {
+			LOG_DBG("Read location: %d, %d",
+				saved_location.latitude, saved_location.longitude);
+			return 0;
+		}
+	}
+	if (!strncmp(key, SETTINGS_KEY_LEAP_SEC,
+		     strlen(SETTINGS_KEY_LEAP_SEC)) &&
+	    (len_rd == sizeof(gps_leap_seconds))) {
+		if (read_cb(cb_arg, (void *)&gps_leap_seconds, len_rd) == len_rd) {
+			LOG_DBG("Read gps to utc leap seconds offset: %d",
+				gps_leap_seconds);
+			return 0;
+		}
+	}
+	return -ENOTSUP;
+}
+
+/* @TODO: consider rate-limiting these updates to reduce Flash wear */
+static int save_location(void)
+{
+	int ret = 0;
+
+	LOG_DBG("Saving location: %d, %d",
+		saved_location.latitude, saved_location.longitude);
+	ret = settings_save_one(SETTINGS_FULL_LOCATION,
+				&saved_location, sizeof(saved_location));
+	return ret;
+}
+
+static int save_leap_sec(void)
+{
+	int ret = 0;
+
+	LOG_DBG("Saving gps to utc leap seconds offset: %d", gps_leap_seconds);
+	ret = settings_save_one(SETTINGS_FULL_LEAP_SEC,
+				&gps_leap_seconds, sizeof(gps_leap_seconds));
+	return ret;
+}
+
+static int settings_init(void)
+{
+	int ret = 0;
+
+	ret = settings_subsys_init();
+	if (ret) {
+		LOG_ERR("Settings init failed: %d", ret);
+		return ret;
+	}
+	ret = settings_load_subtree(settings_handler_nrf_cloud_pgps.name);
+	if (ret) {
+		LOG_ERR("Cannot load settings: %d", ret);
+	}
+	return ret;
+}
+
+void nrf_cloud_set_location(double latitude, double longitude)
+{
+	int32_t lat;
+	int32_t lng;
+	int64_t sec;
+
+	lat = (int32_t)((latitude / 90.0) * (1 << 23));
+	lng = (int32_t)((longitude / 360.0) * (1 << 24));
+	if ((lat != saved_location.latitude) ||
+	    (lng != saved_location.longitude)) {
+		saved_location.latitude = lat;
+		saved_location.longitude = lng;
+		if (nrf_cloud_pgps_get_time(&sec, NULL, NULL)) {
+			saved_location.gps_sec = sec;
+		}
+		save_location();
+	}
+}
+
+void nrf_cloud_set_leap_seconds(int leap_seconds)
+{
+	if (gps_leap_seconds != leap_seconds) {
+		gps_leap_seconds = leap_seconds;
+		save_leap_sec();
+	}
+}
 
 int64_t nrf_cloud_utc_to_gps_sec(const int64_t utc, int16_t *gps_time_ms)
 {
@@ -122,7 +238,7 @@ static void gps_sec_to_day_time(int64_t gps_sec, uint16_t *gps_day,
 		(uint16_t)(*gps_day / DAYS_PER_WEEK));
 }
 
-int nrf_cloud_pgps_get_time(int64_t *gps_sec, uint16_t *gps_day,
+static int nrf_cloud_pgps_get_time(int64_t *gps_sec, uint16_t *gps_day,
 			    uint32_t *gps_time_of_day)
 {
 	int64_t now;
@@ -131,8 +247,10 @@ int nrf_cloud_pgps_get_time(int64_t *gps_sec, uint16_t *gps_day,
 	err = date_time_now(&now);
 	if (!err) {
 		now = nrf_cloud_utc_to_gps_sec(now, NULL);
-		gps_sec_to_day_time(now, gps_day, gps_time_of_day);
-		if (gps_sec) {
+		if ((gps_day != NULL) && (gps_time_of_day != NULL)) {
+			gps_sec_to_day_time(now, gps_day, gps_time_of_day);
+		}
+		if (gps_sec != NULL) {
 			*gps_sec = now;
 		}
 	}
@@ -222,8 +340,16 @@ int nrf_cloud_find_prediction(struct nrf_cloud_pgps_prediction **prediction)
 		 */
 		err = EAPPROXIMATE;
 		pnum = 0;
-		cur_gps_day = start_day;
-		cur_gps_time_of_day = start_time;
+		if (saved_location.gps_sec > start_sec) {
+			/* our most recently-stored location time is
+			 * better, so use that
+			 */
+			gps_sec_to_day_time(saved_location.gps_sec, &cur_gps_day,
+					    &cur_gps_time_of_day);
+		} else {
+			cur_gps_day = start_day;
+			cur_gps_time_of_day = start_time;
+		}
 	} else if (cur_gps_sec > end_sec) {
 		if ((cur_gps_sec - end_sec) > PGPS_MARGIN_SEC) {
 			err = -ETIMEDOUT;
@@ -331,19 +457,19 @@ int nrf_cloud_pgps_request(const struct gps_pgps_request *request)
 		goto cleanup;
 	}
 	ret = cJSON_AddNumberToObject(data_obj, PGPS_JSON_PRED_INT_MIN,
-				      request->prediction_count);
+				      request->prediction_period_min);
 	if (ret == NULL) {
 		LOG_ERR("Failed to add pred int min to P-GPS request %d", err);
 		goto cleanup;
 	}
 	ret = cJSON_AddNumberToObject(data_obj, PGPS_JSON_GPS_DAY,
-				      request->prediction_count);
+				      request->gps_day);
 	if (ret == NULL) {
 		LOG_ERR("Failed to add gps day to P-GPS request %d", err);
 		goto cleanup;
 	}
 	ret = cJSON_AddNumberToObject(data_obj, PGPS_JSON_GPS_TIME,
-				      request->prediction_count);
+				      request->gps_time_of_day);
 	if (ret == NULL) {
 		LOG_ERR("Failed to add gps time to P-GPS request %d", err);
 		goto cleanup;
@@ -517,8 +643,8 @@ int nrf_cloud_pgps_inject(struct nrf_cloud_pgps_prediction *p, const int *socket
 
 	location.type = NRF_CLOUD_AGPS_LOCATION;
 	location.count = 1;
-	location.location.latitude = latitude;
-	location.location.longitude = longitude;
+	location.location.latitude = saved_location.latitude;
+	location.location.longitude = saved_location.longitude;
 	location.location.altitude = 0;
 	location.location.unc_semimajor = 0;
 	location.location.unc_semiminor = 0;
@@ -670,6 +796,7 @@ int nrf_cloud_pgps_process(const char *buf, size_t buf_len)
 
 int nrf_cloud_pgps_init(void)
 {
+	settings_init();
 	state = PGPS_NONE;
 	int err = 0;
 

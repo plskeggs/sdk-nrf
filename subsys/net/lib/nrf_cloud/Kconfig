@@ -164,7 +164,7 @@ endif # NRF_CLOUD_FOTA
 menu "nRF Cloud A-GPS"
 
 config NRF_CLOUD_AGPS
-	bool "Enable nRF Cloud A-GPS"
+	bool "Enable nRF Cloud Assisted GPS"
 	depends on NRF9160_GPS
 	depends on MODEM_INFO
 	depends on MODEM_INFO_ADD_NETWORK
@@ -186,21 +186,18 @@ config NRF_CLOUD_AGPS_REQ_CELL_BASED_LOC
 	  When enabled, nRF Cloud will also send the location to the
 	  device.
 
-module = NRF_CLOUD_AGPS
-module-str = nRF Cloud A-GPS
-source "subsys/logging/Kconfig.template.log_config"
-
 endif # NRF_CLOUD_AGPS
 endmenu
 
 menu "nRF Cloud P-GPS"
 
 config NRF_CLOUD_PGPS
-	bool "Enable nRF Cloud P-GPS"
+	bool "Enable nRF Cloud Predicted GPS"
 	depends on NRF9160_GPS
 	depends on MODEM_INFO
 	depends on MODEM_INFO_ADD_NETWORK
 	select STREAM_FLASH_ERASE
+	select SETTINGS
 
 if NRF_CLOUD_PGPS
 
@@ -223,12 +220,17 @@ config NRF_CLOUD_PGPS_NUM_PREDICTIONS
 	  overall timespan that the GPS predictions will cover. The
 	  default values allows for one week of predictions.
 
-module = NRF_CLOUD_PGPS
-module-str = nRF Cloud P-GPS
-source "subsys/logging/Kconfig.template.log_config"
-
 endif # NRF_CLOUD_PGPS
 endmenu
+
+if NRF_CLOUD_AGPS || NRF_CLOUD_PGPS
+
+module = NRF_CLOUD_GPS
+module-str = nRF Cloud GPS Assistance
+source "subsys/logging/Kconfig.template.log_config"
+
+endif
+
 
 config NRF_CLOUD_CONNECTION_POLL_THREAD
 	bool "Poll cloud connection in a separate thread"
