@@ -709,6 +709,19 @@ static void gps_handler(const struct device *dev, struct gps_event *evt)
 	case GPS_EVT_PVT_FIX:
 		LOG_INF("GPS_EVT_PVT_FIX");
 		gps_time_set(&evt->pvt);
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+		nrf_cloud_set_location(evt->pvt.latitude, evt->pvt.longitude);
+#endif
+		LOG_INF("lat %f, lng %f, alt %f, acc %f, spd %f, hdg %f, pdop %f,"
+			" hdop %f, vdop %f, tdop %f, gdop %f",
+			evt->pvt.latitude, evt->pvt.longitude, evt->pvt.altitude,
+			evt->pvt.accuracy, evt->pvt.speed, evt->pvt.heading,
+			evt->pvt.pdop, evt->pvt.hdop, evt->pvt.vdop, evt->pvt.tdop,
+			evt->pvt.gdop);
+		LOG_INF("%u:%u:%u.%03u %u/%u/%u", evt->pvt.datetime.hour,
+			evt->pvt.datetime.minute, evt->pvt.datetime.seconds,
+			evt->pvt.datetime.ms, evt->pvt.datetime.day,
+			evt->pvt.datetime.month, evt->pvt.datetime.year);
 		break;
 	case GPS_EVT_NMEA:
 		/* Don't spam logs */
@@ -1347,6 +1360,14 @@ void sensors_start(void)
 			break;
 		}
 		set_gps_enable(start_gps);
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+		int err;
+
+		err = nrf_cloud_pgps_init();
+		if (err) {
+			LOG_ERR("Error from PGPS init: %d", err);
+		}
+#endif
 		started = true;
 	}
 }
@@ -1495,7 +1516,7 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 #endif /* defined(CONFIG_AGPS_SINGLE_CELL_ONLY) */
 		LOG_INF("A-GPS data processed");
 #endif /* defined(CONFIG_AGPS) */
-#if defined(CONFIG_PGPS)
+#if defined(CONFIG_NRF_CLOUD_PGPS)
 		err = nrf_cloud_pgps_process(evt->data.msg.buf,
 					    evt->data.msg.len);
 		if (err) {
@@ -1544,14 +1565,6 @@ void connection_evt_handler(const struct cloud_event *const evt)
 #if !IS_ENABLED(CONFIG_MQTT_CLEAN_SESSION)
 		LOG_INF("Persistent Sessions = %u",
 			evt->data.persistent_session);
-#endif
-#if defined(CONFIG_NRF_CLOUD_PGPS)
-		int err;
-
-		err = nrf_cloud_pgps_init();
-		if (err) {
-			LOG_ERR("Error from PGPS init: %d", err);
-		}
 #endif
 	} else if (evt->type == CLOUD_EVT_DISCONNECTED) {
 		int32_t connect_wait_s = CONFIG_CLOUD_CONNECT_RETRY_DELAY;
