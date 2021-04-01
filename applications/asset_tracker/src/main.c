@@ -683,6 +683,7 @@ static void gps_time_set(struct gps_pvt *gps_data)
 
 static void gps_handler(const struct device *dev, struct gps_event *evt)
 {
+	static int num_sat_for_fix;
 	gps_last_active_time = k_uptime_get();
 
 	switch (evt->type) {
@@ -691,6 +692,7 @@ static void gps_handler(const struct device *dev, struct gps_event *evt)
 		gps_control_set_active(true);
 		ui_led_set_pattern(UI_LED_GPS_SEARCHING);
 		gps_last_search_start_time = k_uptime_get();
+		num_sat_for_fix = 0;
 		break;
 	case GPS_EVT_SEARCH_STOPPED:
 		LOG_INF("GPS_EVT_SEARCH_STOPPED");
@@ -722,6 +724,17 @@ static void gps_handler(const struct device *dev, struct gps_event *evt)
 			evt->pvt.datetime.minute, evt->pvt.datetime.seconds,
 			evt->pvt.datetime.ms, evt->pvt.datetime.day,
 			evt->pvt.datetime.month, evt->pvt.datetime.year);
+		num_sat_for_fix = 0;
+		for (int i = 0; i < 32; i++) {
+			if (evt->pvt.sv[i].in_fix) {
+				LOG_INF("%d. elv %d, azm %d, sig %d, cn0 %d", i,
+					evt->pvt.sv[i].elevation,
+					evt->pvt.sv[i].azimuth,
+					evt->pvt.sv[i].signal,
+					evt->pvt.sv[i].cn0);
+				num_sat_for_fix++;
+			}
+		}
 		break;
 	case GPS_EVT_NMEA:
 		/* Don't spam logs */
@@ -729,6 +742,9 @@ static void gps_handler(const struct device *dev, struct gps_event *evt)
 	case GPS_EVT_NMEA_FIX:
 		LOG_INF("Position fix with NMEA data");
 
+		if (num_sat_for_fix < 5) {
+			break;
+		}
 		memcpy(gps_data.buf, evt->nmea.buf, evt->nmea.len);
 		gps_data.len = evt->nmea.len;
 		gps_cloud_data.data.buf = gps_data.buf;
