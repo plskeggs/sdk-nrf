@@ -612,7 +612,7 @@ int nct_mqtt_connect(void)
 		nct.client.protocol_version = MQTT_VERSION_3_1_1;
 		nct.client.password = NULL;
 		nct.client.user_name = NULL;
-		nct.client.clean_session = persistent_session ? 0U : 1U;
+		nct.client.clean_session = 1U; // persistent_session ? 0U : 1U;
 		LOG_DBG("MQTT clean session flag: %u",
 			nct.client.clean_session);
 
@@ -1076,7 +1076,11 @@ void nct_dc_endpoint_get(struct nrf_cloud_data *const tx_endp,
 
 int nct_dc_connect(void)
 {
-	LOG_DBG("nct_dc_connect");
+	char buf[nct.dc_rx_endp.size + 1];
+
+	memcpy(buf, nct.dc_rx_endp.utf8, nct.dc_rx_endp.size);
+	buf[nct.dc_rx_endp.size] = '\0';
+	LOG_INF("nct_dc_connect: %s", log_strdup(buf));
 
 	struct mqtt_topic subscribe_topic = {
 		.topic = {

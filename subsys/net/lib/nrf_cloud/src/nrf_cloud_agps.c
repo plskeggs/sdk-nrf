@@ -633,10 +633,10 @@ static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 	case NRF_CLOUD_AGPS_UTC_PARAMETERS: {
 		nrf_gnss_agps_data_utc_t utc;
 
+		copy_utc(&utc, agps_data);
 #if defined(CONFIG_NRF_CLOUD_PGPS)
 		nrf_cloud_set_leap_seconds(utc.delta_tls);
 #endif
-		copy_utc(&utc, agps_data);
 		LOG_DBG("A-GPS type: NRF_CLOUD_AGPS_UTC_PARAMETERS");
 
 		return send_to_modem(&utc, sizeof(utc),
@@ -682,6 +682,10 @@ static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 		nrf_gnss_agps_data_location_t location = {0};
 
 		copy_location(&location, agps_data);
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+		nrf_cloud_set_location_normalized(location.latitude,
+						  location.longitude);
+#endif
 		LOG_DBG("A-GPS type: NRF_CLOUD_AGPS_LOCATION");
 
 		return send_to_modem(&location, sizeof(location),
