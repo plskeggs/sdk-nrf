@@ -32,17 +32,18 @@ struct nrf_cloud_pgps_system_time {
 	uint32_t time_full_s;
 	uint16_t time_frac_ms;
 	uint32_t sv_mask;
-	uint32_t pad;
+	uint32_t pad; /* placeholder where sv_tow[32] is for AGPS; not here though */
 } __packed;
 
 struct nrf_cloud_pgps_prediction {
 	uint8_t time_type;
 	uint16_t time_count;
 	struct nrf_cloud_pgps_system_time time;
+	int8_t schema_version;	/* not from cloud */
 	uint8_t ephemeris_type;
 	uint16_t ephemeris_count;
 	struct nrf_cloud_agps_ephemeris ephemerii[NRF_CLOUD_PGPS_NUM_SV];
-	uint32_t sentinel;
+	uint32_t sentinel;	/* not from cloud */
 } __packed;
 
 struct nrf_cloud_pgps_header {
@@ -64,12 +65,14 @@ struct agps_header {
 } __packed;
 
 struct pgps_sys_time {
+	uint8_t schema_version;
 	uint8_t type;
 	uint16_t count;
 	struct nrf_cloud_agps_system_time time;
 } __packed;
 
 struct pgps_location {
+	uint8_t schema_version;
 	uint8_t type;
 	uint16_t count;
 	struct nrf_cloud_agps_location location;

@@ -645,6 +645,14 @@ static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 	case NRF_CLOUD_AGPS_EPHEMERIDES: {
 		nrf_gnss_agps_data_ephemeris_t ephemeris;
 
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+		if (agps_data->ephemeris->health ==
+		    NRF_CLOUD_PGPS_EMPTY_EPHEM_HEALTH) {
+			LOG_DBG("Skipping empty ephemeris for sv %u",
+				agps_data->ephemeris->sv_id);
+			return 0;
+		}
+#endif
 		copy_ephemeris(&ephemeris, agps_data);
 		LOG_DBG("A-GPS type: NRF_CLOUD_AGPS_EPHEMERIDES");
 

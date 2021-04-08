@@ -1375,7 +1375,6 @@ void sensors_start(void)
 		default:
 			break;
 		}
-		set_gps_enable(start_gps);
 #if defined(CONFIG_NRF_CLOUD_PGPS)
 		int err;
 
@@ -1384,6 +1383,7 @@ void sensors_start(void)
 			LOG_ERR("Error from PGPS init: %d", err);
 		}
 #endif
+		set_gps_enable(start_gps);
 		started = true;
 	}
 }
