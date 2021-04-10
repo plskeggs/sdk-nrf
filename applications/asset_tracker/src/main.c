@@ -136,6 +136,9 @@ static motion_data_t last_motion_data = {
 	.orientation = MOTION_ORIENTATION_NOT_KNOWN,
 };
 #endif
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+static atomic_t pgps_need_assistance;
+#endif
 
 /* Variable to keep track of nRF cloud association state. */
 enum cloud_association_state {
@@ -429,12 +432,15 @@ static void send_agps_request(struct k_work *work)
 	err = nrf_cloud_find_prediction(&prediction);
 	if (err < 0) {
 		/* maybe this should be done on a schedule separately: */
+		LOG_INF("Prediction not found; requesting new ones");
+		pgps_need_assistance = true;
 		err = nrf_cloud_pgps_init();
 		if (err) {
 			LOG_ERR("Unable to request PGPS: %d", err);
 		}
 	} else {
 		LOG_INF("Found PGPS prediction");
+		pgps_need_assistance = false;
 		err = nrf_cloud_pgps_inject(prediction, NULL);
 		if (err) {
 			LOG_ERR("Unable to send prediction to modem: %d", err);
@@ -742,7 +748,7 @@ static void gps_handler(const struct device *dev, struct gps_event *evt)
 	case GPS_EVT_NMEA_FIX:
 		LOG_INF("Position fix with NMEA data");
 
-		if (num_sat_for_fix < 5) {
+		if (num_sat_for_fix < 4) {
 			break;
 		}
 		memcpy(gps_data.buf, evt->nmea.buf, evt->nmea.len);
@@ -1537,6 +1543,16 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 					    evt->data.msg.len);
 		if (err) {
 			LOG_ERR("Error processing PGPS packet: %d", err);
+		} else if (pgps_need_assistance) {
+			struct nrf_cloud_pgps_prediction *prediction;
+
+			err = nrf_cloud_find_prediction(&prediction);
+			if (err >= 0) {
+				pgps_need_assistance = false;
+				k_delayed_work_submit_to_queue(&application_work_q,
+							       &send_agps_request_work,
+							       K_SECONDS(1));
+			}
 		}
 #endif
 		break;
