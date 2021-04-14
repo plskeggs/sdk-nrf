@@ -39,7 +39,7 @@ struct nrf_cloud_pgps_prediction {
 	uint8_t time_type;
 	uint16_t time_count;
 	struct nrf_cloud_pgps_system_time time;
-	int8_t schema_version;	/* not from cloud */
+	uint8_t schema_version;	/* not from cloud */
 	uint8_t ephemeris_type;
 	uint16_t ephemeris_count;
 	struct nrf_cloud_agps_ephemeris ephemerii[NRF_CLOUD_PGPS_NUM_SV];
@@ -47,15 +47,15 @@ struct nrf_cloud_pgps_prediction {
 } __packed;
 
 struct nrf_cloud_pgps_header {
-	int8_t schema_version;
-	int8_t array_type;
-	int16_t num_items;
-	int16_t prediction_count;
-	int16_t prediction_size;
-	int16_t prediction_period_min;
+	uint8_t schema_version;
+	uint8_t array_type;
+	uint16_t num_items;
+	uint16_t prediction_count;
+	uint16_t prediction_size;
+	uint16_t prediction_period_min;
 	int16_t gps_day;
 	int32_t gps_time_of_day;
-	struct nrf_cloud_pgps_prediction predictions[];
+	/* struct nrf_cloud_pgps_prediction predictions[]; */
 } __packed;
 
 struct agps_header {
