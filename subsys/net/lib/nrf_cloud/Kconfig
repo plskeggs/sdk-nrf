@@ -220,6 +220,18 @@ config NRF_CLOUD_PGPS_NUM_PREDICTIONS
 	  overall timespan that the GPS predictions will cover. The
 	  default values allows for one week of predictions.
 
+config NRF_CLOUD_PGPS_DATA_OVER_MQTT
+	bool "Control whether data comes in MQTT packets, or HTTP"
+	default y
+	help
+	  If true, nRFCloud should be configured to send prediction data
+	  sets in one or more MQTT packets to the c2d topic, with the
+	  packet order indicated in the first byte.
+	  If false, nRFCloud should be configured to send a prediction
+	  download document to the c2d topic, which indicates the host
+	  and path to the file. The device will download the file over
+	  HTTP(S).
+
 endif # NRF_CLOUD_PGPS
 endmenu
 

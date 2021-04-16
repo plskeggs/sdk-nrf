@@ -46,6 +46,14 @@ struct nrf_cloud_pgps_prediction {
 	uint32_t sentinel;	/* not from cloud */
 } __packed;
 
+#define PGPS_PREDICTION_STORAGE_SIZE 2048
+#define PGPS_PREDICTION_PAD (PGPS_PREDICTION_STORAGE_SIZE - \
+		             sizeof(struct nrf_cloud_pgps_prediction))
+#define PGPS_SCHEMA_SIZE sizeof(((struct nrf_cloud_pgps_prediction *)0)->schema_version)
+#define PGPS_SENTINEL_SIZE sizeof(((struct nrf_cloud_pgps_prediction *)0)->sentinel)
+#define PGPS_PREDICTION_DL_SIZE (sizeof(struct nrf_cloud_pgps_prediction) - \
+				 PGPS_SCHEMA_SIZE - PGPS_SENTINEL_SIZE)
+
 struct nrf_cloud_pgps_header {
 	uint8_t schema_version;
 	uint8_t array_type;
