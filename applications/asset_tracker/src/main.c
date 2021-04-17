@@ -392,6 +392,21 @@ void cloud_error_handler(int err)
 	error_handler(ERROR_CLOUD, err);
 }
 
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+void pgps_handler(enum nrf_cloud_pgps_event event)
+{
+	if (!pgps_need_assistance) {
+		return;
+	}
+	LOG_INF("event: %d", event);
+	if ((event == PGPS_EVT_LOADING) || (event == PGPS_EVT_READY)) {
+		k_delayed_work_submit_to_queue(&application_work_q,
+					       &send_agps_request_work,
+					       K_SECONDS(1));
+	}
+}
+#endif
+
 static void send_agps_request(struct k_work *work)
 {
 	ARG_UNUSED(work);
@@ -429,24 +444,26 @@ static void send_agps_request(struct k_work *work)
 #if defined(CONFIG_NRF_CLOUD_PGPS)
 	struct nrf_cloud_pgps_prediction *prediction;
 
+	LOG_INF("Searching for prediction");
 	err = nrf_cloud_find_prediction(&prediction);
 	if (err < 0) {
 		/* maybe this should be done on a schedule separately: */
 		LOG_INF("Prediction not found; requesting new ones");
 		pgps_need_assistance = true;
-		err = nrf_cloud_pgps_init();
+		err = nrf_cloud_pgps_request_all();
 		if (err) {
-			LOG_ERR("Unable to request PGPS: %d", err);
+			LOG_ERR("Error while requesting pgps set: %d", err);
 		}
-	} else {
+	} else if (err == 0) {
 		LOG_INF("Found PGPS prediction");
 		pgps_need_assistance = false;
 		err = nrf_cloud_pgps_inject(prediction, &agps_request, NULL);
 		if (err) {
 			LOG_ERR("Unable to send prediction to modem: %d", err);
 		}
+	} else {
+		pgps_need_assistance = true;
 	}
-	
 #endif
 }
 
@@ -1384,7 +1401,7 @@ void sensors_start(void)
 #if defined(CONFIG_NRF_CLOUD_PGPS)
 		int err;
 
-		err = nrf_cloud_pgps_init();
+		err = nrf_cloud_pgps_init(pgps_handler);
 		if (err) {
 			LOG_ERR("Error from PGPS init: %d", err);
 		}
