@@ -461,6 +461,9 @@ static void send_agps_request(struct k_work *work)
 		if (err) {
 			LOG_ERR("Unable to send prediction to modem: %d", err);
 		}
+	} else if (err == -ENODATA) {
+		LOG_ERR("No valid PGPS data available");
+		pgps_need_assistance = false;
 	} else {
 		pgps_need_assistance = true;
 	}
@@ -1569,6 +1572,8 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 				k_delayed_work_submit_to_queue(&application_work_q,
 							       &send_agps_request_work,
 							       K_SECONDS(1));
+			} else if (err == -ENODATA) {
+				pgps_need_assistance = false;
 			}
 		}
 #endif
