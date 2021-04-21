@@ -296,6 +296,7 @@ static int client_connect(struct download_client *dl, const char *host,
 		}
 
 		if (dl->config.set_tls_hostname) {
+			LOG_DBG("using SNI for host %s", log_strdup(host));
 			err = socket_tls_hostname_set(*fd, host);
 			if (err) {
 				goto cleanup;

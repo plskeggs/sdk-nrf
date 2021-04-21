@@ -71,7 +71,10 @@ LOG_MODULE_REGISTER(nrf_cloud_pgps, CONFIG_NRF_CLOUD_GPS_LOG_LEVEL);
 #define PGPS_JSON_CELL_LOC_KEY_UNCERT	"uncertainty"
 #endif
 
-/* #define USE_TEST_GPS_DAY */
+#define RCV_ITEM_IDX_FILE_HOST 0
+#define RCV_ITEM_IDX_FILE_PATH 1
+
+#define USE_TEST_GPS_DAY 1
 #if defined(USE_TEST_GPS_DAY)
 static uint16_t test_gps_day;
 static uint8_t test_pnum_offset;
@@ -982,6 +985,7 @@ static int download_client_callback(const struct download_client_evt *event)
 			LOG_INF("Storing PGPS header");
 			header = (struct nrf_cloud_pgps_header *)buf;
 			cache_pgps_header(header);
+#if !defined(USE_TEST_GPS_DAY)
 			err = nrf_cloud_pgps_get_usable_time(&gps_sec, NULL, NULL);
 			if (!err) {
 				if ((index.start_sec <= gps_sec) &&
@@ -994,6 +998,7 @@ static int download_client_callback(const struct download_client_evt *event)
 					break;
 				}
 			}
+#endif
 			save_pgps_header(header);
 
 			len -= sizeof(*header);
@@ -1381,6 +1386,92 @@ static int consume_pgps_data(uint8_t pnum, const char *buf, size_t buf_len)
 	return 0;
 }
 
+#if !DATA_OVER_MQTT
+static int get_string_from_array(const cJSON *const array, const int index,
+				  char **string_out)
+{
+	__ASSERT_NO_MSG(string_out != NULL);
+
+	cJSON *item = cJSON_GetArrayItem(array, index);
+
+	if (!cJSON_IsString(item)) {
+		return -EINVAL;
+	}
+
+	*string_out = item->valuestring;
+
+	return 0;
+}
+
+static int get_number_from_array(const cJSON *const array, const int index,
+				  int *number_out)
+{
+	__ASSERT_NO_MSG(number_out != NULL);
+
+	cJSON *item = cJSON_GetArrayItem(array, index);
+
+	if (!cJSON_IsNumber(item)) {
+		return -EINVAL;
+	}
+
+	*number_out = item->valueint;
+
+	return 0;
+}
+
+static int parse_dl_info(char *host, size_t host_len,
+			 char *path, size_t path_len,
+			 const char *payload_in, size_t len)
+{
+	if (!host || !path || !payload_in) {
+		return -EINVAL;
+	}
+
+	char *temp;
+	char *host_ptr = NULL;
+	char *path_ptr = NULL;
+	int err = -ENOMSG;
+	cJSON *array = cJSON_Parse(payload_in);
+
+	if (!array || !cJSON_IsArray(array)) {
+		LOG_ERR("Invalid JSON array");
+		err = -EINVAL;
+		goto cleanup;
+	}
+
+	temp = cJSON_PrintUnformatted(array);
+	if (temp) {
+		LOG_DBG("JSON array: %s", log_strdup(temp));
+		cJSON_FreeString(temp);
+	}
+
+	if (get_string_from_array(array, RCV_ITEM_IDX_FILE_HOST, &host_ptr) ||
+	    get_string_from_array(array, RCV_ITEM_IDX_FILE_PATH, &path_ptr)) {
+		/* || get_number_from_array(array, RCV_ITEM_IDX_FILE_SIZE - offset, &job_info->file_size)) { */
+		LOG_ERR("Error parsing info");
+		goto cleanup;
+	}
+
+	if (host_ptr && host_len) {
+		strncpy(host, host_ptr, host_len - 1);
+		host[host_len - 1] = '\0';
+		LOG_DBG("host: %s", log_strdup(host));
+	}
+	if (path_ptr && path_len) {
+		strncpy(path, path_ptr, path_len - 1);
+		path[path_len - 1] = '\0';
+		LOG_DBG("path: %s", log_strdup(path));
+	}
+	err = 0;
+
+cleanup:
+	if (array) {
+		cJSON_Delete(array);
+	}
+	return err;
+}
+#endif
+
 /* handle incoming MQTT packets */
 int nrf_cloud_pgps_process(const char *buf, size_t buf_len)
 {
@@ -1468,14 +1559,36 @@ int nrf_cloud_pgps_process(const char *buf, size_t buf_len)
 	return consume_pgps_data(pnum, buf, buf_len);
 
 #else
-	/* @TODO: parse job document... */
+	char host[128];
+	char path[64];
+
+	err = parse_dl_info(host, sizeof(host), path, sizeof(path), buf, buf_len);
+	if (err) {
+		return err;
+	}
 	index.dl_offset = 0;
 	ignore_packets = true;
+	int sec_tag = CONFIG_NRF_CLOUD_SEC_TAG;
 
-	return download_start("http://pgps.s3.amazonaws.com",
-			      "pgps-15071-7184.bin",
-			      -1, NULL,
-			      PGPS_PREDICTION_STORAGE_SIZE);
+	if (0 && (strncmp(host, "https", 5) == 0)) {
+		int i;
+		int len = strlen(host);
+
+		for (i = 4; i < len; i++) {
+			host[i] = host[i + 1];
+		}
+		sec_tag = -1;
+	}
+
+	strcpy(host, "http://pgps.s3.amazonaws.com");
+	strcpy(path, "pgps-15071-7184.bin");
+	sec_tag = -1;
+
+	//strcpy(host, "http://elivagar-main-pgpsbucketa08048f1-vx6xdqmwopxe.s3.amazonaws.com");
+	//strcpy(path, "15081-72000_15088-57600.bin");
+	return download_start(host, 
+			      path, 
+			      sec_tag, NULL, 1024/*PGPS_PREDICTION_STORAGE_SIZE*/);
 #endif
 }
 
