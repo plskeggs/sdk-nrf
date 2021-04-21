@@ -1412,7 +1412,7 @@ int nrf_cloud_pgps_process(const char *buf, size_t buf_len)
 			memset(index.predictions, 0, sizeof(index.predictions));
 		} else {
 			for (pnum = index.pnum_offset;
-			     pnum < index.expected_count; pnum++) {
+			     pnum < index.expected_count + index.pnum_offset; pnum++) {
 				index.predictions[pnum] = NULL;
 			}
 		}
