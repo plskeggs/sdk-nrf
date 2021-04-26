@@ -38,7 +38,8 @@ LOG_MODULE_REGISTER(nrf_cloud_pgps, CONFIG_NRF_CLOUD_GPS_LOG_LEVEL);
 #define USE_APPROXIMATE_EPHEMERIS 0
 #define USE_STALE_TIMESTAMP 0
 #define USE_TEST_GPS_DAY 0
-#define SEC_TAG 42 /* CONFIG_NRF_CLOUD_SEC_TAG */
+#define SEC_TAG CONFIG_NRF_CLOUD_SEC_TAG /* 42 */
+#define FRAGMENT_SIZE 1700 /* CONFIG_DOWNLOAD_CLIENT_BUF_SIZE */
 
 /* (6.1.1980 UTC - 1.1.1970 UTC) */
 #define GPS_TO_UNIX_UTC_OFFSET_SECONDS (315964800UL)
@@ -1628,7 +1629,8 @@ int nrf_cloud_pgps_process(const char *buf, size_t buf_len)
 		sec_tag = -1;
 	}
 
-	return download_start(host, path, sec_tag, NULL, PGPS_PREDICTION_STORAGE_SIZE);
+	return download_start(host, path, sec_tag, NULL, FRAGMENT_SIZE);
+			      /* PGPS_PREDICTION_STORAGE_SIZE); */
 #endif
 }
 
