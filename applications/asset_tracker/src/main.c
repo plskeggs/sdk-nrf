@@ -1544,8 +1544,15 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 					    evt->data.msg.len);
 		if (err) {
 			LOG_WRN("Data was not valid A-GPS data, err: %d", err);
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+			LOG_HEXDUMP_WRN(evt->data.msg.buf, evt->data.msg.len, "payload");
+		} else {
+			break; /* data was valid; no need to pass to PGPS */
+		}
+#else
 			break;
 		}
+#endif
 #if defined(CONFIG_AGPS_SINGLE_CELL_ONLY)
 		double lat, lon;
 
