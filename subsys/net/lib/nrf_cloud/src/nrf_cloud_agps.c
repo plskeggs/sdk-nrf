@@ -49,9 +49,10 @@ LOG_MODULE_REGISTER(nrf_cloud_agps, CONFIG_NRF_CLOUD_GPS_LOG_LEVEL);
 extern void agps_print(enum nrf_cloud_agps_type type, void *data);
 
 static int fd = -1;
-static bool agps_print_enabled = false;
+static bool agps_print_enabled;
 static const struct device *gps_dev;
 static bool json_initialized;
+static uint32_t agps_types_remaining;
 
 struct cell_based_loc_data {
 	enum cell_based_location_type type;
@@ -244,47 +245,50 @@ int nrf_cloud_agps_request(const struct gps_agps_request request)
 	return nrf_cloud_agps_request_cell_location(CELL_LOC_TYPE_SINGLE,
 		(bool)IS_ENABLED(CONFIG_NRF_CLOUD_AGPS_REQ_CELL_BASED_LOC));
 #endif
+	agps_types_remaining = 0;
 
 	if (request.utc) {
 		types[type_count] = GPS_AGPS_UTC_PARAMETERS;
-		type_count += 1;
+		agps_types_remaining |= types[type_count++];
 	}
 
+#if !defined(CONFIG_NRF_CLOUD_PGPS)
 	if (request.sv_mask_ephe) {
 		types[type_count] = GPS_AGPS_EPHEMERIDES;
-		type_count += 1;
+		agps_types_remaining |= types[type_count++];
 	}
 
 	if (request.sv_mask_alm) {
 		types[type_count] = GPS_AGPS_ALMANAC;
-		type_count += 1;
+		agps_types_remaining |= types[type_count++];
 	}
+#endif
 
 	if (request.klobuchar) {
 		types[type_count] = GPS_AGPS_KLOBUCHAR_CORRECTION;
-		type_count += 1;
+		agps_types_remaining |= types[type_count++];
 	}
 
 	if (request.nequick) {
 		types[type_count] = GPS_AGPS_NEQUICK_CORRECTION;
-		type_count += 1;
+		agps_types_remaining |= types[type_count++];
 	}
 
 	if (request.system_time_tow) {
 		types[type_count] = GPS_AGPS_GPS_TOWS;
 		type_count += 1;
 		types[type_count] = GPS_AGPS_GPS_SYSTEM_CLOCK_AND_TOWS;
-		type_count += 1;
+		agps_types_remaining |= types[type_count++];
 	}
 
 	if (request.position) {
 		types[type_count] = GPS_AGPS_LOCATION;
-		type_count += 1;
+		agps_types_remaining |= types[type_count++];
 	}
 
 	if (request.integrity) {
 		types[type_count] = GPS_AGPS_INTEGRITY;
-		type_count += 1;
+		agps_types_remaining |= types[type_count++];
 	}
 
 	if (type_count == 0) {
@@ -633,6 +637,8 @@ static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 	case NRF_CLOUD_AGPS_UTC_PARAMETERS: {
 		nrf_gnss_agps_data_utc_t utc;
 
+		agps_types_remaining &= ~GPS_AGPS_UTC_PARAMETERS;
+
 		copy_utc(&utc, agps_data);
 #if defined(CONFIG_NRF_CLOUD_PGPS)
 		nrf_cloud_set_leap_seconds(utc.delta_tls);
@@ -645,6 +651,7 @@ static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 	case NRF_CLOUD_AGPS_EPHEMERIDES: {
 		nrf_gnss_agps_data_ephemeris_t ephemeris;
 
+		agps_types_remaining &= ~GPS_AGPS_EPHEMERIDES;
 #if defined(CONFIG_NRF_CLOUD_PGPS)
 		if (agps_data->ephemeris->health ==
 		    NRF_CLOUD_PGPS_EMPTY_EPHEM_HEALTH) {
@@ -662,6 +669,7 @@ static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 	case NRF_CLOUD_AGPS_ALMANAC: {
 		nrf_gnss_agps_data_almanac_t almanac;
 
+		agps_types_remaining &= ~GPS_AGPS_ALMANAC;
 		copy_almanac(&almanac, agps_data);
 		LOG_DBG("A-GPS type: NRF_CLOUD_AGPS_ALMANAC");
 
@@ -671,6 +679,7 @@ static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 	case NRF_CLOUD_AGPS_KLOBUCHAR_CORRECTION: {
 		nrf_gnss_agps_data_klobuchar_t klobuchar;
 
+		agps_types_remaining &= ~GPS_AGPS_KLOBUCHAR_CORRECTION;
 		copy_klobuchar(&klobuchar, agps_data);
 		LOG_DBG("A-GPS type: NRF_CLOUD_AGPS_KLOBUCHAR_CORRECTION");
 
@@ -680,6 +689,7 @@ static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 	case NRF_CLOUD_AGPS_GPS_SYSTEM_CLOCK: {
 		nrf_gnss_agps_data_system_time_and_sv_tow_t time_and_tow;
 
+		agps_types_remaining &= ~GPS_AGPS_GPS_SYSTEM_CLOCK_AND_TOWS;
 		copy_time_and_tow(&time_and_tow, agps_data);
 		LOG_DBG("A-GPS type: NRF_CLOUD_AGPS_GPS_SYSTEM_CLOCK");
 
@@ -689,6 +699,7 @@ static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 	case NRF_CLOUD_AGPS_LOCATION: {
 		nrf_gnss_agps_data_location_t location = {0};
 
+		agps_types_remaining &= ~GPS_AGPS_LOCATION;
 		copy_location(&location, agps_data);
 #if defined(CONFIG_NRF_CLOUD_PGPS)
 		nrf_cloud_set_location_normalized(location.latitude,
@@ -702,6 +713,7 @@ static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 	case NRF_CLOUD_AGPS_INTEGRITY:
 		LOG_DBG("A-GPS type: NRF_CLOUD_AGPS_INTEGRITY");
 
+		agps_types_remaining &= ~GPS_AGPS_INTEGRITY;
 		return send_to_modem(agps_data->integrity,
 				     sizeof(agps_data->integrity),
 				     NRF_GNSS_AGPS_INTEGRITY);
@@ -929,3 +941,9 @@ int nrf_cloud_agps_process(const char *buf, size_t buf_len, const int *socket)
 
 	return 0;
 }
+
+bool nrf_cloud_agps_in_progress(void)
+{
+	return (agps_types_remaining != 0);
+}
+

@@ -31,7 +31,7 @@ LOG_MODULE_REGISTER(nrf_cloud_pgps, CONFIG_NRF_CLOUD_GPS_LOG_LEVEL);
 #include "nrf_cloud_transport.h"
 #include "nrf_cloud_pgps_schema_v1.h"
 
-#define TEST_INTERRUPTED 1 /* set to 1 to test interrupted downloads */
+#define TEST_INTERRUPTED 0 /* set to 1 to test interrupted downloads */
 #define INTERRUPTED_PNUM 5
 
 #define REPLACE_OLDEST 1
@@ -208,7 +208,7 @@ static int settings_set(const char *key, size_t len_rd,
 		     strlen(SETTINGS_KEY_LOCATION)) &&
 	    (len_rd == sizeof(saved_location))) {
 		if (read_cb(cb_arg, (void *)&saved_location, len_rd) == len_rd) {
-			LOG_DBG("Read location:%d, %dl gps sec:%lld",
+			LOG_DBG("Read location:%d, %d, gps sec:%lld",
 				saved_location.latitude, saved_location.longitude,
 				saved_location.gps_sec);
 			return 0;
@@ -860,6 +860,13 @@ int nrf_cloud_pgps_inject(struct nrf_cloud_pgps_prediction *p,
 	int err;
 	int ret = 0;
 
+
+	if (nrf_cloud_agps_in_progress()) {
+		/* we will get more accurate data from AGPS for these */
+		request->system_time_tow = 0;
+		request->position = 0;
+	}
+
 	if (request->system_time_tow) {
 		struct pgps_sys_time sys_time;
 		uint16_t day;
@@ -914,7 +921,7 @@ int nrf_cloud_pgps_inject(struct nrf_cloud_pgps_prediction *p,
 		location.location.unc_altitude = 0xFF; /* tell modem it is invalid */
 		location.location.confidence = 0;
 
-		LOG_INF("GPS unit needs position. Injecting lat:%u, lng:%u",
+		LOG_INF("GPS unit needs position. Injecting lat:%d, lng:%d",
 			saved_location.latitude,
 			saved_location.longitude);
 		/* send location */
@@ -922,7 +929,7 @@ int nrf_cloud_pgps_inject(struct nrf_cloud_pgps_prediction *p,
 		err = nrf_cloud_agps_process((const char *)&location, sizeof(location),
 					     socket);
 		if (err) {
-			LOG_ERR("Error injecting PGPS location (%u, %u): %d",
+			LOG_ERR("Error injecting PGPS location (%d, %d): %d",
 				location.location.latitude, location.location.longitude,
 				err);
 			ret = err;

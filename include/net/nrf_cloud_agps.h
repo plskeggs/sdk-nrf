@@ -73,6 +73,12 @@ int nrf_cloud_agps_get_last_cell_location(double *const lat,
  */
 int nrf_cloud_agps_process(const char *buf, size_t buf_len, const int *socket);
 
+/**@brief Determine if AGPS data has been requested but not yet received.
+ *
+ * @return true if waiting for data; false if not waiting, or request failed.
+ */
+bool nrf_cloud_agps_in_progress(void);
+
 /** @} */
 
 #ifdef __cplusplus
