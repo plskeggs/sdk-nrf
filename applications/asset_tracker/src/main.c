@@ -454,8 +454,8 @@ static void send_agps_request(struct k_work *work)
 		if (err) {
 			LOG_ERR("Error while requesting pgps set: %d", err);
 		}
-	} else if (err == 0) {
-		LOG_INF("Found PGPS prediction");
+	} else if ((err >= 0) && (err < CONFIG_NRF_CLOUD_PGPS_NUM_PREDICTIONS)) {
+		LOG_INF("Found PGPS prediction %d", err);
 		pgps_need_assistance = false;
 		err = nrf_cloud_pgps_inject(prediction, &agps_request, NULL);
 		if (err) {
@@ -737,7 +737,8 @@ static void gps_handler(const struct device *dev, struct gps_event *evt)
 	case GPS_EVT_PVT_FIX:
 		LOG_INF("GPS_EVT_PVT_FIX");
 		gps_time_set(&evt->pvt);
-#if defined(CONFIG_NRF_CLOUD_PGPS)
+#if defined(CONFIG_NRF_CLOUD_PGPS) && defined(CONFIG_PGPS_STORE_LOCATION)
+		LOG_INF("Storing location");
 		nrf_cloud_set_location(evt->pvt.latitude, evt->pvt.longitude);
 #endif
 		LOG_INF("lat %f, lng %f, alt %f, acc %f, spd %f, hdg %f, pdop %f,"
