@@ -49,7 +49,7 @@ LOG_MODULE_REGISTER(nrf_cloud_agps, CONFIG_NRF_CLOUD_GPS_LOG_LEVEL);
 extern void agps_print(enum nrf_cloud_agps_type type, void *data);
 
 static int fd = -1;
-static bool agps_print_enabled = true;
+static bool agps_print_enabled = false;
 static const struct device *gps_dev;
 static bool json_initialized;
 
