@@ -52,7 +52,7 @@ static int fd = -1;
 static bool agps_print_enabled;
 static const struct device *gps_dev;
 static bool json_initialized;
-static uint32_t agps_types_remaining;
+static struct gps_agps_request processed;
 
 struct cell_based_loc_data {
 	enum cell_based_location_type type;
@@ -245,50 +245,50 @@ int nrf_cloud_agps_request(const struct gps_agps_request request)
 	return nrf_cloud_agps_request_cell_location(CELL_LOC_TYPE_SINGLE,
 		(bool)IS_ENABLED(CONFIG_NRF_CLOUD_AGPS_REQ_CELL_BASED_LOC));
 #endif
-	agps_types_remaining = 0;
+	memset(&processed, 0, sizeof(processed));
 
 	if (request.utc) {
 		types[type_count] = GPS_AGPS_UTC_PARAMETERS;
-		agps_types_remaining |= types[type_count++];
+		type_count++;
 	}
 
 #if !defined(CONFIG_NRF_CLOUD_PGPS)
 	if (request.sv_mask_ephe) {
 		types[type_count] = GPS_AGPS_EPHEMERIDES;
-		agps_types_remaining |= types[type_count++];
+		type_count++;
 	}
 
 	if (request.sv_mask_alm) {
 		types[type_count] = GPS_AGPS_ALMANAC;
-		agps_types_remaining |= types[type_count++];
+		type_count++;
 	}
 #endif
 
 	if (request.klobuchar) {
 		types[type_count] = GPS_AGPS_KLOBUCHAR_CORRECTION;
-		agps_types_remaining |= types[type_count++];
+		type_count++;
 	}
 
 	if (request.nequick) {
 		types[type_count] = GPS_AGPS_NEQUICK_CORRECTION;
-		agps_types_remaining |= types[type_count++];
+		type_count++;
 	}
 
 	if (request.system_time_tow) {
 		types[type_count] = GPS_AGPS_GPS_TOWS;
 		type_count += 1;
 		types[type_count] = GPS_AGPS_GPS_SYSTEM_CLOCK_AND_TOWS;
-		agps_types_remaining |= types[type_count++];
+		type_count++;
 	}
 
 	if (request.position) {
 		types[type_count] = GPS_AGPS_LOCATION;
-		agps_types_remaining |= types[type_count++];
+		type_count++;
 	}
 
 	if (request.integrity) {
 		types[type_count] = GPS_AGPS_INTEGRITY;
-		agps_types_remaining |= types[type_count++];
+		type_count++;
 	}
 
 	if (type_count == 0) {
@@ -637,8 +637,7 @@ static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 	case NRF_CLOUD_AGPS_UTC_PARAMETERS: {
 		nrf_gnss_agps_data_utc_t utc;
 
-		agps_types_remaining &= ~GPS_AGPS_UTC_PARAMETERS;
-
+		processed.utc = true;
 		copy_utc(&utc, agps_data);
 #if defined(CONFIG_NRF_CLOUD_PGPS)
 		nrf_cloud_set_leap_seconds(utc.delta_tls);
@@ -651,7 +650,7 @@ static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 	case NRF_CLOUD_AGPS_EPHEMERIDES: {
 		nrf_gnss_agps_data_ephemeris_t ephemeris;
 
-		agps_types_remaining &= ~GPS_AGPS_EPHEMERIDES;
+		processed.sv_mask_ephe |= (1 << (agps_data->ephemeris->sv_id - 1));
 #if defined(CONFIG_NRF_CLOUD_PGPS)
 		if (agps_data->ephemeris->health ==
 		    NRF_CLOUD_PGPS_EMPTY_EPHEM_HEALTH) {
@@ -669,7 +668,7 @@ static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 	case NRF_CLOUD_AGPS_ALMANAC: {
 		nrf_gnss_agps_data_almanac_t almanac;
 
-		agps_types_remaining &= ~GPS_AGPS_ALMANAC;
+		processed.sv_mask_alm |= (1 << (agps_data->almanac->sv_id - 1));
 		copy_almanac(&almanac, agps_data);
 		LOG_DBG("A-GPS type: NRF_CLOUD_AGPS_ALMANAC");
 
@@ -679,7 +678,7 @@ static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 	case NRF_CLOUD_AGPS_KLOBUCHAR_CORRECTION: {
 		nrf_gnss_agps_data_klobuchar_t klobuchar;
 
-		agps_types_remaining &= ~GPS_AGPS_KLOBUCHAR_CORRECTION;
+		processed.klobuchar = true;
 		copy_klobuchar(&klobuchar, agps_data);
 		LOG_DBG("A-GPS type: NRF_CLOUD_AGPS_KLOBUCHAR_CORRECTION");
 
@@ -689,7 +688,7 @@ static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 	case NRF_CLOUD_AGPS_GPS_SYSTEM_CLOCK: {
 		nrf_gnss_agps_data_system_time_and_sv_tow_t time_and_tow;
 
-		agps_types_remaining &= ~GPS_AGPS_GPS_SYSTEM_CLOCK_AND_TOWS;
+		processed.system_time_tow = true;
 		copy_time_and_tow(&time_and_tow, agps_data);
 		LOG_DBG("A-GPS type: NRF_CLOUD_AGPS_GPS_SYSTEM_CLOCK");
 
@@ -699,7 +698,7 @@ static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 	case NRF_CLOUD_AGPS_LOCATION: {
 		nrf_gnss_agps_data_location_t location = {0};
 
-		agps_types_remaining &= ~GPS_AGPS_LOCATION;
+		processed.position = true;
 		copy_location(&location, agps_data);
 #if defined(CONFIG_NRF_CLOUD_PGPS)
 		nrf_cloud_set_location_normalized(location.latitude,
@@ -713,7 +712,7 @@ static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 	case NRF_CLOUD_AGPS_INTEGRITY:
 		LOG_DBG("A-GPS type: NRF_CLOUD_AGPS_INTEGRITY");
 
-		agps_types_remaining &= ~GPS_AGPS_INTEGRITY;
+		processed.integrity = true;
 		return send_to_modem(agps_data->integrity,
 				     sizeof(agps_data->integrity),
 				     NRF_GNSS_AGPS_INTEGRITY);
@@ -942,8 +941,10 @@ int nrf_cloud_agps_process(const char *buf, size_t buf_len, const int *socket)
 	return 0;
 }
 
-bool nrf_cloud_agps_in_progress(void)
+void nrf_cloud_agps_processed(struct gps_agps_request *received_elements)
 {
-	return (agps_types_remaining != 0);
+	if (received_elements) {
+		memcpy(received_elements, &processed, sizeof(struct gps_agps_request));
+	}
 }
 
