@@ -44,7 +44,7 @@ LOG_MODULE_REGISTER(nrf_cloud_pgps, CONFIG_NRF_CLOUD_GPS_LOG_LEVEL);
 #define USE_STALE_TIMESTAMP 0
 #define USE_TEST_GPS_DAY 0
 #define SEC_TAG CONFIG_NRF_CLOUD_SEC_TAG /* 42 */
-#define FRAGMENT_SIZE 1700 /* CONFIG_DOWNLOAD_CLIENT_BUF_SIZE */
+#define FRAGMENT_SIZE 1700U /* CONFIG_DOWNLOAD_CLIENT_BUF_SIZE */
 
 /* (6.1.1980 UTC - 1.1.1970 UTC) */
 #define GPS_TO_UNIX_UTC_OFFSET_SECONDS (315964800UL)
@@ -555,7 +555,7 @@ static int validate_stored_predictions(uint16_t *first_bad_day,
 			break;
 		}
 		index.predictions[pnum] = pred;
-		p += 2048;
+		p += PGPS_PREDICTION_STORAGE_SIZE;
 		LOG_INF("Prediction num:%u, idx:%u, gps_day:%u, gps_time_of_day:%u",
 			pnum, i, gps_day, gps_time_of_day);
 	}
@@ -1437,7 +1437,7 @@ static int consume_pgps_data(uint8_t pnum, const char *buf, size_t buf_len)
 			LOG_ERR("Prediction did not include GPS day and time of day; ignoring");
 			LOG_HEXDUMP_DBG(prediction_ptr, buf_len, "bad data");
 		} else {
-			uint32_t offset = index.loading_count * 2048;
+			uint32_t offset = index.loading_count * PGPS_PREDICTION_STORAGE_SIZE;
 
 			LOG_INF("Storing prediction num:%u idx:%u for gps sec:%lld offset:%u\n",
 				pnum, index.loading_count, gps_sec, offset);
@@ -1595,9 +1595,12 @@ int nrf_cloud_pgps_process(const char *buf, size_t buf_len)
 		 * preinitialize the header with expected values
 		 */
 		if (!index.partial_request) {
-			index.header.prediction_count = CONFIG_NRF_CLOUD_PGPS_NUM_PREDICTIONS;
-			index.header.prediction_period_min = CONFIG_NRF_CLOUD_PGPS_PREDICTION_PERIOD;
-			index.period_sec = index.header.prediction_period_min * SEC_PER_MIN;
+			index.header.prediction_count =
+				CONFIG_NRF_CLOUD_PGPS_NUM_PREDICTIONS;
+			index.header.prediction_period_min =
+				CONFIG_NRF_CLOUD_PGPS_PREDICTION_PERIOD;
+			index.period_sec =
+				index.header.prediction_period_min * SEC_PER_MIN;
 			memset(index.predictions, 0, sizeof(index.predictions));
 		} else {
 			for (pnum = index.pnum_offset;
@@ -1610,7 +1613,8 @@ int nrf_cloud_pgps_process(const char *buf, size_t buf_len)
 		/* @TODO: make this retain new predictions and just replace
 		 * oldest ones
 		 */
-		err = open_storage(index.pnum_offset * 2048, index.partial_request);
+		err = open_storage(index.pnum_offset * PGPS_PREDICTION_STORAGE_SIZE,
+				   index.partial_request);
 		if (err) {
 			state = PGPS_NONE;
 			return err;
