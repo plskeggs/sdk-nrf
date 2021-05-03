@@ -75,6 +75,7 @@ struct nrf9160_gps_config {
 
 static int stop_gps(const struct device *dev, bool is_timeout);
 
+static uint64_t start_timestamp;
 static uint64_t fix_timestamp;
 
 static nrf_gnss_agps_data_type_t type_lookup_gps2socket[] = {
@@ -180,6 +181,10 @@ static void print_satellite_stats(nrf_gnss_data_frame_t *pvt_data)
 							n_unhealthy);
 	LOG_DBG("Seconds since last fix %lld",
 			(k_uptime_get() - fix_timestamp) / 1000);
+	if (fix_timestamp > start_timestamp) {
+		LOG_DBG("Seconds for this fix %lld",
+				(fix_timestamp - start_timestamp) / 1000);
+	}
 }
 
 static void notify_event(const struct device *dev, struct gps_event *evt)
@@ -336,6 +341,7 @@ wait:
 				atomic_set(&drv_data->timeout_occurred, 0);
 				evt.type = GPS_EVT_SEARCH_STARTED;
 				notify_event(dev, &evt);
+				start_timestamp = k_uptime_get();
 			}
 
 			has_fix = false;
