@@ -163,6 +163,7 @@ static struct k_delayed_work device_config_work;
 static struct k_delayed_work cloud_connect_work;
 static struct k_work device_status_work;
 static struct k_delayed_work send_agps_request_work;
+static struct k_delayed_work send_pgps_request_work;
 #if defined(CONFIG_MOTION)
 static struct k_work motion_data_send_work;
 #endif
@@ -392,27 +393,12 @@ void cloud_error_handler(int err)
 	error_handler(ERROR_CLOUD, err);
 }
 
-#if defined(CONFIG_NRF_CLOUD_PGPS)
-void pgps_handler(enum nrf_cloud_pgps_event event)
-{
-	if (!pgps_need_assistance) {
-		return;
-	}
-	LOG_INF("event: %d", event);
-	if ((event == PGPS_EVT_LOADING) || (event == PGPS_EVT_READY)) {
-		k_delayed_work_submit_to_queue(&application_work_q,
-					       &send_agps_request_work,
-					       K_SECONDS(1));
-	}
-}
-#endif
-
 static void send_agps_request(struct k_work *work)
 {
 	ARG_UNUSED(work);
-	int err;
 
 #if defined(CONFIG_AGPS)
+	int err;
 	static int64_t last_request_timestamp;
 
 #if defined(CONFIG_AGPS_SINGLE_CELL_ONLY)
@@ -441,14 +427,35 @@ static void send_agps_request(struct k_work *work)
 
 	LOG_INF("A-GPS request sent");
 #endif /* defined(CONFIG_AGPS) */
+}
+
 #if defined(CONFIG_NRF_CLOUD_PGPS)
+void pgps_handler(enum nrf_cloud_pgps_event event)
+{
+	if (!pgps_need_assistance) {
+		/* we already provided assistance; done */
+		return;
+	}
+	/* GPS unit asked for it, but we didn't have it; check now */
+	LOG_INF("event: %d", event);
+	if ((event == PGPS_EVT_LOADING) || (event == PGPS_EVT_READY)) {
+		k_delayed_work_submit_to_queue(&application_work_q,
+					       &send_pgps_request_work,
+					       K_MSEC(100));
+	}
+}
+#endif
+
+static void send_pgps_request(struct k_work *work)
+{
+	ARG_UNUSED(work);
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+	int err;
 	struct nrf_cloud_pgps_prediction *prediction;
 
 	LOG_INF("Searching for prediction");
 	err = nrf_cloud_find_prediction(&prediction);
 	if (err < 0) {
-		/* maybe this should be done on a schedule separately: */
-		LOG_INF("Prediction not found; requesting new ones");
 		pgps_need_assistance = true;
 		err = nrf_cloud_pgps_request_all();
 		if (err) {
@@ -812,9 +819,16 @@ static void gps_handler(const struct device *dev, struct gps_event *evt)
 		 * dependent corner-case where the request would not be sent.
 		 */
 		memcpy(&agps_request, &evt->agps_request, sizeof(agps_request));
+#if defined(CONFIG_AGPS)
 		k_delayed_work_submit_to_queue(&application_work_q,
 					       &send_agps_request_work,
 					       K_SECONDS(1));
+#endif
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+		k_delayed_work_submit_to_queue(&application_work_q,
+					       &send_pgps_request_work,
+					       K_SECONDS(3));
+#endif
 		break;
 	case GPS_EVT_ERROR:
 		LOG_INF("GPS_EVT_ERROR\n");
@@ -1542,14 +1556,13 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 #if defined(CONFIG_AGPS)
 		err = gps_process_agps_data(evt->data.msg.buf,
 					    evt->data.msg.len);
-		if (err) {
-			LOG_WRN("Data was not valid A-GPS data, err: %d", err);
 #if defined(CONFIG_NRF_CLOUD_PGPS)
-			LOG_HEXDUMP_WRN(evt->data.msg.buf, evt->data.msg.len, "payload");
-		} else {
+		if (!err) {
 			break; /* data was valid; no need to pass to PGPS */
 		}
 #else
+		if (err) {
+			LOG_WRN("Data was not valid A-GPS data, err: %d", err);
 			break;
 		}
 #endif
@@ -1571,18 +1584,6 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 					    evt->data.msg.len);
 		if (err) {
 			LOG_ERR("Error processing PGPS packet: %d", err);
-		} else if (pgps_need_assistance) {
-			struct nrf_cloud_pgps_prediction *prediction;
-
-			err = nrf_cloud_find_prediction(&prediction);
-			if (err >= 0) {
-				pgps_need_assistance = false;
-				k_delayed_work_submit_to_queue(&application_work_q,
-							       &send_agps_request_work,
-							       K_SECONDS(1));
-			} else if (err == -ENODATA) {
-				pgps_need_assistance = false;
-			}
 		}
 #endif
 		break;
@@ -1737,6 +1738,7 @@ static void work_init(void)
 	k_work_init(&send_button_data_work, send_button_data_work_fn);
 	k_work_init(&send_modem_at_cmd_work, send_modem_at_cmd_work_fn);
 	k_delayed_work_init(&send_agps_request_work, send_agps_request);
+	k_delayed_work_init(&send_pgps_request_work, send_pgps_request);
 	k_delayed_work_init(&long_press_button_work, long_press_handler);
 	k_delayed_work_init(&cloud_reboot_work, cloud_reboot_handler);
 	k_delayed_work_init(&cycle_cloud_connection_work,
