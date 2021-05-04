@@ -17,7 +17,7 @@
 #if defined(CONFIG_NRF_CLOUD_PGPS)
 #include <net/nrf_cloud_pgps.h>
 #endif
-
+#include <stdio.h>
 #include <logging/log.h>
 
 LOG_MODULE_REGISTER(nrf_cloud_agps, CONFIG_NRF_CLOUD_GPS_LOG_LEVEL);
@@ -47,6 +47,8 @@ LOG_MODULE_REGISTER(nrf_cloud_agps, CONFIG_NRF_CLOUD_GPS_LOG_LEVEL);
 #define AGPS_JSON_CELL_LOC_KEY_UNCERT	"uncertainty"
 
 extern void agps_print(enum nrf_cloud_agps_type type, void *data);
+
+K_SEM_DEFINE(agps_injection_active, 1, 1);
 
 static int fd = -1;
 static bool agps_print_enabled;
@@ -660,7 +662,8 @@ static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 		}
 #endif
 		copy_ephemeris(&ephemeris, agps_data);
-		LOG_DBG("A-GPS type: NRF_CLOUD_AGPS_EPHEMERIDES");
+		LOG_DBG("A-GPS type: NRF_CLOUD_AGPS_EPHEMERIDES %d",
+			agps_data->ephemeris->sv_id);
 
 		return send_to_modem(&ephemeris, sizeof(ephemeris),
 				     NRF_GNSS_AGPS_EPHEMERIDES);
@@ -670,7 +673,8 @@ static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 
 		processed.sv_mask_alm |= (1 << (agps_data->almanac->sv_id - 1));
 		copy_almanac(&almanac, agps_data);
-		LOG_DBG("A-GPS type: NRF_CLOUD_AGPS_ALMANAC");
+		LOG_DBG("A-GPS type: NRF_CLOUD_AGPS_ALMANAC %d",
+			agps_data->almanac->sv_id);
 
 		return send_to_modem(&almanac, sizeof(almanac),
 				     NRF_GNSS_AGPS_ALMANAC);
@@ -853,6 +857,19 @@ int nrf_cloud_agps_get_last_cell_location(double *const lat,
 	return 0;
 }
 
+static const char *get_thread_name(void)
+{
+	static char pname[16];
+	k_tid_t tid = k_current_get();
+	const char *name = k_thread_name_get(tid);
+
+	if (name && strlen(name)) {
+		return name;
+	}
+	snprintf(pname, sizeof(pname), "%p", tid);
+	return pname;
+}
+
 int nrf_cloud_agps_process(const char *buf, size_t buf_len, const int *socket)
 {
 	int err;
@@ -875,6 +892,14 @@ int nrf_cloud_agps_process(const char *buf, size_t buf_len, const int *socket)
 	LOG_ERR("Single-cell only is enabled, ignoring binary A-GPS data");
 	return -EOPNOTSUPP;
 #endif
+
+	err = k_sem_take(&agps_injection_active, K_FOREVER);
+	if (err) {
+		LOG_ERR("agps injection already active.");
+		return err;
+	}
+	LOG_DBG("agps_injection_active LOCKED %s",
+		log_strdup(get_thread_name()));
 
 	version = buf[NRF_CLOUD_AGPS_BIN_SCHEMA_VERSION_INDEX];
 	parsed_len += NRF_CLOUD_AGPS_BIN_SCHEMA_VERSION_SIZE;
@@ -934,11 +959,15 @@ int nrf_cloud_agps_process(const char *buf, size_t buf_len, const int *socket)
 		err = agps_send_to_modem(&element);
 		if (err) {
 			LOG_ERR("Failed to send data to modem, error: %d", err);
-			return err;
+			break;
 		}
 	}
 
-	return 0;
+	LOG_DBG("agps_inject_active UNLOCKED %s",
+		log_strdup(get_thread_name()));
+	k_sem_give(&agps_injection_active);
+
+	return err;
 }
 
 void nrf_cloud_agps_processed(struct gps_agps_request *received_elements)
