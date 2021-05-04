@@ -182,8 +182,8 @@ static void print_satellite_stats(nrf_gnss_data_frame_t *pvt_data)
 	LOG_DBG("Seconds since last fix %lld",
 			(k_uptime_get() - fix_timestamp) / 1000);
 	if (fix_timestamp > start_timestamp) {
-		LOG_DBG("Seconds for this fix %lld",
-				(fix_timestamp - start_timestamp) / 1000);
+		LOG_DBG("Seconds for this fix %.3G",
+				(fix_timestamp - start_timestamp) / 1000.0);
 	}
 }
 
@@ -470,6 +470,7 @@ static int init_thread(const struct device *dev)
 			(k_thread_entry_t)gps_thread, (void *)dev, NULL, NULL,
 			K_PRIO_PREEMPT(CONFIG_NRF9160_GPS_THREAD_PRIORITY),
 			0, K_NO_WAIT);
+	k_thread_name_set(drv_data->thread_id, "nrf9160_gps_dvr");
 
 	return 0;
 }
