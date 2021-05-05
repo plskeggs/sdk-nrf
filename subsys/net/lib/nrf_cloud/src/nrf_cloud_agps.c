@@ -55,6 +55,7 @@ static bool agps_print_enabled;
 static const struct device *gps_dev;
 static bool json_initialized;
 static struct gps_agps_request processed;
+static atomic_t request_active;
 
 struct cell_based_loc_data {
 	enum cell_based_location_type type;
@@ -235,6 +236,11 @@ static int json_send_to_cloud(cJSON *const agps_request)
 	return err;
 }
 
+bool nrf_cloud_agps_request_in_progress(void)
+{
+	return request_active != 0;
+}
+
 int nrf_cloud_agps_request(const struct gps_agps_request request)
 {
 	int err;
@@ -247,6 +253,7 @@ int nrf_cloud_agps_request(const struct gps_agps_request request)
 	return nrf_cloud_agps_request_cell_location(CELL_LOC_TYPE_SINGLE,
 		(bool)IS_ENABLED(CONFIG_NRF_CLOUD_AGPS_REQ_CELL_BASED_LOC));
 #endif
+	request_active = 0;
 	memset(&processed, 0, sizeof(processed));
 
 	if (request.utc) {
@@ -321,6 +328,9 @@ int nrf_cloud_agps_request(const struct gps_agps_request request)
 	}
 
 	err = json_send_to_cloud(agps_req_obj);
+	if (!err) {
+		request_active = 1;
+	}
 
 cleanup:
 	cJSON_Delete(agps_req_obj);
@@ -635,6 +645,8 @@ static int copy_time_and_tow(nrf_gnss_agps_data_system_time_and_sv_tow_t *dst,
 
 static int agps_send_to_modem(struct nrf_cloud_apgs_element *agps_data)
 {
+	request_active = 0;
+
 	switch (agps_data->type) {
 	case NRF_CLOUD_AGPS_UTC_PARAMETERS: {
 		nrf_gnss_agps_data_utc_t utc;

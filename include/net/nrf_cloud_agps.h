@@ -79,6 +79,13 @@ int nrf_cloud_agps_process(const char *buf, size_t buf_len, const int *socket);
  */
 void nrf_cloud_agps_processed(struct gps_agps_request *received_elements);
 
+/**@brief Query whether A-GPS data has been request from cloud
+ *
+ * @return true if request is outstanding.
+ */
+bool nrf_cloud_agps_request_in_progress(void);
+
+
 /** @} */
 
 #ifdef __cplusplus
