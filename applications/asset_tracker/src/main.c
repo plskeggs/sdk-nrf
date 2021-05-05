@@ -393,29 +393,15 @@ void cloud_error_handler(int err)
 }
 
 #if defined(CONFIG_NRF_CLOUD_PGPS)
-static atomic_t pgps_need_assistance;
+static struct nrf_cloud_pgps_prediction *prediction;
 
-void schedule_pgps(void)
+void pgps_handler(enum nrf_cloud_pgps_event event,
+		  struct nrf_cloud_pgps_prediction *p)
 {
-	if (!nrf_cloud_pgps_loading()) {
-		LOG_INF("Scheduling PGPS");
-		k_delayed_work_submit_to_queue(&application_work_q,
-					       &manage_pgps_work,
-					       K_MSEC(100));
-	} else {
-		pgps_need_assistance = true;
-	}
-}
-
-void pgps_handler(enum nrf_cloud_pgps_event event)
-{
-	if (!pgps_need_assistance) {
-		return;
-	}
-
 	/* GPS unit asked for it, but we didn't have it; check now */
 	LOG_INF("event: %d", event);
-	if ((event == PGPS_EVT_STORING) || (event == PGPS_EVT_READY)) {
+	if (event == PGPS_EVT_AVAILABLE) {
+		prediction = p;
 		k_delayed_work_submit_to_queue(&application_work_q,
 					       &manage_pgps_work,
 					       K_MSEC(100));
@@ -426,31 +412,16 @@ static void manage_pgps(struct k_work *work)
 {
 	ARG_UNUSED(work);
 	int err;
-	int pnum;
-	struct nrf_cloud_pgps_prediction *prediction;
 
-	LOG_INF("Searching for prediction");
-	err = nrf_cloud_find_prediction(&prediction);
-	if (err < 0) {
-		pgps_need_assistance = true;
-		err = nrf_cloud_pgps_request_all();
-		if (err) {
-			LOG_ERR("Error while requesting pgps set: %d", err);
-		}
-	} else if ((err >= 0) && (err < CONFIG_NRF_CLOUD_PGPS_NUM_PREDICTIONS)) {
-		pnum = err;
-		LOG_INF("Found PGPS prediction %d", pnum);
-		pgps_need_assistance = false;
-		err = nrf_cloud_pgps_inject(prediction, &agps_request, NULL);
-		if (err) {
-			LOG_ERR("Unable to send prediction to modem: %d", err);
-		}
-		err = nrf_cloud_pgps_preemptive_updates(pnum);
-		if (err) {
-			LOG_ERR("Error requesting updates: %d", err);
-		}
-	} else {
-		pgps_need_assistance = true;
+	LOG_INF("Sending prediction to modem...");
+	err = nrf_cloud_pgps_inject(prediction, &agps_request, NULL);
+	if (err) {
+		LOG_ERR("Unable to send prediction to modem: %d", err);
+	}
+
+	err = nrf_cloud_pgps_preemptive_updates();
+	if (err) {
+		LOG_ERR("Error requesting updates: %d", err);
 	}
 }
 #endif
@@ -482,12 +453,16 @@ static void send_agps_request(struct k_work *work)
 		} else {
 			last_request_timestamp = k_uptime_get();
 			LOG_INF("A-GPS request sent");
-			return;
+#if defined(CONFIG_NRF_CLOUD_AGPS)
+			if (nrf_cloud_agps_request_in_progress()) {
+				return;
+			} /* else fall through so pgps can be used */
+#endif
 		}
 	}
 #if defined(CONFIG_NRF_CLOUD_PGPS)
 	/* AGPS data not expected, so move on to PGPS */
-	schedule_pgps();
+	nrf_cloud_notify_prediction();
 #endif
 #endif /* defined(CONFIG_AGPS) */
 }
@@ -838,6 +813,8 @@ static void gps_handler(const struct device *dev, struct gps_event *evt)
 		k_delayed_work_submit_to_queue(&application_work_q,
 					       &send_agps_request_work,
 					       K_SECONDS(1));
+#elif defined(CONFIG_NRF_CLOUD_PGPS)
+		nrf_cloud_notify_prediction();
 #endif
 		break;
 	case GPS_EVT_ERROR:
@@ -1569,8 +1546,12 @@ void cloud_event_handler(const struct cloud_backend *const backend,
 #if defined(CONFIG_NRF_CLOUD_PGPS)
 		if (!err) {
 			LOG_INF("A-GPS data processed");
-			schedule_pgps();
-			break; /* data was valid; no need to pass to PGPS */
+
+			/* call us back when prediction is ready */
+			nrf_cloud_notify_prediction();
+
+			/* data was valid; no need to pass to other handlers */
+			break;
 		}
 #else
 		if (err) {
