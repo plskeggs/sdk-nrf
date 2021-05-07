@@ -15,6 +15,7 @@
 #if defined(CONFIG_NRF_CLOUD_PGPS)
 #include <net/nrf_cloud_agps.h>
 #include <net/nrf_cloud_pgps.h>
+#include <date_time.h>
 #endif
 
 #include <logging/log.h>
@@ -205,9 +206,26 @@ static void cloud_event_handler(const struct cloud_backend *const backend,
 
 		int err = gps_process_agps_data(evt->data.msg.buf,
 						evt->data.msg.len);
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+		if (!err) {
+			LOG_INF("A-GPS data processed");
+
+			/* call us back when prediction is ready */
+			nrf_cloud_notify_prediction();
+
+			/* data was valid; no need to pass to other handlers */
+			break;
+		}
+		err = nrf_cloud_pgps_process(evt->data.msg.buf,
+					    evt->data.msg.len);
+		if (err) {
+			LOG_ERR("Error processing PGPS packet: %d", err);
+		}
+#else
 		if (err) {
 			LOG_INF("Unable to process agps data, error: %d", err);
 		}
+#endif
 		break;
 	case CLOUD_EVT_PAIR_REQUEST:
 		LOG_INF("CLOUD_EVT_PAIR_REQUEST");
@@ -439,6 +457,28 @@ static void button_handler(uint32_t button_states, uint32_t has_changed)
 	}
 }
 
+#if defined(CONFIG_DATE_TIME)
+static void date_time_event_handler(const struct date_time_evt *evt)
+{
+	switch (evt->type) {
+	case DATE_TIME_OBTAINED_MODEM:
+		LOG_INF("DATE_TIME_OBTAINED_MODEM");
+		break;
+	case DATE_TIME_OBTAINED_NTP:
+		LOG_INF("DATE_TIME_OBTAINED_NTP");
+		break;
+	case DATE_TIME_OBTAINED_EXT:
+		LOG_INF("DATE_TIME_OBTAINED_EXT");
+		break;
+	case DATE_TIME_NOT_OBTAINED:
+		LOG_INF("DATE_TIME_NOT_OBTAINED");
+		break;
+	default:
+		break;
+	}
+}
+#endif
+
 void main(void)
 {
 	int err;
@@ -481,6 +521,10 @@ void main(void)
 		LOG_ERR("Buttons could not be initialized, error: %d", err);
 		LOG_WRN("Continuing without button funcitonality");
 	}
+
+#if defined(CONFIG_DATE_TIME)
+	date_time_update_async(date_time_event_handler);
+#endif
 
 	err = cloud_connect(cloud_backend);
 	if (err) {
