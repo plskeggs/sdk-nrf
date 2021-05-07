@@ -12,6 +12,10 @@
 #include <dk_buttons_and_leds.h>
 #include <drivers/gps.h>
 #include <power/reboot.h>
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+#include <net/nrf_cloud_agps.h>
+#include <net/nrf_cloud_pgps.h>
+#endif
 
 #include <logging/log.h>
 
@@ -26,8 +30,44 @@ static uint64_t start_search_timestamp;
 static uint64_t fix_timestamp;
 static struct k_delayed_work gps_start_work;
 static struct k_delayed_work reboot_work;
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+static struct k_delayed_work manage_pgps_work;
+static struct gps_agps_request agps_request;
+#endif
 
 static void gps_start_work_fn(struct k_work *work);
+
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+static struct nrf_cloud_pgps_prediction *prediction;
+
+void pgps_handler(enum nrf_cloud_pgps_event event,
+		  struct nrf_cloud_pgps_prediction *p)
+{
+	/* GPS unit asked for it, but we didn't have it; check now */
+	LOG_INF("event: %d", event);
+	if (event == PGPS_EVT_AVAILABLE) {
+		prediction = p;
+		k_delayed_work_submit(&manage_pgps_work, K_NO_WAIT);
+	}
+}
+
+static void manage_pgps(struct k_work *work)
+{
+	ARG_UNUSED(work);
+	int err;
+
+	LOG_INF("Sending prediction to modem...");
+	err = nrf_cloud_pgps_inject(prediction, &agps_request, NULL);
+	if (err) {
+		LOG_ERR("Unable to send prediction to modem: %d", err);
+	}
+
+	err = nrf_cloud_pgps_preemptive_updates();
+	if (err) {
+		LOG_ERR("Error requesting updates: %d", err);
+	}
+}
+#endif
 
 static void cloud_send_msg(void)
 {
@@ -61,6 +101,13 @@ static void gps_start_work_fn(struct k_work *work)
 
 	ARG_UNUSED(work);
 
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+	err = nrf_cloud_pgps_init(pgps_handler);
+	if (err) {
+		LOG_ERR("Error from PGPS init: %d", err);
+	}
+#endif
+
 	err = gps_start(gps_dev, &gps_cfg);
 	if (err) {
 		LOG_ERR("Failed to start GPS, error: %d", err);
@@ -80,6 +127,12 @@ static void on_agps_needed(struct gps_agps_request request)
 		LOG_ERR("Failed to request A-GPS data, error: %d", err);
 		return;
 	}
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+	/* AGPS data not expected, so move on to PGPS */
+	if (!nrf_cloud_agps_request_in_progress()) {
+		nrf_cloud_notify_prediction();
+	}
+#endif
 }
 
 static void send_service_info(void)
@@ -298,6 +351,9 @@ static void gps_handler(const struct device *dev, struct gps_event *evt)
 		break;
 	case GPS_EVT_AGPS_DATA_NEEDED:
 		LOG_INF("GPS_EVT_AGPS_DATA_NEEDED");
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+		memcpy(&agps_request, &evt->agps_request, sizeof(agps_request));
+#endif
 		on_agps_needed(evt->agps_request);
 		break;
 	case GPS_EVT_PVT:
@@ -311,6 +367,9 @@ static void gps_handler(const struct device *dev, struct gps_event *evt)
 			(uint32_t)(fix_timestamp - start_search_timestamp) / 1000);
 		print_pvt_data(&evt->pvt);
 		LOG_INF("-----------------------------------");
+#if defined(CONFIG_NRF_CLOUD_PGPS) && defined(CONFIG_PGPS_STORE_LOCATION)
+		nrf_cloud_set_location(evt->pvt.latitude, evt->pvt.longitude);
+#endif
 		break;
 	case GPS_EVT_NMEA_FIX:
 		send_nmea(evt->nmea.buf);
@@ -331,6 +390,9 @@ static void work_init(void)
 {
 	k_delayed_work_init(&gps_start_work, gps_start_work_fn);
 	k_delayed_work_init(&reboot_work, reboot_work_fn);
+#if defined(CONFIG_NRF_CLOUD_PGPS)
+	k_delayed_work_init(&manage_pgps_work, manage_pgps);
+#endif
 }
 
 static int modem_configure(void)
