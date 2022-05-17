@@ -54,8 +54,7 @@ manifest:
       repo-path: sdk-zephyr
       #revision: dd316f35a15eba0cef07f3fc6cd2cd5b47218aae
       ##revision: b821eb680689b7b05b756d1df4744f04ec512c80
-
-      revision: feature-dtls-cid
+      revision: feature-dtls-cid-zupmerge
       remote: origin
       import:
         # In addition to the zephyr repository itself, NCS also
@@ -110,8 +109,11 @@ manifest:
       path: bootloader/mcuboot
     - name: mbedtls-nrf
       path: mbedtls
-      repo-path: sdk-mbedtls
-      revision: v3.0.0-ncs2-rc1
+      #repo-path: sdk-mbedtls
+      #revision: v3.0.0-ncs2-rc1
+      remote: origin
+      repo-path: mbedtls
+      revision: feature-dtls-cid
     - name: nrfxlib
       repo-path: sdk-nrfxlib
       path: nrfxlib
