@@ -1,18 +1,10 @@
 #
-# Copyright (c) 2019 Nordic Semiconductor ASA
+# Copyright (c) 2022 Nordic Semiconductor ASA
 #
 # SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
 #
 
-menu "nRF CoAP client sample"
-
-config COAP_GET_RESOURCE
-	string "CoAP GET resource - defaults to Californium observable resource"
-	default "obs"
-
-config COAP_PUT_RESOURCE
-	string "CoAP PUT resource"
-	default "telemetry"
+menu "nRF Cloud CoAP client sample"
 
 config COAP_SERVER_HOSTNAME
 	string "CoAP server hostname"
@@ -28,11 +20,13 @@ if COAP_DTLS
 
 config COAP_DTLS_PSK_IDENTITY
 	string "DTLS Preshared Key Identity"
-	default "n3526561061234690123456789abcdef"
+	default ""
+	# default "n3526561061234690123456789abcdef"
 
 config COAP_DTLS_PSK_SECRET
 	string "DTLS Preshared Key Secret"
-	default "000102030405060708090a0b0c0d0e0f"
+	default ""
+	# default "000102030405060708090a0b0c0d0e0f"
 
 config COAP_SECTAG
 	int "Security tag in which to store PSK"
@@ -45,9 +39,9 @@ config COAP_SERVER_PORT
 	default 5684 if COAP_DTLS
 	default 5683
 
-module = APP
+module = NRF_CLOUD_COAP_CLIENT
 module-dep = LOG
-module-str = Log level for sample
+module-str = nRF Cloud CoAP Client Sample
 source "${ZEPHYR_BASE}/subsys/logging/Kconfig.template.log_config"
 endmenu # Application sample
 
