@@ -358,7 +358,11 @@ static int set_endpoint_data(const struct nrf_cloud_obj_shadow_data *const input
 	}
 
 	/* Update to use wildcard topic if necessary */
+#ifndef CONFIG_NRF_CLOUD_GATEWAY
 	c2d_topic_modified = nrf_cloud_set_wildcard_c2d_topic((char *)rx.ptr, rx.len);
+#else
+	c2d_topic_modified = false;
+#endif
 
 	/* Set the endpoint information. */
 	nct_dc_endpoint_set(&tx, &rx, &bulk, &bin, &endpoint);
@@ -448,6 +452,7 @@ static int cc_rx_data_handler(const struct nct_evt *nct_evt)
 		nct_evt->param.cc->topic.len,
 		(const char *)nct_evt->param.cc->topic.ptr,
 		(const char *)nct_evt->param.cc->data.ptr);
+#ifndef CONFIG_NRF_CLOUD_GATEWAY
 
 	if ((nct_evt->param.cc->opcode != NCT_CC_OPCODE_UPDATE_ACCEPTED) &&
 	    (nct_evt->param.cc->opcode != NCT_CC_OPCODE_UPDATE_DELTA)) {
@@ -477,6 +482,7 @@ static int cc_rx_data_handler(const struct nct_evt *nct_evt)
 			LOG_DBG("Delta shadow decoded");
 		}
 	}
+#endif
 
 	nrf_cloud_obj_free(&shadow_obj);
 
