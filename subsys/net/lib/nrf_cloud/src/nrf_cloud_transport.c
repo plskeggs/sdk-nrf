@@ -211,6 +211,7 @@ static int endp_send(const struct nct_dc_data *dc_data, struct mqtt_utf8 *endp, 
 		.message.topic.topic.utf8 = endp->utf8,
 	};
 
+	LOG_DBG("Topic: %*s", endp->size, (const char *)endp->utf8);
 	/* Populate payload. */
 	if ((dc_data->data.len != 0) && (dc_data->data.ptr != NULL)) {
 		publish.message.payload.data = (uint8_t *)dc_data->data.ptr;
@@ -1173,6 +1174,10 @@ int nct_cc_connect(void)
 		.list_count = ARRAY_SIZE(nct_cc_rx_list),
 		.message_id = NCT_MSG_ID_CC_SUB
 	};
+	
+	for (int i = 0; i < subscription_list.list_count; i++) {
+		LOG_DBG("  Subscribing to topic: %s", (const char *)subscription_list.list[i].topic.utf8);
+	}
 
 	return mqtt_subscribe(&nct.client, &subscription_list);
 }
@@ -1201,6 +1206,11 @@ int nct_cc_send(const struct nct_cc_data *cc_data)
 	if ((cc_data->data.len != 0) && (cc_data->data.ptr != NULL)) {
 		publish.message.payload.data = (uint8_t *)cc_data->data.ptr,
 		publish.message.payload.len = cc_data->data.len;
+		LOG_DBG("mqtt_publish: id = %d opcode = %d msg: %*s",
+			publish.message_id, cc_data->opcode,
+			cc_data->data.len, (const char *)cc_data->data.ptr);
+		LOG_DBG("    to topic: %*s", publish.message.topic.topic.size,
+			(const char *)publish.message.topic.topic.utf8);
 	}
 
 	publish.message_id = get_message_id(cc_data->message_id);
@@ -1238,7 +1248,10 @@ void nct_dc_endpoint_set(const struct nrf_cloud_data *tx_endp,
 			 const struct nrf_cloud_data *bin_endp,
 			 const struct nrf_cloud_data *m_endp)
 {
-	LOG_DBG("nct_dc_endpoint_set");
+	LOG_DBG("nct_dc_endpoint_set\n  tx:%s, rx:%s, bulk:%s, m:%s",
+		(const char *)(tx_endp->ptr), (const char *)(rx_endp->ptr),
+		bulk_endp ? (const char *)(bulk_endp->ptr) : "none",
+		m_endp ? (const char *)(m_endp->ptr) : "none");
 
 	/* In case the endpoint was previous set, free and reset
 	 * before copying new one.
@@ -1301,6 +1314,11 @@ void nct_dc_endpoint_get(struct nrf_cloud_data *const tx_endp,
 		m_endp->ptr = nct.dc_m_endp.utf8;
 		m_endp->len = nct.dc_m_endp.size;
 	}
+
+	LOG_DBG("nct_dc_endpoint_get\n  tx:%s, rx:%s, bulk:%s, m:%s",
+		(const char *)(tx_endp->ptr), (const char *)(rx_endp->ptr),
+		bulk_endp ? (const char *)(bulk_endp->ptr) : "none",
+		m_endp ? (const char *)(m_endp->ptr) : "none");
 }
 
 int nct_dc_connect(void)
@@ -1320,6 +1338,8 @@ int nct_dc_connect(void)
 		.list_count = 1,
 		.message_id = NCT_MSG_ID_DC_SUB
 	};
+
+	LOG_DBG("  Subscribing to topic: %s", (const char *)nct.dc_rx_endp.utf8);
 
 	return mqtt_subscribe(&nct.client, &subscription_list);
 }

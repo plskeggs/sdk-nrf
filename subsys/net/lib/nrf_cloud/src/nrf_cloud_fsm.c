@@ -352,7 +352,11 @@ static int handle_pin_complete(const struct nct_evt *nct_evt)
 	}
 
 	/* Update to use wildcard topic if necessary */
+#ifndef CONFIG_NRF_CLOUD_GATEWAY
 	c2d_topic_modified = nrf_cloud_set_wildcard_c2d_topic((char *)rx.ptr, rx.len);
+#else
+	c2d_topic_modified = false;
+#endif
 
 	/* Set the endpoint information. */
 	nct_dc_endpoint_set(&tx, &rx, &bulk, &bin, &endpoint);
@@ -378,6 +382,7 @@ static int cc_rx_data_handler(const struct nct_evt *nct_evt)
 		nct_evt->param.cc->topic.len,
 		(const char *)nct_evt->param.cc->topic.ptr,
 		(const char *)nct_evt->param.cc->data.ptr);
+#ifndef CONFIG_NRF_CLOUD_GATEWAY
 
 	err = nrf_cloud_device_control_update(&nct_evt->param.cc->data, &msg.data,
 					      &status);
@@ -391,6 +396,7 @@ static int cc_rx_data_handler(const struct nct_evt *nct_evt)
 			LOG_ERR("nct_cc_send failed %d", err);
 		}
 	}
+#endif
 
 	struct nrf_cloud_evt cloud_evt = {
 		.type = NRF_CLOUD_EVT_RX_DATA_SHADOW,
