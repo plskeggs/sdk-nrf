@@ -459,7 +459,11 @@ static int handle_pin_complete(const struct nct_evt *nct_evt)
 	}
 
 	/* Update to use wildcard topic if necessary */
+#ifndef CONFIG_NRF_CLOUD_GATEWAY
 	c2d_topic_modified = nrf_cloud_set_wildcard_c2d_topic((char *)rx.ptr, rx.len);
+#else
+	c2d_topic_modified = false;
+#endif
 
 	/* Set the endpoint information. */
 	nct_dc_endpoint_set(&tx, &rx, &bulk, &endpoint);
