@@ -975,6 +975,12 @@ static int nrf_cloud_encode_service_info_fota(const struct nrf_cloud_svc_info_fo
 		if (!array) {
 			return -ENOMEM;
 		}
+#if CONFIG_NRF_CLOUD_GATEWAY
+		cJSON_AddBoolToObjectCS(svc_inf_obj, "fota_v2_ble",
+					IS_ENABLED(CONFIG_GATEWAY_BLE_FOTA));
+#else
+		json_add_null_cs(svc_inf_obj, "fota_v2_ble");
+#endif
 		if (fota->bootloader) {
 			cJSON_AddItemToArray(array, cJSON_CreateString(NRF_CLOUD_FOTA_TYPE_BOOT));
 			++item_cnt;
@@ -1522,6 +1528,7 @@ int nrf_cloud_modem_info_json_encode(const struct nrf_cloud_modem_info *const mo
 		err = -EIO;
 		goto cleanup;
 	}
+	return 0;
 
 cleanup:
 	cJSON_Delete(tmp);
