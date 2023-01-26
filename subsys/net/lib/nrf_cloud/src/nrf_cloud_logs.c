@@ -15,8 +15,6 @@
 #include <net/nrf_cloud_rest.h>
 #include <net/nrf_cloud_logs.h>
 
-#if defined(CONFIG_NRF_CLOUD_LOGGING)
-
 LOG_MODULE_REGISTER(nrf_cloud_logs, CONFIG_NRF_CLOUD_LOG_LEVEL);
 
 static void log_init(const struct log_backend *const backend);
@@ -28,6 +26,8 @@ static int log_format_set(const struct log_backend *const backend, uint32_t log_
 static void log_notify(const struct log_backend *const backend, enum log_backend_evt event,
 		       union log_backend_evt_arg *arg);
 static int log_out(uint8_t *buf, size_t size, void *ctx);
+
+#if defined(CONFIG_NRF_CLOUD_LOGGING)
 
 static const struct log_backend_api log_api = {
 	.init		= log_init,
@@ -42,29 +42,40 @@ static const struct log_backend_api log_api = {
 static uint8_t log_buf[CONFIG_NRF_CLOUD_LOG_BUF_SIZE];
 static uint32_t log_format_current = CONFIG_NRF_CLOUD_LOG_BACKEND_OUTPUT_DEFAULT;
 static uint32_t log_output_flags = LOG_OUTPUT_FLAG_CRLF_NONE;
+static int nrf_cloud_log_level = CONFIG_NRF_CLOUD_LOGGING_LEVEL;
 static int logs_enabled = IS_ENABLED(CONFIG_NRF_CLOUD_LOGGING);
 static atomic_t log_sequence;
+
+#if defined(NRF_CLOUD_REST)
+static struct nrf_cloud_rest_context *rest_ctx;
+static const char device_id[NRF_CLOUD_CLIENT_ID_MAX_LEN + 1];
+#endif /* CONFIG_NRF_CLOUD_REST */
 
 LOG_BACKEND_DEFINE(log_nrf_cloud_backend, log_api, false);
 LOG_OUTPUT_DEFINE(log_nrf_cloud_output, log_out, log_buf, sizeof(log_buf));
 
+#endif /* CONFIG_NRF_CLOUD_LOGGING */
+
 static void log_init(const struct log_backend *const backend)
 {
-#if defined(CONFIG_NRF_CLOUD_REST)
-	(void)nrf_cloud_codec_init(NULL);
-#endif
+	ARG_UNUSED(backend);
+	if (IS_ENABLED(CONFIG_NRF_CLOUD_REST)) {
+		(void)nrf_cloud_codec_init(NULL);
+	}
 }
 
+#if defined(CONFIG_NRF_CLOUD_LOGGING)
 static void log_process(const struct log_backend *const backend, union log_msg_generic *msg)
 {
+	int level = log_msg_get_level(&msg->log);
+	void *source = (void *)log_msg_get_source(&msg->log);
 	log_format_func_t log_output_func = log_format_func_t_get(log_format_current);
 	struct nrf_cloud_log_context *context = k_malloc(sizeof(struct_log_context));
-	void *source = (void *)log_msg_get_source(&msg->log);
 	struct log_source_const_data *fixed = source;
 	int16_t source_id;
 
+	context->level = level;
 	context->domain = log_msg_get_domain(&msg->log);
-	context->level = log_msg_get_level(&msg->log);
 	context->ts_ms = log_msg_get_timestamp(&msg->log);
 	context->source = (source != NULL) ?
 				(IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING) ?
@@ -83,8 +94,12 @@ static void log_process(const struct log_backend *const backend, union log_msg_g
 			source_id = -1;
 		}
 	}
-	context->src_name = source_id >= 0 ? log_source_name_get(domain_id, source_id) : "n/a";
+	context->src_name = source_id >= 0 ? log_source_name_get(domain_id, source_id) : NULL;
 	context->sequence = log_sequence++;
+	if (IS_ENABLED(CONFIG_NRF_CLOUD_REST)) {
+		context->rest_ctx = rest_ctx;
+		strncpy(context->device_id, device_id, NRF_CLOUD_CLIENT_ID_MAX_LEN);
+	}
 
 	log_output_ctx_set(log_nrf_cloud_output, context);
 	log_output_func(backend, &msg->log, log_output_flags);
@@ -102,14 +117,12 @@ static void log_panic(const struct log_backend *const backend)
 
 static int log_is_ready(const struct log_backend *const backend)
 {
-#if defined(CONFIG_NRF_CLOUD_MQTT)
-	if (nfsm_get_current_state() != STATE_DC_CONNECTED) {
-		return -EBUSY;
+	if (IS_ENABLED(CONFIG_NRF_CLOUD_MQTT)) {
+		if (nfsm_get_current_state() != STATE_DC_CONNECTED) {
+			return -EBUSY;
+		}
 	}
-#endif
-#if defined(CONFIG_NRF_CLOUD_REST)
-	/* Assume it is ready, for now. */
-#endif
+	/* For REST, assume is ready. */
 	return 0; /* Logging is ready. */
 }
 
@@ -130,106 +143,57 @@ static void log_notify(const struct log_backend *const backend, enum log_backend
 
 static int log_out(uint8_t *buf, size_t size, void *ctx)
 {
-	struct nrf_cloud_log_context *context = ctx;
-
-
-}
-
-#endif /* CONFIG_NRF_CLOUD_LOGGING */
-
-#if defined(CONFIG_NRF_CLOUD_MQTT)
-int nrf_cloud_alert_send(enum nrf_cloud_alert_type type,
-			 float value,
-			 const char *description)
-{
-#if defined(CONFIG_NRF_CLOUD_LOGGING)
-	struct nct_dc_data output = {.message_id = NCT_MSG_ID_USE_NEXT_INCREMENT};
 	int err;
+	struct nrf_cloud_log_context *context = ctx;
+	struct nct_dc_data output = {.message_id = NCT_MSG_ID_USE_NEXT_INCREMENT};
 
-	if (!alerts_enabled) {
-		return 0;
-	}
-
-	if (nfsm_get_current_state() != STATE_DC_CONNECTED) {
-		LOG_ERR("Cannot send alert; not connected");
-		return -EACCES;
-	}
-
-	err = alert_prepare(&output.data, type, value, description);
+	err = nrf_cloud_encode_log(context, buf, size, &output.data);
 	if (!err) {
-		LOG_DBG("Encoded alert: %s", (const char *)output.data.ptr);
+		LOG_DBG("Encoded log buf: %s", (const char *)output.data.ptr);
 	} else {
-		LOG_ERR("Error encoding alert: %d", err);
-		return err;
+		LOG_ERR("Error encoding log line: %d", err);
+		goto end;
 	}
 
-	err = nct_dc_send(&output);
-	if (!err) {
-		LOG_DBG("Sent alert via MQTT");
-	} else {
-		LOG_ERR("Error sending alert via MQTT: %d", err);
+	if (IS_ENABLED(CONFIG_NRF_CLOUD_MQTT)) {
+		err = nct_dc_send(&output);
+		if (!err) {
+			LOG_DBG("Sent log via MQTT");
+		} else {
+			LOG_ERR("Error sending log via MQTT: %d", err);
+		}
 	}
-
+	if (IS_ENABLED(CONFIG_NRF_CLOUD_REST)) {
+		/* send to d2c topic, unless bulk is true, in which case d2c/bulk is used */
+		err = nrf_cloud_rest_send_device_message(context->rest_ctx, context->device_id,
+							 output.data.ptr, FALSE, NULL);
+		if (!err) {
+			LOG_DBG("Send alert via REST");
+		} else {
+			LOG_ERR("Error sending alert via REST: %d", err);
+		}
+	}
+end:
 	if (output.data.ptr != NULL) {
 		cJSON_free((void *)output.data.ptr);
 	}
+	if (ctx != NULL) {
+		k_free(ctx);
+	}
 	return err;
-#else
-	ARG_UNUSED(type);
-	ARG_UNUSED(value);
-	ARG_UNUSED(description);
-
-	return 0;
-#endif /* CONFIG_NRF_CLOUD_LOGGING */
 }
-#endif /* CONFIG_NRF_CLOUD_MQTT */
+#endif /* CONFIG_NRF_CLOUD_LOGGING */
 
-#if defined(CONFIG_NRF_CLOUD_REST)
-int nrf_cloud_rest_alert_send(struct nrf_cloud_rest_context *const rest_ctx,
-			      const char *const device_id,
-			      const bool bulk,
-			      enum nrf_cloud_alert_type type,
-			      float value,
-			      const char *description)
+#if defined(NRF_CLOUD_REST)
+void nrf_cloud_rest_log_context_set(struct nrf_cloud_rest_context *ctx, const char *dev_id)
 {
 #if defined(CONFIG_NRF_CLOUD_LOGGING)
-	struct nrf_cloud_data data;
-	int err;
-
-	if (!alerts_enabled) {
-		return 0;
-	}
-	(void)nrf_cloud_codec_init(NULL);
-	err = alert_prepare(&data, type, value, description);
-	if (!err) {
-		LOG_DBG("Encoded alert: %s", (const char *)data.ptr);
-	} else {
-		LOG_ERR("Error encoding alert: %d", err);
-		return err;
-	}
-
-	/* send to d2c topic, unless bulk is true, in which case d2c/bulk is used */
-	err = nrf_cloud_rest_send_device_message(rest_ctx, device_id, data.ptr, bulk, NULL);
-	if (!err) {
-		LOG_DBG("Send alert via REST");
-	} else {
-		LOG_ERR("Error sending alert via REST: %d", err);
-	}
-
-	if (data.ptr != NULL) {
-		cJSON_free((void *)data.ptr);
-	}
-	return err;
+	rest_ctx = ctx;
+	strncpy(device_id, dev_id, NRF_CLOUD_CLIENT_ID_MAX_LEN);
 #else
-	ARG_UNUSED(rest_ctx);
-	ARG_UNUSED(device_id);
-	ARG_UNUSED(bulk);
-	ARG_UNUSED(type);
-	ARG_UNUSED(value);
-	ARG_UNUSED(description);
-
-	return 0;
-#endif /* CONFIG_NRF_CLOUD_LOGGING */
+	ARG_UNUSED(ctx);
+	ARG_UNUSED(dev_id);
+#endif
 }
 #endif /* CONFIG_NRF_CLOUD_REST */
 
@@ -239,6 +203,7 @@ void nrf_cloud_log_control(int level)
 	if (nrf_cloud_log_level != level) {
 		LOG_DBG("Changing log level from:%d to:%d", nrf_cloud_log_level, level);
 		nrf_cloud_log_level = level;
+		log_backend_enable(&log_nrf_cloud_backend, ctx, level);
 	}
 #else
 	ARG_UNUSED(level);

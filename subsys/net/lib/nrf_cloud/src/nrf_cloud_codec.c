@@ -2642,13 +2642,15 @@ int nrf_cloud_encode_alert(const struct nrf_cloud_alert_info *alert,
 	return 0;
 }
 
-int nrf_cloud_encode_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size_t size)
+int nrf_cloud_encode_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size_t size,
+			 struct nrf_cloud_data *output)
 {
-#if defined(CONFIG_NRF_CLOUD_LOGGING)
-	int ret;
-
 	__ASSERT_NO_MSG(ctx != NULL);
 	__ASSERT_NO_MSG(buf != NULL);
+	__ASSERT_NO_MSG(output != NULL);
+
+#if defined(CONFIG_NRF_CLOUD_LOGGING)
+	int ret;
 
 	cJSON *root_obj = cJSON_CreateObject();
 
@@ -2662,13 +2664,16 @@ int nrf_cloud_encode_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size_t
 	ret = json_add_str_cs(root_obj, NRF_CLOUD_JSON_APPID_KEY, NRF_CLOUD_JSON_APPID_VAL_LOG);
 	ret += json_add_num_cs(root_obj, NRF_CLOUD_JSON_KEY_DOMAIN, ctx->domain);
 	ret += json_add_num_cs(root_obj, NRF_CLOUD_JSON_KEY_LEVEL, ctx->level);
-	ret += json_add_str_cs(root_obj, NRF_CLOUD_JSON_KEY_SOURCE, ctx->src_name);
+	if (ctx->src_name != NULL) {
+		ret += json_add_str_cs(root_obj, NRF_CLOUD_JSON_KEY_SOURCE, ctx->src_name);
+	}
 	if (ctx->ts_ms > 0) {
 		ret += json_add_num_cs(root_obj, NRF_CLOUD_MSG_TIMESTAMP_KEY, ctx->ts_ms);
 	}
 	if (!ctx->ts_ms || IS_ENABLED(CONFIG_NRF_CLOUD_LOGS_SEQ_ALWAYS)) {
 		ret += json_add_num_cs(root_obj, NRF_CLOUD_JSON_KEY_SEQUENCE, ctx->sequence);
 	}
+	/* Is the buf NULL-terminated? */
 	ret += json_add_str_cs(root_obj, NRF_CLOUD_JSON_KEY_MESSAGE, (const char *)buf);
 
 	if (ret != 0) {
@@ -2688,7 +2693,9 @@ int nrf_cloud_encode_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size_t
 	output->ptr = buffer;
 	output->len = strlen(buffer);
 #else
-	ARG_UNUSED(alert);
+	ARG_UNUSED(ctx);
+	ARG_UNUSED(buf);
+	ARG_UNUSED(size);
 	output->ptr = NULL;
 	output->len = 0;
 #endif /* CONFIG_NRF_CLOUD_ALERTS */

@@ -19,6 +19,7 @@
 #include <net/nrf_cloud_agps.h>
 #endif
 #include <net/nrf_cloud_location.h>
+#include <net/nrf_cloud_logs.h>
 #include "cJSON.h"
 #include "nrf_cloud_fsm.h"
 
@@ -344,6 +345,10 @@ typedef int (*gateway_state_handler_t)(void *root_obj);
  */
 void nrf_cloud_register_gateway_state_handler(gateway_state_handler_t handler);
 #endif
+
+/** @brief Encode a log output buffer for transport to the cloud */
+int nrf_cloud_encode_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size_t size,
+			 struct nrf_cloud_data *output);
 
 #ifdef __cplusplus
 }

@@ -17,6 +17,8 @@
 extern "C" {
 #endif
 
+struct nrf_cloud_rest_context;
+
 /** @defgroup nrf_cloud_logs nRF Cloud Logs
  * @{
  */
@@ -36,6 +38,10 @@ struct nrf_cloud_log_context
 	const char *src_name;
 	/** Monotonically increasing sequence number */
 	unsigned int sequence;
+#if defined(CONFIG_NRF_CLOUD_REST)
+	void *rest_ctx;
+	const char device_id[NRF_CLOUD_CLIENT_ID_MAX_LEN + 1];
+#endif
 };
 
 /** @brief Set criticality of logs that should be sent to the cloud.
@@ -44,6 +50,15 @@ struct nrf_cloud_log_context
  * @param log_level The criticality of the logs to go to the cloud.
  */
 void nrf_cloud_log_control(int log_level);
+
+/** @brief Tell REST-based logger the REST context and device_id for later
+ *         use when outputting a log.
+ *
+ *  @param[in] ctx REST context to use.
+ *  @param[in] dev_id Device ID to send message on behalf of.
+ */
+void nrf_cloud_rest_log_context_set(struct nrf_cloud_rest_context *ctx, const char *dev_id);
+
 
 /** @} */
 
