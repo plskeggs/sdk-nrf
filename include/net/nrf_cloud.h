@@ -239,7 +239,16 @@ enum nrf_cloud_topic_type {
 	 *  messages into a single message that will be unwrapped and re-published to the
 	 *  message topic in the nRF Cloud backend.
 	 */
-	NRF_CLOUD_TOPIC_BULK
+	NRF_CLOUD_TOPIC_BULK,
+	/** Endpoint used to publish binary data to nRF Cloud for certain services.
+	 *  One example is dictionary formatted logs enabled by
+	 *  CONFIG_LOG_BACKEND_NRF_CLOUD_OUTPUT_DICTIONARY, which enables the
+	 *  Zephyr option CONFIG_LOG_DICTIONARY_SUPPORT. Binary data published to
+	 *  this topic should be prefixed by the binary header structure defined in
+	 *  nrf_cloud_codec.h -- struct nrf_cloud_bin_hdr.  A unique format value
+	 *  should be included to distinguish this data from binary logging.
+	 */
+	NRF_CLOUD_TOPIC_BIN
 };
 
 /** @brief FOTA status reported to nRF Cloud. */

@@ -228,21 +228,6 @@ static int handle_device_config_update(const struct nct_evt *const evt,
 	return err;
 }
 
-static int _log_level;
-
-/* Placeholder until cloud logging added in another PR */
-void nrf_cloud_log_control_set(int log_level)
-{
-	LOG_DBG("Setting nRF Cloud log level = %d", log_level);
-	_log_level = log_level;
-}
-
-/* Placeholder until cloud logging added in another PR */
-int nrf_cloud_log_control_get(void)
-{
-	return _log_level;
-}
-
 static int handle_device_control_update(const struct nct_evt *const evt,
 					bool *const control_found)
 {
@@ -263,8 +248,11 @@ static int handle_device_control_update(const struct nct_evt *const evt,
 #else
 	ctrl_data.alerts_enabled = false;
 #endif /* CONFIG_NRF_CLOUD_ALERTS */
+#if IS_ENABLED(CONFIG_NRF_CLOUD_LOGS)
 	ctrl_data.log_level = nrf_cloud_log_control_get();
-
+#else
+	ctrl_data.log_level = 0;
+#endif /* CONFIG_NRF_CLOUD_LOGS */
 	err = nrf_cloud_decode_control(&evt->param.cc->data, &status, &ctrl_data);
 	if (err) {
 		return (err == -ESRCH) ? 0 : err;
@@ -275,7 +263,9 @@ static int handle_device_control_update(const struct nct_evt *const evt,
 #if IS_ENABLED(CONFIG_NRF_CLOUD_ALERTS)
 		nrf_cloud_alert_control_set(ctrl_data.alerts_enabled);
 #endif /* CONFIG_NRF_CLOUD_ALERTS */
+#if IS_ENABLED(CONFIG_NRF_CLOUD_LOGS)
 		nrf_cloud_log_control_set(ctrl_data.log_level);
+#endif /* CONFIG_NRF_CLOUD_LOGS */
 	}
 
 	/* Acknowledge that shadow delta changes have been made. */
@@ -450,9 +440,10 @@ static int handle_pin_complete(const struct nct_evt *nct_evt)
 	struct nrf_cloud_data rx;
 	struct nrf_cloud_data tx;
 	struct nrf_cloud_data bulk;
+	struct nrf_cloud_data bin;
 	struct nrf_cloud_data endpoint;
 
-	err = nrf_cloud_decode_data_endpoint(payload, &tx, &rx, &bulk, &endpoint);
+	err = nrf_cloud_decode_data_endpoint(payload, &tx, &rx, &bulk, &bin, &endpoint);
 	if (err) {
 		LOG_ERR("nrf_cloud_decode_data_endpoint failed %d", err);
 		return err;
@@ -462,7 +453,7 @@ static int handle_pin_complete(const struct nct_evt *nct_evt)
 	c2d_topic_modified = nrf_cloud_set_wildcard_c2d_topic((char *)rx.ptr, rx.len);
 
 	/* Set the endpoint information. */
-	nct_dc_endpoint_set(&tx, &rx, &bulk, &endpoint);
+	nct_dc_endpoint_set(&tx, &rx, &bulk, &bin, &endpoint);
 
 	return state_ua_pin_complete();
 }

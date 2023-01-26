@@ -20,8 +20,10 @@
 #include <net/nrf_cloud_agps.h>
 #endif
 #include <net/nrf_cloud_location.h>
+#include <net/nrf_cloud_logs.h>
 #include "cJSON.h"
 #include "nrf_cloud_fsm.h"
+#include "nrf_cloud_logger_context.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,6 +37,28 @@ enum nrf_cloud_rcv_topic {
 	/* Unknown/unhandled topic */
 	NRF_CLOUD_RCV_TOPIC_UNKNOWN
 };
+
+/** Special value indicating this is an nRF Cloud binary format */
+#define NRF_CLOUD_BINARY_MAGIC 0x4346526e /* 'nRFC' in little-endian order */
+
+/** Format identifier for remainder of this binary blob */
+#define NRF_CLOUD_DICT_LOG_FMT 0x0001
+
+/** @brief Header preceding binary blobs so nRF Cloud can
+ *  process them in correct order using ts_ms and sequence fields.
+ */
+struct nrf_cloud_bin_hdr {
+	/** Special marker value indicating this binary blob is a supported type */
+	uint32_t magic;
+	/** Value indicating the service format, such as a dictionary-based log */
+	uint16_t format;
+	/** Value for alignment */
+	uint16_t pad;
+	/** The time at which the log entry was generated */
+	int64_t ts;
+	/** Monotonically increasing sequence number */
+	uint32_t sequence;
+} __packed;
 
 /** @brief Initialize the codec used encoding the data to the cloud. */
 int nrf_cloud_codec_init(struct nrf_cloud_os_mem_hooks *hooks);
@@ -64,6 +88,7 @@ int nrf_cloud_decode_data_endpoint(const struct nrf_cloud_data *input,
 				   struct nrf_cloud_data *tx_endpoint,
 				   struct nrf_cloud_data *rx_endpoint,
 				   struct nrf_cloud_data *bulk_endpoint,
+				   struct nrf_cloud_data *bin_endpoint,
 				   struct nrf_cloud_data *m_endpoint);
 
 /** @brief Encode state information. */
@@ -217,6 +242,10 @@ typedef int (*gateway_state_handler_t)(void *root_obj);
  */
 void nrf_cloud_register_gateway_state_handler(gateway_state_handler_t handler);
 #endif
+
+/** @brief Encode a log output buffer for transport to the cloud */
+int nrf_cloud_encode_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size_t size,
+			 struct nrf_cloud_data *output);
 
 #ifdef __cplusplus
 }
