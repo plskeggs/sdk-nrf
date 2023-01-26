@@ -68,6 +68,14 @@ static void log_init(const struct log_backend *const backend)
 static void log_process(const struct log_backend *const backend, union log_msg_generic *msg)
 {
 	int level = log_msg_get_level(&msg->log);
+
+	if (level > nrf_cloud_log_level) {
+		/* Filter logs here, in case runtime filtering is off, and the cloud changed
+		 * the log level in the shadow.
+		 */
+		return;
+	}
+
 	void *source = (void *)log_msg_get_source(&msg->log);
 	log_format_func_t log_output_func = log_format_func_t_get(log_format_current);
 	struct nrf_cloud_log_context *context = k_malloc(sizeof(struct_log_context));
