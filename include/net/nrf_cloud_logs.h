@@ -33,15 +33,15 @@ struct nrf_cloud_log_context
 	/** The time at which the log entry was generated */
 	log_timestamp_t ts_ms;
 	/** fixed or dynamic source information */
-	const void *source;
+	uint32_t source;
 	/** When not using runtime filtering, this is the name of the source */
 	const char *src_name;
 	/** Monotonically increasing sequence number */
 	unsigned int sequence;
-#if defined(CONFIG_NRF_CLOUD_REST)
+	/** When using REST, this points to the context structure */
 	void *rest_ctx;
+	/** When using REST, this is the device_id making the REST connection */
 	const char device_id[NRF_CLOUD_CLIENT_ID_MAX_LEN + 1];
-#endif
 };
 
 /** @brief Set criticality of logs that should be sent to the cloud.
@@ -49,7 +49,13 @@ struct nrf_cloud_log_context
  *
  * @param log_level The criticality of the logs to go to the cloud.
  */
-void nrf_cloud_log_control(int log_level);
+void nrf_cloud_log_control_set(int log_level);
+
+/** @brief Get current criticality of logs to be sent to nRF Cloud.
+ * @retval Current log level, if CONFIG_NRF_CLOUD_LOGS is enabled, otherwise
+ *         0, indicating logs are disabled.
+ */
+int nrf_cloud_log_control_get(void);
 
 /** @brief Tell REST-based logger the REST context and device_id for later
  *         use when outputting a log.
@@ -59,6 +65,10 @@ void nrf_cloud_log_control(int log_level);
  */
 void nrf_cloud_rest_log_context_set(struct nrf_cloud_rest_context *ctx, const char *dev_id);
 
+/** @brief Enable or disable logging to the cloud.
+ *  @param[in] enable Set true to send logs to the cloud, false to disable.
+ */
+void nrf_cloud_log_enable(bool enable);
 
 /** @} */
 

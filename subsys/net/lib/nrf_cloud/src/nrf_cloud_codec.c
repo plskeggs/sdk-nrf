@@ -9,6 +9,7 @@
 #include "nrf_cloud_fsm.h"
 #include <net/nrf_cloud_location.h>
 #include <net/nrf_cloud_alerts.h>
+#include <net/nrf_cloud_logs.h>
 #include <stdbool.h>
 #include <string.h>
 #include <stdio.h>
@@ -20,7 +21,6 @@
 #include <zephyr/logging/log.h>
 #include <modem/modem_info.h>
 #include "cJSON_os.h"
-#include "nrf_cloud_logs.h"
 
 LOG_MODULE_REGISTER(nrf_cloud_codec, CONFIG_NRF_CLOUD_LOG_LEVEL);
 
@@ -2649,7 +2649,7 @@ int nrf_cloud_encode_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size_t
 	__ASSERT_NO_MSG(buf != NULL);
 	__ASSERT_NO_MSG(output != NULL);
 
-#if defined(CONFIG_NRF_CLOUD_LOGGING)
+#if defined(CONFIG_NRF_CLOUD_LOGS)
 	int ret;
 
 	cJSON *root_obj = cJSON_CreateObject();
@@ -2657,34 +2657,43 @@ int nrf_cloud_encode_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size_t
 	if (root_obj == NULL) {
 		return -ENOMEM;
 	}
-#define NRF_CLOUD_LOG_JSON_KEY_SOURCE		"src"
-#define NRF_CLOUD_LOG_JSON_KEY_LEVEL		"lvl"
-#define NRF_CLOUD_LOG_JSON_KEY_MESSAGE		"msg"
 
 	ret = json_add_str_cs(root_obj, NRF_CLOUD_JSON_APPID_KEY, NRF_CLOUD_JSON_APPID_VAL_LOG);
-	ret += json_add_num_cs(root_obj, NRF_CLOUD_JSON_KEY_DOMAIN, ctx->domain);
-	ret += json_add_num_cs(root_obj, NRF_CLOUD_JSON_KEY_LEVEL, ctx->level);
+	ret += json_add_num_cs(root_obj, NRF_CLOUD_LOG_JSON_KEY_DOMAIN, ctx->domain);
+	ret += json_add_num_cs(root_obj, NRF_CLOUD_LOG_JSON_KEY_LEVEL, ctx->level);
 	if (ctx->src_name != NULL) {
-		ret += json_add_str_cs(root_obj, NRF_CLOUD_JSON_KEY_SOURCE, ctx->src_name);
+		ret += json_add_str_cs(root_obj, NRF_CLOUD_LOG_JSON_KEY_SOURCE, ctx->src_name);
 	}
 	if (ctx->ts_ms > 0) {
 		ret += json_add_num_cs(root_obj, NRF_CLOUD_MSG_TIMESTAMP_KEY, ctx->ts_ms);
 	}
 	if (!ctx->ts_ms || IS_ENABLED(CONFIG_NRF_CLOUD_LOGS_SEQ_ALWAYS)) {
-		ret += json_add_num_cs(root_obj, NRF_CLOUD_JSON_KEY_SEQUENCE, ctx->sequence);
+		ret += json_add_num_cs(root_obj, NRF_CLOUD_LOG_JSON_KEY_SEQUENCE, ctx->sequence);
 	}
 	/* Is the buf NULL-terminated? */
-	ret += json_add_str_cs(root_obj, NRF_CLOUD_JSON_KEY_MESSAGE, (const char *)buf);
+	if (strlen(buf) > size) {
+		buf[size] = '\0';
+	}
+	ret += json_add_str_cs(root_obj, NRF_CLOUD_LOG_JSON_KEY_MESSAGE, (const char *)buf);
 
 	if (ret != 0) {
 		cJSON_Delete(root_obj);
 		return -ENOMEM;
 	}
 
-	char *buffer;
+#if 0
+	char *buffer = k_malloc(1024);
+	if (buffer != NULL) {
 
-	buffer = cJSON_PrintUnformatted(root_obj);
+		if (!cJSON_PrintPreallocated(root_obj, buffer, 1024, false)) {
+			k_free(buffer);
+			buffer = NULL;
+		}
+	}
+#else
+	char *buffer = cJSON_PrintUnformatted(root_obj);
 	cJSON_Delete(root_obj);
+#endif
 
 	if (buffer == NULL) {
 		return -ENOMEM;

@@ -13,6 +13,9 @@ zephyr_library_sources_ifdef(
 	CONFIG_NRF_CLOUD_ALERTS
 	src/nrf_cloud_alerts.c)
 zephyr_library_sources_ifdef(
+	CONFIG_NRF_CLOUD_LOGS
+	src/nrf_cloud_logs.c)
+zephyr_library_sources_ifdef(
 	CONFIG_MODEM_JWT
 	src/nrf_cloud_jwt.c)
 zephyr_library_sources_ifdef(
