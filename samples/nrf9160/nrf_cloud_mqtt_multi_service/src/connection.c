@@ -270,7 +270,6 @@ static void cloud_event_handler(const struct nrf_cloud_evt *nrf_cloud_evt)
 		LOG_DBG("NRF_CLOUD_EVT_READY");
 		/* Notify that nRF Cloud is ready for communications from us. */
 		notify_cloud_ready();
-		nrf_cloud_log_enable(true);
 		break;
 	case NRF_CLOUD_EVT_SENSOR_DATA_ACK:
 		LOG_DBG("NRF_CLOUD_EVT_SENSOR_DATA_ACK");
