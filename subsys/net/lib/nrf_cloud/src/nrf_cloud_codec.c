@@ -2684,19 +2684,9 @@ int nrf_cloud_encode_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size_t
 		return -ENOMEM;
 	}
 
-#if 0
-	char *buffer = k_malloc(1024);
-	if (buffer != NULL) {
-
-		if (!cJSON_PrintPreallocated(root_obj, buffer, 1024, false)) {
-			k_free(buffer);
-			buffer = NULL;
-		}
-	}
-#else
 	char *buffer = cJSON_PrintUnformatted(root_obj);
+
 	cJSON_Delete(root_obj);
-#endif
 
 	if (buffer == NULL) {
 		return -ENOMEM;

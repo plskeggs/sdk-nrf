@@ -23,6 +23,8 @@ struct nrf_cloud_rest_context;
  * @{
  */
 
+#define UNKNOWN_LOG_SOURCE UINT32_MAX
+
 /** @brief Data associated with each log entry */
 struct nrf_cloud_log_context
 {
@@ -42,6 +44,10 @@ struct nrf_cloud_log_context
 	void *rest_ctx;
 	/** When using REST, this is the device_id making the REST connection */
 	const char device_id[NRF_CLOUD_CLIENT_ID_MAX_LEN + 1];
+	/** Total number of lines logged */
+	uint32_t lines_logged;
+	/** Total number of bytes (before TLS) logged */
+	uint32_t bytes_logged;
 };
 
 /** @brief Set criticality of logs that should be sent to the cloud.

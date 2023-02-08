@@ -228,21 +228,6 @@ static int handle_device_config_update(const struct nct_evt *const evt,
 	return err;
 }
 
-static int _log_level;
-
-/* Placeholder until cloud logging added in another PR */
-void nrf_cloud_log_control_set(int log_level)
-{
-	LOG_DBG("Setting nRF Cloud log level = %d", log_level);
-	_log_level = log_level;
-}
-
-/* Placeholder until cloud logging added in another PR */
-int nrf_cloud_log_control_get(void)
-{
-	return _log_level;
-}
-
 static int handle_device_control_update(const struct nct_evt *const evt,
 					bool *const control_found)
 {
