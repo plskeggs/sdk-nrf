@@ -232,19 +232,19 @@ static int logger_out(uint8_t *buf, size_t size, void *ctx)
 	        context.src_name, context.sequence, size, buf);
 #endif
 
-	if (context.src_name) {
+	if (context.src_name && (log_format_current == LOG_OUTPUT_TEXT)) {
 		int len = strlen(context.src_name);
 
-		if ((strncmp(context.src_name, (const char*)buf, MIN(size, len)) == 0)
-		     && ((len + 2) < size) &&
+		/* We want to pass the log source as a separate field for cloud filtering in the
+		 * future. Because the Zephyr logging subsystem always prefixes the log text with
+		 * 'src_name: ', remove it before encoding the log.
+		 */
+		if ((strncmp(context.src_name, (const char*)buf, MIN(size, len)) == 0) &&
+		    ((len + 2) < size) &&
 		    (buf[len] == ':') &&
-		    (buf[len + 1] == ' ')
-		    ) {
+		    (buf[len + 1] == ' ')) {
 			buf += len + 2;
 			size -= len + 2;
-		} else {
-			LOG_INF("context.src_name:%s, len:%d, size:%u, buf:%*s",
-				context.src_name, len, size, len + 2, (const char *)buf);
 		}
 	}
 	err = nrf_cloud_encode_log(&context, buf, size, &output.data);
@@ -276,6 +276,10 @@ end:
 		cJSON_free((void *)output.data.ptr);
 	}
 	atomic_clear_bit(&in_logger_out, 0);
+
+	/* Return original size of log buffer. Otherwise, logger_out will be called
+	 * again with the remainder until the full size is sent.
+	 */
 	return orig_size;
 }
 #endif /* CONFIG_NRF_CLOUD_LOGS */
