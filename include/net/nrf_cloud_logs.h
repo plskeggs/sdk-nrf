@@ -48,7 +48,9 @@ struct nrf_cloud_log_context
 	/** When using REST, this is the device_id making the REST connection */
 	const char device_id[NRF_CLOUD_CLIENT_ID_MAX_LEN + 1];
 	/** Total number of lines logged */
-	uint32_t lines_logged;
+	uint32_t lines_rendered;
+	/** Total number of bytes (before TLS) logged */
+	uint32_t bytes_rendered;
 	/** Total number of bytes (before TLS) logged */
 	uint32_t bytes_logged;
 };
