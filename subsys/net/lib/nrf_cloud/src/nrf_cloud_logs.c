@@ -272,6 +272,18 @@ static int logger_out(uint8_t *buf, size_t size, void *ctx)
 		goto end;
 	}
 
+/*
+TODO:
+- Create a ring buffer per size defined with a CONFIG.
+- Change nrf_cloud_encode_log() to take pointer to ring buffer object; have it call
+ring_buf_put_claim() based on estimate of worse case msg size; encode the message there;
+then call ring_buf_put_finish() with actual length.  If claimed size smaller than request,
+then return an error.  Down below here, detect that error and force a flush, then
+return unprocessed size so log core will call us again.
+- Somehow decide when ring buffer is either full enough or enough time has passed,
+and then send all of it.
+*/
+
 	if (IS_ENABLED(CONFIG_NRF_CLOUD_MQTT)) {
 		err = nrf_cloud_send(&output);
 	}
