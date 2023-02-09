@@ -435,9 +435,10 @@ static int handle_pin_complete(const struct nct_evt *nct_evt)
 	struct nrf_cloud_data rx;
 	struct nrf_cloud_data tx;
 	struct nrf_cloud_data bulk;
+	struct nrf_cloud_data bin;
 	struct nrf_cloud_data endpoint;
 
-	err = nrf_cloud_decode_data_endpoint(payload, &tx, &rx, &bulk, &endpoint);
+	err = nrf_cloud_decode_data_endpoint(payload, &tx, &rx, &bulk, &bin, &endpoint);
 	if (err) {
 		LOG_ERR("nrf_cloud_decode_data_endpoint failed %d", err);
 		return err;
@@ -447,7 +448,7 @@ static int handle_pin_complete(const struct nct_evt *nct_evt)
 	c2d_topic_modified = nrf_cloud_set_wildcard_c2d_topic((char *)rx.ptr, rx.len);
 
 	/* Set the endpoint information. */
-	nct_dc_endpoint_set(&tx, &rx, &bulk, &endpoint);
+	nct_dc_endpoint_set(&tx, &rx, &bulk, &bin, &endpoint);
 
 	return state_ua_pin_complete();
 }

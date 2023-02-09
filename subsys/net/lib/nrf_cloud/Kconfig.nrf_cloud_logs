@@ -30,6 +30,10 @@ config NRF_CLOUD_LOG_BUF_SIZE
 	help
 	  Set size in bytes for buffer for log output system.
 
+backend = NRF_CLOUD
+backend-str = nrf_cloud
+source "subsys/logging/Kconfig.template.log_format_config"
+
 endif # NRF_CLOUD_LOGS
 
 module = NRF_CLOUD_LOGGER

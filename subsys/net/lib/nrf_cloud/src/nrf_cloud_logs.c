@@ -47,7 +47,7 @@ static const struct log_backend_api logger_api = {
 };
 
 static uint8_t log_buf[CONFIG_NRF_CLOUD_LOG_BUF_SIZE];
-static uint32_t log_format_current = LOG_OUTPUT_TEXT;
+static uint32_t log_format_current = CONFIG_LOG_BACKEND_NRF_CLOUD_OUTPUT_DEFAULT;
 static uint32_t log_output_flags = LOG_OUTPUT_FLAG_CRLF_NONE;
 static int nrf_cloud_log_level = CONFIG_NRF_CLOUD_LOGS_LEVEL;
 static bool enabled;
@@ -126,16 +126,17 @@ static void logger_process(const struct log_backend *const backend, union log_ms
 	}
 
 	context.level = level;
-	context.domain = log_msg_get_domain(&msg->log);
+	context.dom_id = log_msg_get_domain(&msg->log);
+	context.dom_name = log_domain_name_get(context.dom_id);
 	context.ts_ms = log_msg_get_timestamp(&msg->log);
 
 	void *source_data = (void *)log_msg_get_source(&msg->log);
 
-	if (IS_ENABLED(CONFIG_LOG_MULTIDOMAIN) && (context.domain != Z_LOG_LOCAL_DOMAIN_ID)) {
+	if (IS_ENABLED(CONFIG_LOG_MULTIDOMAIN) && (context.dom_id != Z_LOG_LOCAL_DOMAIN_ID)) {
 		/* Remote domain is converting source pointer to ID */
-		context.source = (uint32_t)(uintptr_t)source_data;
+		context.src_id = (uint32_t)(uintptr_t)source_data;
 	} else {
-		context.source = (source_data != NULL) ?
+		context.src_id = (source_data != NULL) ?
 					(IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING) ?
 						log_dynamic_source_id(source_data) :
 						log_const_source_id(source_data)) :
@@ -143,19 +144,20 @@ static void logger_process(const struct log_backend *const backend, union log_ms
 	}
 
 	/* Prevent locally-generated logs from being self-logged, which runs away. */
-	if (context.source == self_source_id) {
+	if (context.src_id == self_source_id) {
 		atomic_clear_bit(&in_logger_proc, 0);
 		return;
 	}
 
-	context.src_name = context.source != UNKNOWN_LOG_SOURCE ?
-			   log_source_name_get(context.domain, context.source) : NULL;
+	context.src_name = context.src_id != UNKNOWN_LOG_SOURCE ?
+			   log_source_name_get(context.dom_id, context.src_id) : NULL;
 	context.sequence = log_sequence++;
 
 #if defined(EXTRA_DEBUG)
-	LOG_DBG("context: dom:%d, lvl:%d, ts_ms:%u, src_id:%u, src:%s, seq:%u",
-	        context.domain, context.level, context.ts_ms, context.source,
-	        context.src_name ? context.src_name : "<unknown>", context.sequence);
+	LOG_DBG("dom_id:%d, dom_name:%s, src_id:%u, src_name:%s, lvl:%d, ts_ms:%u, seq:%u",
+		context.dom_id, context.dom_name ? context.dom_name : "?",
+		context.src_id, context.src_name ? context.src_name : "?",
+		context.level, context.ts_ms, context.sequence);
 #endif
 
 	log_format_func_t log_output_func = log_format_func_t_get(log_format_current);
@@ -197,7 +199,10 @@ static int logger_format_set(const struct log_backend *const backend, uint32_t l
 	if (backend != &log_nrf_cloud_backend) {
 		return 0;
 	}
-	/* Usually either LOG_OUTPUT_TEXT or LOG_OUTPUT_DICT */
+	/* Usually one of:
+	 * CONFIG_LOG_BACKEND_NRF_CLOUD_OUTPUT_TEXT
+	 * CONFIG_LOG_BACKEND_NRF_CLOUD_OUTPUT_DICT
+	 */
 	log_format_current = log_type;
 	return 0;
 }
@@ -218,18 +223,31 @@ static int logger_out(uint8_t *buf, size_t size, void *ctx)
 {
 	ARG_UNUSED(ctx);
 	int err = 0;
-	struct nct_dc_data output = {.message_id = NCT_MSG_ID_USE_NEXT_INCREMENT};
+	struct nrf_cloud_tx_data output = {
+		.qos = MQTT_QOS_0_AT_MOST_ONCE,
+		.topic_type = (log_format_current == LOG_OUTPUT_TEXT) ?
+			       NRF_CLOUD_TOPIC_MESSAGE : NRF_CLOUD_TOPIC_BIN
+	};
 	static atomic_t in_logger_out = 0;
 	size_t orig_size = size;
 
+	if (!size) {
+		return 0;
+	}
 	if (atomic_test_and_set_bit(&in_logger_out, 0)) {
 		return 0; /* it was already set */
 	}
 
 #if defined(EXTRA_DEBUG)
-	LOG_DBG("context: dom:%d, lvl:%d, ts_ms:%u, src_id:%u, src:%s, seq:%u, msg:%*s",
-	        context.domain, context.level, context.ts_ms, context.source,
-	        context.src_name, context.sequence, size, buf);
+	LOG_DBG("dom_id:%d, dom_name:%s, src_id:%u, src_name:%s, lvl:%d, ts_ms:%u, seq:%u",
+		context.dom_id, context.dom_name ? context.dom_name : "?",
+		context.src_id, context.src_name ? context.src_name : "?",
+		context.level, context.ts_ms, context.sequence);
+	if (log_format_current == LOG_OUTPUT_TEXT) {
+		LOG_DBG("msg:%*s", size, buf);
+	} else {
+		LOG_HEXDUMP_DBG(buf, size, "DICT msg:");
+	}
 #endif
 
 	if (context.src_name && (log_format_current == LOG_OUTPUT_TEXT)) {
@@ -247,14 +265,15 @@ static int logger_out(uint8_t *buf, size_t size, void *ctx)
 			size -= len + 2;
 		}
 	}
-	err = nrf_cloud_encode_log(&context, buf, size, &output.data);
+
+	err = nrf_cloud_encode_log(&context, buf, size, &output.data, log_format_current);
 	if (err) {
 		LOG_ERR("Error encoding log: %d", err);
 		goto end;
 	}
 
 	if (IS_ENABLED(CONFIG_NRF_CLOUD_MQTT)) {
-		err = nct_dc_send(&output);
+		err = nrf_cloud_send(&output);
 	}
 	else if (IS_ENABLED(CONFIG_NRF_CLOUD_REST)) {
 		/* send to d2c topic, unless bulk is true, in which case d2c/bulk is used */
@@ -267,13 +286,22 @@ static int logger_out(uint8_t *buf, size_t size, void *ctx)
 	if (!err) {
 		context.lines_logged++;
 		context.bytes_logged += output.data.len;
-		LOG_DBG("Log sent: %s", (const char *)output.data.ptr);
+		if (log_format_current == LOG_OUTPUT_TEXT) {
+			LOG_DBG("Log sent: %s", (const char *)output.data.ptr);
+		} else {
+			LOG_HEXDUMP_DBG(output.data.ptr, output.data.len, "DICT log");
+		}
+
 	} else {
 		LOG_ERR("Error sending log: %d", err);
 	}
 end:
 	if (output.data.ptr != NULL) {
-		cJSON_free((void *)output.data.ptr);
+		if (log_format_current == LOG_OUTPUT_TEXT) {
+			cJSON_free((void *)output.data.ptr);
+		} else {
+			k_free((void *)output.data.ptr);
+		}
 	}
 	atomic_clear_bit(&in_logger_out, 0);
 

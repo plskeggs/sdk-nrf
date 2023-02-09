@@ -260,7 +260,11 @@ enum nrf_cloud_topic_type {
 	 *  messages into a single message that will be unwrapped and re-published to the
 	 *  message topic in the nRF Cloud backend.
 	 */
-	NRF_CLOUD_TOPIC_BULK
+	NRF_CLOUD_TOPIC_BULK,
+	/** Endpoint used to publish binary data to nRF Cloud for certain services.
+	 *  One example is LOG_OUTPUT_DICT formatted logs.
+	 */
+	NRF_CLOUD_TOPIC_BIN
 };
 
 /** @brief FOTA status reported to nRF Cloud. */

@@ -23,21 +23,24 @@ struct nrf_cloud_rest_context;
  * @{
  */
 
+/** Special value indicating the source of this log entry could not be determined */
 #define UNKNOWN_LOG_SOURCE UINT32_MAX
 
 /** @brief Data associated with each log entry */
 struct nrf_cloud_log_context
 {
 	/** In a multi-core system, the source of the log message */
-	int domain;
+	int dom_id;
+	/** Name of the domain that generated the log */
+	const char *dom_name;
+	/** fixed or dynamic source information */
+	uint32_t src_id;
+	/** When not using runtime filtering, this is the name of the source */
+	const char *src_name;
 	/** The criticality of the log entry */
 	int level;
 	/** The time at which the log entry was generated */
 	log_timestamp_t ts_ms;
-	/** fixed or dynamic source information */
-	uint32_t source;
-	/** When not using runtime filtering, this is the name of the source */
-	const char *src_name;
 	/** Monotonically increasing sequence number */
 	unsigned int sequence;
 	/** When using REST, this points to the context structure */
@@ -49,6 +52,27 @@ struct nrf_cloud_log_context
 	/** Total number of bytes (before TLS) logged */
 	uint32_t bytes_logged;
 };
+
+/** Special value indicating this is an nRF Cloud binary format */
+#define NRF_CLOUD_BINARY_MAGIC 0x4346526e /* 'nRFC' in little-endian order */
+
+/** Format identifier for remainder of this binary blob */
+#define NRF_CLOUD_DICT_LOG_FMT 0x0001
+
+/** @brief Header preceeding binary blobs so nRF Cloud can
+ *  process them in correct order using ts_ms and sequence fields.
+ */
+struct nrf_cloud_bin_hdr
+{
+	/** Special marker value indicating this binary blob is a supported type */
+	uint32_t magic;
+	/** Value indicating the service format, such as a dictionary-based log */
+	uint16_t format;
+	/** The time at which the log entry was generated */
+	log_timestamp_t ts_ms;
+	/** Monotonically increasing sequence number */
+	uint32_t sequence;
+} __packed;
 
 /** @brief Set criticality of logs that should be sent to the cloud.
  *         Set log_level to 0 to disable logging.

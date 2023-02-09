@@ -61,6 +61,7 @@ extern "C" {
 #define NRF_CLOUD_JSON_ELEVATION_MASK_KEY	"mask"
 
 #define NRF_CLOUD_BULK_MSG_TOPIC		"/bulk"
+#define NRF_CLOUD_BIN_MSG_TOPIC			"/bin"
 
 /* Modem info key text */
 #define NRF_CLOUD_JSON_MCC_KEY			"mcc"
@@ -192,6 +193,7 @@ int nrf_cloud_decode_data_endpoint(const struct nrf_cloud_data *input,
 				   struct nrf_cloud_data *tx_endpoint,
 				   struct nrf_cloud_data *rx_endpoint,
 				   struct nrf_cloud_data *bulk_endpoint,
+				   struct nrf_cloud_data *bin_endpoint,
 				   struct nrf_cloud_data *m_endpoint);
 
 /** @brief Encode state information. */
@@ -348,7 +350,7 @@ void nrf_cloud_register_gateway_state_handler(gateway_state_handler_t handler);
 
 /** @brief Encode a log output buffer for transport to the cloud */
 int nrf_cloud_encode_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size_t size,
-			 struct nrf_cloud_data *output);
+			 struct nrf_cloud_data *output, uint32_t log_format);
 
 #ifdef __cplusplus
 }

@@ -10,6 +10,7 @@
 #include <net/nrf_cloud_location.h>
 #include <net/nrf_cloud_alerts.h>
 #include <net/nrf_cloud_logs.h>
+#include <zephyr/logging/log_output.h>
 #include <stdbool.h>
 #include <string.h>
 #include <stdio.h>
@@ -685,7 +686,7 @@ int nrf_cloud_encode_state(uint32_t reported_state, const bool update_desired_to
 		struct nrf_cloud_data m_endp;
 
 		/* Get the endpoint information. */
-		nct_dc_endpoint_get(&tx_endp, &rx_endp, NULL, &m_endp);
+		nct_dc_endpoint_get(&tx_endp, &rx_endp, NULL, NULL, &m_endp);
 		ret += json_add_str_cs(reported_obj, JSON_KEY_TOPIC_PRFX, m_endp.ptr);
 
 		/* Clear pairing config and pairingStatus fields. */
@@ -750,6 +751,7 @@ int nrf_cloud_decode_data_endpoint(const struct nrf_cloud_data *input,
 				   struct nrf_cloud_data *tx_endpoint,
 				   struct nrf_cloud_data *rx_endpoint,
 				   struct nrf_cloud_data *bulk_endpoint,
+				   struct nrf_cloud_data *bin_endpoint,
 				   struct nrf_cloud_data *m_endpoint)
 {
 	__ASSERT_NO_MSG(input != NULL);
@@ -758,6 +760,7 @@ int nrf_cloud_decode_data_endpoint(const struct nrf_cloud_data *input,
 	__ASSERT_NO_MSG(tx_endpoint != NULL);
 	__ASSERT_NO_MSG(rx_endpoint != NULL);
 	__ASSERT_NO_MSG(bulk_endpoint != NULL);
+	__ASSERT_NO_MSG(bin_endpoint != NULL);
 
 	int err;
 	cJSON *root_obj;
@@ -825,6 +828,22 @@ int nrf_cloud_decode_data_endpoint(const struct nrf_cloud_data *input,
 	bulk_endpoint->len = snprintk((char *)bulk_endpoint->ptr, bulk_ep_len_temp, "%s%s",
 				       (char *)tx_endpoint->ptr,
 				       NRF_CLOUD_BULK_MSG_TOPIC);
+
+	/* Populate bin endpoint topic by copying and appending /bin to the parsed
+	 * tx endpoint (d2c) topic.
+	 */
+	size_t bin_ep_len_temp = tx_endpoint->len + sizeof(NRF_CLOUD_BIN_MSG_TOPIC);
+
+	bin_endpoint->ptr = nrf_cloud_calloc(bin_ep_len_temp, 1);
+	if (bin_endpoint->ptr == NULL) {
+		cJSON_Delete(root_obj);
+		LOG_ERR("Could not allocate memory for bin topic");
+		return -ENOMEM;
+	}
+
+	bin_endpoint->len = snprintk((char *)bin_endpoint->ptr, bin_ep_len_temp, "%s%s",
+				       (char *)tx_endpoint->ptr,
+				       NRF_CLOUD_BIN_MSG_TOPIC);
 
 	err = json_decode_and_alloc(json_object_decode(topic_obj, JSON_KEY_CLOUD_TO_DEVICE),
 				    rx_endpoint);
@@ -2642,16 +2661,11 @@ int nrf_cloud_encode_alert(const struct nrf_cloud_alert_info *alert,
 	return 0;
 }
 
-int nrf_cloud_encode_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size_t size,
-			 struct nrf_cloud_data *output)
-{
-	__ASSERT_NO_MSG(ctx != NULL);
-	__ASSERT_NO_MSG(buf != NULL);
-	__ASSERT_NO_MSG(output != NULL);
-
 #if defined(CONFIG_NRF_CLOUD_LOGS)
+static int encode_json_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size_t size,
+			   struct nrf_cloud_data *output)
+{
 	int ret;
-
 	cJSON *root_obj = cJSON_CreateObject();
 
 	if (root_obj == NULL) {
@@ -2660,18 +2674,21 @@ int nrf_cloud_encode_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size_t
 
 	ret = json_add_str_cs(root_obj, NRF_CLOUD_JSON_APPID_KEY, NRF_CLOUD_JSON_APPID_VAL_LOG);
 	if (ctx != NULL) {
-		ret += json_add_num_cs(root_obj, NRF_CLOUD_LOG_JSON_KEY_DOMAIN, ctx->domain);
+		ret += json_add_num_cs(root_obj, NRF_CLOUD_LOG_JSON_KEY_DOMAIN, ctx->dom_id);
 		ret += json_add_num_cs(root_obj, NRF_CLOUD_LOG_JSON_KEY_LEVEL, ctx->level);
 		if (ctx->src_name != NULL) {
-			ret += json_add_str_cs(root_obj, NRF_CLOUD_LOG_JSON_KEY_SOURCE, ctx->src_name);
+			ret += json_add_str_cs(root_obj, NRF_CLOUD_LOG_JSON_KEY_SOURCE,
+					       ctx->src_name);
 		}
 		if (ctx->ts_ms > 0) {
 			ret += json_add_num_cs(root_obj, NRF_CLOUD_MSG_TIMESTAMP_KEY, ctx->ts_ms);
 		}
 		if (!ctx->ts_ms || IS_ENABLED(CONFIG_NRF_CLOUD_LOGS_SEQ_ALWAYS)) {
-			ret += json_add_num_cs(root_obj, NRF_CLOUD_LOG_JSON_KEY_SEQUENCE, ctx->sequence);
+			ret += json_add_num_cs(root_obj, NRF_CLOUD_LOG_JSON_KEY_SEQUENCE,
+					       ctx->sequence);
 		}
 	}
+
 	char *new_buf = k_malloc(size + 1);
 
 	memcpy(new_buf, buf, size);
@@ -2679,6 +2696,7 @@ int nrf_cloud_encode_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size_t
 	ret += json_add_str_cs(root_obj, NRF_CLOUD_LOG_JSON_KEY_MESSAGE, new_buf);
 	k_free(new_buf);
 	new_buf = NULL;
+
 	if (ret != 0) {
 		cJSON_Delete(root_obj);
 		return -ENOMEM;
@@ -2694,12 +2712,59 @@ int nrf_cloud_encode_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size_t
 
 	output->ptr = buffer;
 	output->len = strlen(buffer);
+	return 0;
+}
+
+static int encode_dict_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size_t size,
+			   struct nrf_cloud_data *output)
+{
+	uint8_t *buffer;
+	struct nrf_cloud_bin_hdr *hdr;
+	int len = sizeof(struct nrf_cloud_bin_hdr) + size;
+
+	buffer = k_malloc(len);
+	if (buffer == NULL) {
+		return -ENOMEM;
+	}
+
+	hdr = (struct nrf_cloud_bin_hdr *)buffer;
+	hdr->magic = NRF_CLOUD_BINARY_MAGIC;
+	hdr->format = NRF_CLOUD_DICT_LOG_FMT;
+	hdr->ts_ms = ctx->ts_ms;
+	hdr->sequence = ctx->sequence;
+
+	memcpy(&buffer[sizeof(struct nrf_cloud_bin_hdr)], buf, size);
+
+	output->ptr = buffer;
+	output->len = len;
+	return 0;
+}
+
+#endif /* CONFIG_NRF_CLOUD_ALERTS */
+
+int nrf_cloud_encode_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size_t size,
+			 struct nrf_cloud_data *output, uint32_t log_format)
+{
+	__ASSERT_NO_MSG(ctx != NULL);
+	__ASSERT_NO_MSG(buf != NULL);
+	__ASSERT_NO_MSG(output != NULL);
+
+#if defined(CONFIG_NRF_CLOUD_LOGS)
+	if (log_format == LOG_OUTPUT_TEXT) {
+		return encode_json_log(ctx, buf, size, output);
+	} else if (log_format == LOG_OUTPUT_DICT) {
+		return encode_dict_log(ctx, buf, size, output);
+	}
+
+	LOG_ERR("Log format %u not supported", log_format);
+	return -ENOTSUP;
 #else
 	ARG_UNUSED(ctx);
 	ARG_UNUSED(buf);
 	ARG_UNUSED(size);
+	ARG_UNUSED(log_format);
 	output->ptr = NULL;
 	output->len = 0;
-#endif /* CONFIG_NRF_CLOUD_ALERTS */
 	return 0;
+#endif /* CONFIG_NRF_CLOUD_ALERTS */
 }
