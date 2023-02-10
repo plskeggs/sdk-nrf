@@ -47,6 +47,18 @@ static const struct log_backend_api logger_api = {
 	.notify		= logger_notify
 };
 
+static struct nrf_cloud_log_stats 
+{
+	/** Total number of lines logged */
+	uint32_t lines_rendered;
+	/** Total number of bytes (before TLS) logged */
+	uint32_t bytes_rendered;
+	/** Total number of lines sent */
+	uint32_t lines_sent;
+	/** Total number of bytes (before TLS) sent */
+	uint32_t bytes_sent;
+} stats;
+
 static uint8_t log_buf[CONFIG_NRF_CLOUD_LOG_BUF_SIZE];
 static uint32_t log_format_current = CONFIG_LOG_BACKEND_NRF_CLOUD_OUTPUT_DEFAULT;
 static uint32_t log_output_flags = LOG_OUTPUT_FLAG_CRLF_NONE;
@@ -54,12 +66,16 @@ static int nrf_cloud_log_level = CONFIG_NRF_CLOUD_LOGS_LEVEL;
 static bool enabled;
 static atomic_t log_sequence;
 static uint32_t self_source_id;
+static int num_msgs;
+static int64_t starting_timestamp;
 
 struct nrf_cloud_log_context context;
 
 LOG_BACKEND_DEFINE(log_nrf_cloud_backend, logger_api, false);
 LOG_OUTPUT_DEFINE(log_nrf_cloud_output, logger_out, log_buf, sizeof(log_buf));
 RING_BUF_DECLARE(log_nrf_cloud_rb, CONFIG_NRF_CLOUD_LOG_RING_BUF_SIZE);
+
+static int send_ring_buffer(void);
 
 #endif /* CONFIG_NRF_CLOUD_LOGS */
 
@@ -126,10 +142,13 @@ static void logger_process(const struct log_backend *const backend, union log_ms
 	if (backend != &log_nrf_cloud_backend) {
 		return;
 	}
-	//static atomic_t in_logger_proc = 0;
 	int level = log_msg_get_level(&msg->log);
 
 	prevent_self_logging();
+
+	if (IS_ENABLED(CONFIG_DATE_TIME) && !starting_timestamp) {
+		date_time_now(&starting_timestamp);
+	}
 
 	if (!enabled || (level > nrf_cloud_log_level)) {
 		/* Filter logs here, in case runtime filtering is off, and the cloud changed
@@ -137,10 +156,6 @@ static void logger_process(const struct log_backend *const backend, union log_ms
 		 */
 		return;
 	}
-
-	//if (atomic_test_and_set_bit(&in_logger_proc, 0)) {
-	//	return; /* it was already set */
-	//}
 
 	void *source_data = (void *)log_msg_get_source(&msg->log);
 
@@ -155,13 +170,12 @@ static void logger_process(const struct log_backend *const backend, union log_ms
 	context.level = level;
 	context.dom_id = log_msg_get_domain(&msg->log);
 	context.dom_name = log_domain_name_get(context.dom_id);
-	context.ts_ms = log_msg_get_timestamp(&msg->log);
+	context.ts = log_msg_get_timestamp(&msg->log) + starting_timestamp;
 	context.sequence = log_sequence++;
 
 	log_format_func_t log_output_func = log_format_func_t_get(log_format_current);
 
 	log_output_func(&log_nrf_cloud_output, &msg->log, log_output_flags);
-	//atomic_clear_bit(&in_logger_proc, 0);
 }
 
 static void logger_dropped(const struct log_backend *const backend, uint32_t cnt)
@@ -212,10 +226,65 @@ static void logger_notify(const struct log_backend *const backend, enum log_back
 	}
 	if (event == LOG_BACKEND_EVT_PROCESS_THREAD_DONE) {
 		/* Not sure how helpful this is... */
-		LOG_INF("Rendered lines:%u, bytes:%u; buffered bytes:%u; sent bytes:%u",
-			context.lines_rendered, context.bytes_rendered,
-			ring_buf_size_get(&log_nrf_cloud_rb), context.bytes_logged);
+		send_ring_buffer();
+
+		LOG_INF("Logged lines:%u, bytes:%u; buf bytes:%u; sent lines:%u, sent bytes:%u",
+			stats.lines_rendered, stats.bytes_rendered,
+			ring_buf_size_get(&log_nrf_cloud_rb),
+			stats.lines_sent, stats.bytes_sent);
 	}
+}
+
+static int send_ring_buffer(void)
+{
+	int err;
+	int ret;
+	struct nrf_cloud_tx_data output = {
+		.qos = MQTT_QOS_0_AT_MOST_ONCE,
+		.topic_type = (log_format_current == LOG_OUTPUT_TEXT) ?
+			       NRF_CLOUD_TOPIC_BULK : NRF_CLOUD_TOPIC_BIN
+	};
+	uint32_t stored;
+
+	if ((num_msgs != 0) && (log_format_current == LOG_OUTPUT_TEXT)) {
+		ring_buf_put(&log_nrf_cloud_rb, "]", 1);
+	}
+	stored = ring_buf_size_get(&log_nrf_cloud_rb);
+	output.data.len = ring_buf_get_claim(&log_nrf_cloud_rb,
+					     (uint8_t **)&output.data.ptr,
+					     stored);
+	if (output.data.len != stored) {
+		LOG_WRN("Capacity:%u, free:%u, stored:%u, claimed:%u",
+			ring_buf_capacity_get(&log_nrf_cloud_rb),
+			ring_buf_space_get(&log_nrf_cloud_rb),
+			stored, output.data.len);
+	}
+
+	if (IS_ENABLED(CONFIG_NRF_CLOUD_MQTT)) {
+		err = nrf_cloud_send(&output);
+	}
+	else if (IS_ENABLED(CONFIG_NRF_CLOUD_REST)) {
+		/* send to d2c topic, unless bulk is true, in which case d2c/bulk is used */
+		err = nrf_cloud_rest_send_device_message(context.rest_ctx,
+							 context.device_id,
+							 output.data.ptr, false, NULL);
+	} else {
+		err = -ENODEV;
+	}
+	if (!err) {
+		stats.lines_sent += num_msgs;
+		stats.bytes_sent += output.data.len;
+	}
+
+	ret = ring_buf_get_finish(&log_nrf_cloud_rb, output.data.len);
+	num_msgs = 0;
+	ring_buf_reset(&log_nrf_cloud_rb);
+
+	if (ret) {
+		LOG_ERR("Error finishing ring buffer: %d", ret);
+		err = ret;
+	}
+	return err;
 }
 
 static int logger_out(uint8_t *buf, size_t size, void *ctx)
@@ -223,27 +292,18 @@ static int logger_out(uint8_t *buf, size_t size, void *ctx)
 	ARG_UNUSED(ctx);
 	int err = 0;
 	struct nrf_cloud_data data;
-	struct nrf_cloud_tx_data output = {
-		.qos = MQTT_QOS_0_AT_MOST_ONCE,
-		.topic_type = (log_format_current == LOG_OUTPUT_TEXT) ?
-			       NRF_CLOUD_TOPIC_MESSAGE : NRF_CLOUD_TOPIC_BIN
-	};
-	//static atomic_t in_logger_out = 0;
 	size_t orig_size = size;
 	uint32_t stored;
 
 	if (!size) {
 		return 0;
 	}
-	//if (atomic_test_and_set_bit(&in_logger_out, 0)) {
-	//	return 0; /* it was already set */
-	//}
 
 #if defined(EXTRA_DEBUG)
-	LOG_DBG("dom_id:%d, dom_name:%s, src_id:%u, src_name:%s, lvl:%d, ts_ms:%u, seq:%u",
+	LOG_DBG("dom_id:%d, dom_name:%s, src_id:%u, src_name:%s, lvl:%d, ts:%u, seq:%u",
 		context.dom_id, context.dom_name ? context.dom_name : "?",
 		context.src_id, context.src_name ? context.src_name : "?",
-		context.level, context.ts_ms, context.sequence);
+		context.level, context.ts, context.sequence);
 	if (log_format_current == LOG_OUTPUT_TEXT) {
 		LOG_DBG("msg:%*s", size, buf);
 	} else {
@@ -272,31 +332,27 @@ static int logger_out(uint8_t *buf, size_t size, void *ctx)
 		LOG_ERR("Error encoding log: %d", err);
 		goto end;
 	}
-	context.lines_rendered++;
-	context.bytes_rendered += data.len;
+
+	stats.lines_rendered++;
+	stats.bytes_rendered += data.len;
 	if (log_format_current == LOG_OUTPUT_TEXT) {
 		LOG_DBG("Log sent: %s", (const char *)data.ptr);
 	} else {
 		LOG_HEXDUMP_DBG(data.ptr, data.len, "DICT log");
 	}
 
-/*
-TODO:
-- Change nrf_cloud_encode_log() to take pointer to ring buffer object; have it call
-ring_buf_put_claim() based on estimate of worse case msg size; encode the message there;
-then call ring_buf_put_finish() with actual length.  If claimed size smaller than request,
-then return an error.  Down below here, detect that error and force a flush, then
-return unprocessed size so log core will call us again.
-- Somehow decide when ring buffer is either full enough or enough time has passed,
-and then send all of it.
-*/
 	do {
 		/* If there is enough room for this rendering, store it and leave. */
-		if (ring_buf_space_get(&log_nrf_cloud_rb) > data.len) {
+		if (ring_buf_space_get(&log_nrf_cloud_rb) > (data.len + 2)) {
+
+			if ((num_msgs == 0) && (log_format_current == LOG_OUTPUT_TEXT)) {
+				ring_buf_put(&log_nrf_cloud_rb, "[", 1);
+			}
 			stored = ring_buf_put(&log_nrf_cloud_rb, data.ptr, data.len);
 			if (stored != data.len) {
 				LOG_WRN("Stored:%u, put:%u", stored, data.len);
 			}
+			num_msgs++;
 			if (log_format_current == LOG_OUTPUT_TEXT) {
 				cJSON_free((void *)data.ptr);
 			} else {
@@ -307,38 +363,13 @@ and then send all of it.
 		}
 
 		/* Low on space, so send everything. */
-		stored = ring_buf_size_get(&log_nrf_cloud_rb);
-		output.data.len = ring_buf_get_claim(&log_nrf_cloud_rb,
-						     (uint8_t **)&output.data.ptr,
-						     stored);
-		if (output.data.len != stored) {
-			LOG_WRN("Stored:%u, claimed:%u", stored, output.data.len);
-		}
-
-		if (IS_ENABLED(CONFIG_NRF_CLOUD_MQTT)) {
-			err = nrf_cloud_send(&output);
-		}
-		else if (IS_ENABLED(CONFIG_NRF_CLOUD_REST)) {
-			/* send to d2c topic, unless bulk is true, in which case d2c/bulk is used */
-			err = nrf_cloud_rest_send_device_message(context.rest_ctx,
-								 context.device_id,
-								 output.data.ptr, false, NULL);
-		} else {
-			err = -ENODEV;
-		}
-		if (!err) {
-			context.bytes_logged += output.data.len;
-		}
-		ring_buf_get_finish(&log_nrf_cloud_rb, output.data.len);
-
+		err = send_ring_buffer();
 	} while (!err);
 
 	if (err) {
 		LOG_ERR("Error sending log: %d", err);
 	}
 end:
-	//atomic_clear_bit(&in_logger_out, 0);
-
 	/* Return original size of log buffer. Otherwise, logger_out will be called
 	 * again with the remainder until the full size is sent.
 	 */

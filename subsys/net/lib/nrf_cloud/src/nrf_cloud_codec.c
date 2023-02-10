@@ -2680,10 +2680,10 @@ static int encode_json_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size
 			ret += json_add_str_cs(root_obj, NRF_CLOUD_LOG_JSON_KEY_SOURCE,
 					       ctx->src_name);
 		}
-		if (ctx->ts_ms > 0) {
-			ret += json_add_num_cs(root_obj, NRF_CLOUD_MSG_TIMESTAMP_KEY, ctx->ts_ms);
+		if (ctx->ts > 0) {
+			ret += json_add_num_cs(root_obj, NRF_CLOUD_MSG_TIMESTAMP_KEY, ctx->ts);
 		}
-		if (!ctx->ts_ms || IS_ENABLED(CONFIG_NRF_CLOUD_LOGS_SEQ_ALWAYS)) {
+		if (!ctx->ts || IS_ENABLED(CONFIG_NRF_CLOUD_LOGS_SEQ_ALWAYS)) {
 			ret += json_add_num_cs(root_obj, NRF_CLOUD_LOG_JSON_KEY_SEQUENCE,
 					       ctx->sequence);
 		}
@@ -2730,7 +2730,7 @@ static int encode_dict_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size
 	hdr = (struct nrf_cloud_bin_hdr *)buffer;
 	hdr->magic = NRF_CLOUD_BINARY_MAGIC;
 	hdr->format = NRF_CLOUD_DICT_LOG_FMT;
-	hdr->ts_ms = ctx->ts_ms;
+	hdr->ts = ctx->ts;
 	hdr->sequence = ctx->sequence;
 
 	memcpy(&buffer[sizeof(struct nrf_cloud_bin_hdr)], buf, size);

@@ -39,20 +39,14 @@ struct nrf_cloud_log_context
 	const char *src_name;
 	/** The criticality of the log entry */
 	int level;
-	/** The time at which the log entry was generated */
-	log_timestamp_t ts_ms;
+	/** The real clock time at which the log entry was generated */
+	int64_t ts;
 	/** Monotonically increasing sequence number */
 	unsigned int sequence;
 	/** When using REST, this points to the context structure */
 	void *rest_ctx;
 	/** When using REST, this is the device_id making the REST connection */
 	const char device_id[NRF_CLOUD_CLIENT_ID_MAX_LEN + 1];
-	/** Total number of lines logged */
-	uint32_t lines_rendered;
-	/** Total number of bytes (before TLS) logged */
-	uint32_t bytes_rendered;
-	/** Total number of bytes (before TLS) logged */
-	uint32_t bytes_logged;
 };
 
 /** Special value indicating this is an nRF Cloud binary format */
@@ -71,7 +65,7 @@ struct nrf_cloud_bin_hdr
 	/** Value indicating the service format, such as a dictionary-based log */
 	uint16_t format;
 	/** The time at which the log entry was generated */
-	log_timestamp_t ts_ms;
+	int64_t ts;
 	/** Monotonically increasing sequence number */
 	uint32_t sequence;
 } __packed;
