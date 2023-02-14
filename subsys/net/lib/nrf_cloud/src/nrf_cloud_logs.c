@@ -78,7 +78,6 @@ static atomic_t log_sequence;
 static uint32_t self_source_id;
 static int num_msgs;
 static int64_t starting_timestamp;
-
 struct nrf_cloud_log_context context;
 
 LOG_BACKEND_DEFINE(log_nrf_cloud_backend, logger_api, false);
@@ -91,39 +90,26 @@ static int send_ring_buffer(void);
 
 static void logger_init(const struct log_backend *const backend)
 {
-	if (backend != &log_nrf_cloud_backend) {
-		return;
-	}
 	static bool initialized;
+	uint32_t actual_level;
 
-	if (initialized) {
+	if ((backend != &log_nrf_cloud_backend) || initialized) {
 		return;
 	}
 	initialized = true;
-
-	log_output_ctx_set(&log_nrf_cloud_output, &context);
-
 	(void)nrf_cloud_codec_init(NULL);
-}
-
-static void prevent_self_logging(void)
-{
-	static bool once = false;
-
-	if (once) {
-		return;
-	}
-	once = true;
-
-	uint32_t actual_level;
 
 	self_source_id = log_source_id_get(STRINGIFY(LOCAL_LOG_NAME));
 	actual_level = log_filter_set(&log_nrf_cloud_backend,
 				      Z_LOG_LOCAL_DOMAIN_ID, self_source_id, 0);
-
 	if (actual_level != 0) {
 		LOG_WRN("Unable to filter self-generated logs");
 	}
+
+	if (IS_ENABLED(CONFIG_DATE_TIME) && !starting_timestamp) {
+		date_time_now(&starting_timestamp);
+	}
+
 	LOG_DBG("self_source_id:%u, actual_level:%u", self_source_id, actual_level);
 	LOG_DBG("domain name:%s, num domains:%u, num sources:%u",
 		log_domain_name_get(Z_LOG_LOCAL_DOMAIN_ID),
@@ -149,32 +135,27 @@ static uint32_t get_source_id(void *source_data)
 
 static void logger_process(const struct log_backend *const backend, union log_msg_generic *msg)
 {
-	if (backend != &log_nrf_cloud_backend) {
-		return;
-	}
-	int level = log_msg_get_level(&msg->log);
+	int level;
+	log_format_func_t log_output_func;
 
-	prevent_self_logging();
-
-	if (IS_ENABLED(CONFIG_DATE_TIME) && !starting_timestamp) {
-		date_time_now(&starting_timestamp);
-	}
-
-	if (!enabled || (level > nrf_cloud_log_level)) {
-		/* Filter logs here, in case runtime filtering is off, and the cloud changed
-		 * the log level in the shadow.
-		 */
+	if ((backend != &log_nrf_cloud_backend) || !enabled) {
 		return;
 	}
 
-	void *source_data = (void *)log_msg_get_source(&msg->log);
-
-	context.src_id = get_source_id(source_data);
+	/* Filter logs here, in case runtime filtering is off, and the cloud changed
+	 * the log level in the shadow.
+	 */
+	level = log_msg_get_level(&msg->log);
+	if (level > nrf_cloud_log_level) {
+		return;
+	}
 
 	/* Prevent locally-generated logs from being self-logged, which runs away. */
+	context.src_id = get_source_id((void *)log_msg_get_source(&msg->log));
 	if (context.src_id == self_source_id) {
 		return;
 	}
+
 	context.src_name = context.src_id != UNKNOWN_LOG_SOURCE ?
 			   log_source_name_get(context.dom_id, context.src_id) : NULL;
 	context.level = level;
@@ -183,25 +164,22 @@ static void logger_process(const struct log_backend *const backend, union log_ms
 	context.ts = log_msg_get_timestamp(&msg->log) + starting_timestamp;
 	context.sequence = log_sequence++;
 
-	log_format_func_t log_output_func = log_format_func_t_get(log_format_current);
-
+	log_output_func = log_format_func_t_get(log_format_current);
 	log_output_func(&log_nrf_cloud_output, &msg->log, log_output_flags);
 }
 
 static void logger_dropped(const struct log_backend *const backend, uint32_t cnt)
 {
-	if (backend != &log_nrf_cloud_backend) {
-		return;
+	if (backend == &log_nrf_cloud_backend) {
+		log_output_dropped_process(&log_nrf_cloud_output, cnt);
 	}
-	log_output_dropped_process(&log_nrf_cloud_output, cnt);
 }
 
 static void logger_panic(const struct log_backend *const backend)
 {
-	if (backend != &log_nrf_cloud_backend) {
-		return;
+	if (backend == &log_nrf_cloud_backend) {
+		log_output_flush(&log_nrf_cloud_output);
 	}
-	log_output_flush(&log_nrf_cloud_output);
 }
 
 static int logger_is_ready(const struct log_backend *const backend)
@@ -212,6 +190,7 @@ static int logger_is_ready(const struct log_backend *const backend)
 			return -EBUSY;
 		}
 	}
+
 	/* For REST, assume is ready. */
 	return 0; /* Logging is ready. */
 }
@@ -234,11 +213,12 @@ static void logger_notify(const struct log_backend *const backend, enum log_back
 	if (backend != &log_nrf_cloud_backend) {
 		return;
 	}
+
 	if (event == LOG_BACKEND_EVT_PROCESS_THREAD_DONE) {
-		/* Not sure how helpful this is... */
+		/* Flush our transmission buffer */
 		send_ring_buffer();
 
-		LOG_INF("Logged lines:%u, bytes:%u; buf bytes:%u; sent lines:%u, sent bytes:%u",
+		LOG_INF("Logged lines:%u, bytes:%u; buf bytes:%u; sent lines:%u, sent bytes:%u"
 			stats.lines_rendered, stats.bytes_rendered,
 			ring_buf_size_get(&log_nrf_cloud_rb),
 			stats.lines_sent, stats.bytes_sent);
@@ -257,12 +237,13 @@ static int send_ring_buffer(void)
 	uint32_t stored;
 	uint8_t *base64_buf = NULL;
 
+	/* The bulk topic requires the multiple JSON messages to be placed in
+	 * a JSON array. Close the array now, since we are about to send it.
+	 */
 	if ((num_msgs != 0) && (log_format_current == LOG_OUTPUT_TEXT)) {
-		/* The bulk topic requires the multiple JSON messages to be placed in
-		 * a JSON array. Close the array now, since we are about to send it.
-		 */
 		ring_buf_put(&log_nrf_cloud_rb, "]", 1);
 	}
+
 	stored = ring_buf_size_get(&log_nrf_cloud_rb);
 	output.data.len = ring_buf_get_claim(&log_nrf_cloud_rb,
 					     (uint8_t **)&output.data.ptr,
@@ -283,11 +264,13 @@ static int send_ring_buffer(void)
 		/* Determine buffer size needed */
 		base64_encode(NULL, 0, &olen, output.data.ptr, output.data.len);
 		buflen = strlen(JSON_FMT1) + olen + strlen(JSON_FMT2);
+
 		base64_buf = k_calloc(buflen, 1);
 		if (base64_buf == NULL) {
 			err = -ENOMEM;
 			goto cleanup;
 		}
+
 		memcpy(base64_buf, JSON_FMT1, strlen(JSON_FMT1));
 		err = base64_encode(&base64_buf[strlen(JSON_FMT1)], olen, &olen,
 				    output.data.ptr, output.data.len);
@@ -320,8 +303,8 @@ cleanup:
 		k_free(base64_buf);
 	}
 	ret = ring_buf_get_finish(&log_nrf_cloud_rb, stored);
-	num_msgs = 0;
 	ring_buf_reset(&log_nrf_cloud_rb);
+	num_msgs = 0;
 
 	if (ret) {
 		LOG_ERR("Error finishing ring buffer: %d", ret);
@@ -378,11 +361,14 @@ static int logger_out(uint8_t *buf, size_t size, void *ctx)
 
 	stats.lines_rendered++;
 	stats.bytes_rendered += data.len;
+
+#if defined(EXTRA_DEBUG)
 	if (log_format_current == LOG_OUTPUT_TEXT) {
 		LOG_DBG("Log sent: %s", (const char *)data.ptr);
 	} else {
 		LOG_HEXDUMP_DBG(data.ptr, data.len, "DICT log");
 	}
+#endif
 
 	do {
 		/* If there is enough room for this rendering, store it and leave. */
@@ -463,6 +449,7 @@ void nrf_cloud_log_enable(bool enable)
 	if (enable != enabled) {
 		if (enable) {
 			LOG_DBG("enabling logger");
+			logger_init(&log_nrf_cloud_backend);
 			log_backend_enable(&log_nrf_cloud_backend, NULL, nrf_cloud_log_level);
 		} else {
 			LOG_DBG("disabling logger");
