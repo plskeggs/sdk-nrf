@@ -339,6 +339,8 @@ void main_application_thread_fn(void)
 	} else {
 		LOG_INF("Current date and time determined");
 	}
+	nrf_cloud_log_enable(true);
+	LOG_INF("Enabled cloud log");
 
 	/* Begin tracking location at the configured interval. */
 	(void)start_location_tracking(on_location_update,
@@ -369,6 +371,7 @@ void main_application_thread_fn(void)
 		}
 
 		if (IS_ENABLED(CONFIG_TEST_COUNTER)) {
+			LOG_INF("Sent test counter = %d", counter);
 			(void)send_sensor_sample("COUNT", counter++);
 		}
 

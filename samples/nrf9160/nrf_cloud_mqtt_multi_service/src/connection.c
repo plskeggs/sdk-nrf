@@ -9,6 +9,7 @@
 #include <modem/lte_lc.h>
 #include <zephyr/net/socket.h>
 #include <net/nrf_cloud.h>
+#include <net/nrf_cloud_logs.h>
 #include <date_time.h>
 #include <zephyr/logging/log.h>
 #include <cJSON.h>
@@ -276,6 +277,7 @@ static void cloud_event_handler(const struct nrf_cloud_evt *nrf_cloud_evt)
 	case NRF_CLOUD_EVT_TRANSPORT_DISCONNECTED:
 		LOG_DBG("NRF_CLOUD_EVT_TRANSPORT_DISCONNECTED");
 		/* Notify that we have lost contact with nRF Cloud. */
+		nrf_cloud_log_enable(false);
 		disconnect_cloud();
 		break;
 	case NRF_CLOUD_EVT_ERROR:
