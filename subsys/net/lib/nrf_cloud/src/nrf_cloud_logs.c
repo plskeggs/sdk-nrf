@@ -11,6 +11,7 @@
 #include <zephyr/logging/log_output.h>
 #include <zephyr/logging/log_backend.h>
 #include <zephyr/sys/ring_buffer.h>
+#include <zephyr/sys/base64.h>
 #include <date_time.h>
 #include "nrf_cloud_fsm.h"
 #include "nrf_cloud_mem.h"
@@ -24,6 +25,15 @@ LOG_MODULE_REGISTER(LOCAL_LOG_NAME, CONFIG_NRF_CLOUD_LOGGER_LOG_LEVEL);
 
 /* Uncomment to log even more about this logger */
 /* #define EXTRA_DEBUG */
+
+#define JSON_FMT1 "{\"b64\":\""
+#define JSON_FMT2 "\"}"
+
+#if defined(CONFIG_NRF_CLOUD_LOG_DICT_JSON)
+#define RING_BUF_SIZE (((CONFIG_NRF_CLOUD_LOG_RING_BUF_SIZE * 3) / 4 ) - 10)
+#else
+#define RING_BUF_SIZE CONFIG_NRF_CLOUD_LOG_RING_BUF_SIZE
+#endif
 
 static void logger_init(const struct log_backend *const backend);
 static void logger_process(const struct log_backend *const backend, union log_msg_generic *msg);
@@ -73,7 +83,7 @@ struct nrf_cloud_log_context context;
 
 LOG_BACKEND_DEFINE(log_nrf_cloud_backend, logger_api, false);
 LOG_OUTPUT_DEFINE(log_nrf_cloud_output, logger_out, log_buf, sizeof(log_buf));
-RING_BUF_DECLARE(log_nrf_cloud_rb, CONFIG_NRF_CLOUD_LOG_RING_BUF_SIZE);
+RING_BUF_DECLARE(log_nrf_cloud_rb, RING_BUF_SIZE);
 
 static int send_ring_buffer(void);
 
@@ -160,9 +170,9 @@ static void logger_process(const struct log_backend *const backend, union log_ms
 	void *source_data = (void *)log_msg_get_source(&msg->log);
 
 	context.src_id = get_source_id(source_data);
+
 	/* Prevent locally-generated logs from being self-logged, which runs away. */
 	if (context.src_id == self_source_id) {
-		//atomic_clear_bit(&in_logger_proc, 0);
 		return;
 	}
 	context.src_name = context.src_id != UNKNOWN_LOG_SOURCE ?
@@ -245,8 +255,12 @@ static int send_ring_buffer(void)
 			       NRF_CLOUD_TOPIC_BULK : NRF_CLOUD_TOPIC_BIN
 	};
 	uint32_t stored;
+	uint8_t *base64_buf = NULL;
 
 	if ((num_msgs != 0) && (log_format_current == LOG_OUTPUT_TEXT)) {
+		/* The bulk topic requires the multiple JSON messages to be placed in
+		 * a JSON array. Close the array now, since we are about to send it.
+		 */
 		ring_buf_put(&log_nrf_cloud_rb, "]", 1);
 	}
 	stored = ring_buf_size_get(&log_nrf_cloud_rb);
@@ -258,6 +272,31 @@ static int send_ring_buffer(void)
 			ring_buf_capacity_get(&log_nrf_cloud_rb),
 			ring_buf_space_get(&log_nrf_cloud_rb),
 			stored, output.data.len);
+		stored = output.data.len;
+	}
+
+	if ((log_format_current == LOG_OUTPUT_DICT) &&
+	    IS_ENABLED(CONFIG_NRF_CLOUD_LOG_DICT_JSON)) {
+		size_t olen;
+		size_t buflen; 
+
+		/* Determine buffer size needed */
+		base64_encode(NULL, 0, &olen, output.data.ptr, output.data.len);
+		buflen = strlen(JSON_FMT1) + olen + strlen(JSON_FMT2);
+		base64_buf = k_calloc(buflen, 1);
+		if (base64_buf == NULL) {
+			err = -ENOMEM;
+			goto cleanup;
+		}
+		memcpy(base64_buf, JSON_FMT1, strlen(JSON_FMT1));
+		err = base64_encode(&base64_buf[strlen(JSON_FMT1)], olen, &olen,
+				    output.data.ptr, output.data.len);
+		if (err) {
+			goto cleanup;
+		}
+		memcpy(&base64_buf[strlen(JSON_FMT1) + olen], JSON_FMT2, strlen(JSON_FMT2));
+		output.data.ptr = base64_buf;
+		output.data.len = buflen - 1;
 	}
 
 	if (IS_ENABLED(CONFIG_NRF_CLOUD_MQTT)) {
@@ -276,7 +315,11 @@ static int send_ring_buffer(void)
 		stats.bytes_sent += output.data.len;
 	}
 
-	ret = ring_buf_get_finish(&log_nrf_cloud_rb, output.data.len);
+cleanup:
+	if (base64_buf) {
+		k_free(base64_buf);
+	}
+	ret = ring_buf_get_finish(&log_nrf_cloud_rb, stored);
 	num_msgs = 0;
 	ring_buf_reset(&log_nrf_cloud_rb);
 
@@ -346,6 +389,9 @@ static int logger_out(uint8_t *buf, size_t size, void *ctx)
 		if (ring_buf_space_get(&log_nrf_cloud_rb) > (data.len + 2)) {
 
 			if ((num_msgs == 0) && (log_format_current == LOG_OUTPUT_TEXT)) {
+				/* The bulk topic requires the multiple JSON messages to be placed in
+				 * a JSON array. Open the array here.
+				 */
 				ring_buf_put(&log_nrf_cloud_rb, "[", 1);
 			}
 			stored = ring_buf_put(&log_nrf_cloud_rb, data.ptr, data.len);

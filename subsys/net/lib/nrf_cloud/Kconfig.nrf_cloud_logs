@@ -37,6 +37,15 @@ config NRF_CLOUD_LOG_RING_BUF_SIZE
 	  Set size in bytes for buffer for log output system to combine log
 	  messages before it uploads to nRF Cloud.
 
+config NRF_CLOUD_LOG_DICT_JSON
+	bool "Convert binary dictionary data to JSON and base64"
+	default y if CONFIG_LOG_BACKEND_NRF_CLOUD_OUTPUT_DICTIONARY
+	depends on BASE64
+	help
+	  Convert dictionary log output to base64, then wrap it in simple JSON
+	  so binary-incapable network transfer can occur, at the price of a
+	  slight increase in payload size.
+
 backend = NRF_CLOUD
 backend = NRF_CLOUD
 backend-str = nrf_cloud
