@@ -13,3 +13,5 @@ project(nrf-cloud-coap-client)
 target_sources(app PRIVATE src/main.c)
 target_sources_ifdef(CONFIG_COAP_DTLS app PRIVATE src/dtls.c)
 # NORDIC SDK APP END
+
+zephyr_include_directories(src)

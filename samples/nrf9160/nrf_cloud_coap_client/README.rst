@@ -22,6 +22,9 @@ The sample also requires a public CoAP server IP address or URL available on the
 
 .. include:: /includes/spm.txt
 
+
+"cat ca.crt | sed -e '1d;$d' | base64 -d -i |xxd -i > ca_cert.h"
+
 Overview
 ********
 

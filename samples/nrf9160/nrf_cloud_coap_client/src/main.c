@@ -21,6 +21,7 @@
 #include <tinycbor/cbor.h>
 #include <tinycbor/cbor_buf_reader.h>
 #include <tinycbor/cbor_buf_writer.h>
+#include <net/nrf_cloud.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(nrf_cloud_coap_client, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVEL);
@@ -49,6 +50,11 @@ LOG_MODULE_REGISTER(nrf_cloud_coap_client, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVE
 
 /* Uncomment to display the cipherlist available */
 /* #define DUMP_CIPHERLIST */
+
+#define JWT_DURATION_S	(60*5)
+#define JWT_BUF_SZ	900
+/* Buffer used for JSON Web Tokens (JWTs) */
+static char jwt[JWT_BUF_SZ];
 
 static int sock;
 static struct pollfd fds;
@@ -89,6 +95,7 @@ static const char *coap_types[] =
 int client_print_connection_id(int sock, bool verbose);
 int client_dtls_init(int sock);
 int provision_psk(void);
+int provision_ca(void);
 
 #if defined(CONFIG_NRF_MODEM_LIB)
 /**@brief Recoverable modem library error. */
@@ -135,7 +142,7 @@ static int server_resolve(void)
 
 	inet_ntop(AF_INET, &server4->sin_addr.s_addr, ipv4_addr,
 		  sizeof(ipv4_addr));
-	printk("Server IP address: %s\n", ipv4_addr);
+	printk("Server %s IP address: %s\n", CONFIG_COAP_SERVER_HOSTNAME, ipv4_addr);
 
 	/* Free the address. */
 	freeaddrinfo(result);
@@ -842,13 +849,19 @@ void main(void)
 		              "&eci=21858829&tac=333&rsrp=-157&rsrq=-34.5&earfcn=0";
 	const char *post_res = "temp";
 #endif
+	static char jwt[600];
 
 	printk("The nRF Cloud CoAP client sample started\n");
 
 	sys_dlist_init(&con_messages);
 
-#if defined(CONFIG_COAP_DTLS)
+#if defined(CONFIG_COAP_DTLS_PSK)
 	err = provision_psk();
+	if (err) {
+		return;
+	}
+#else
+	err = provision_ca();
 	if (err) {
 		return;
 	}
@@ -868,6 +881,16 @@ void main(void)
 
 	next_msg_time = k_uptime_get();
 
+#if !defined(CONFIG_COAP_DTLS_PSK)
+	err = nrf_cloud_jwt_generate(JWT_DURATION_S, jwt, sizeof(jwt));
+	if (err) {
+		goto exit;
+	}
+	err = client_post_send("/auth-jwt", (uint8_t *)jwt, sizeof(jwt));
+	if (err) {
+		goto exit;
+	}
+#endif
 	while (1) {
 		if (k_uptime_get() >= next_msg_time) {
 			if (reconnect) {
@@ -990,6 +1013,6 @@ void main(void)
 		}
 #endif
 	}
-
+exit:
 	(void)close(sock);
 }

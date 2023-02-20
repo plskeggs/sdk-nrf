@@ -25,12 +25,45 @@
 #include <nrf_socket.h>
 #include <nrf_modem_at.h>
 
+#define ALL_CERTS
+
+#if defined(CONFIG_NET_SOCKETS_OFFLOAD_TLS)
+static const unsigned char ca_certificate[] = {
+	#include "ca_cert.pem"
+};
+
+#if defined(ALL_CERTS)
+static const unsigned char client_certificate[] = {
+	#include "client_crt.pem"
+};
+
+static const unsigned char private_key[] = {
+	#include "client_prv.pem"
+};
+#endif
+
+#else
+static const unsigned char ca_certificate[] = {
+	#include "ca_cert.h"
+};
+
+#if defined(ALL_CERTS)
+static const unsigned char client_certificate[] = {
+	#include "client_cert.h"
+};
+
+static const unsigned char private_key[] = {
+	#include "private_key.h"
+};
+#endif
+#endif
+
 #include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(nrf_cloud_coap_client, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVEL);
 
 #if defined(CONFIG_MBEDTLS)
 /* Uncomment to limit cipher negotation to a list */
-#define RESTRICT_CIPHERS
+//#define RESTRICT_CIPHERS
 /* Uncomment to display the cipherlist available */
 /* #define DUMP_CIPHERLIST */
 #endif
@@ -71,11 +104,13 @@ static int get_modem_info(void)
 
 	return 0;
 }
+#endif /* CONFIG_MODEM_INFO */
 
 static int get_device_ip_address(uint8_t *d4_addr)
 {
 	int err;
 
+#if defined(CONFIG_MODEM_INFO)
 	err = modem_info_init();
 	if (err) {
 		return err;
@@ -88,14 +123,22 @@ static int get_device_ip_address(uint8_t *d4_addr)
 		printk("Could not get IP addr: %d\n", err);
 		return err;
 	}
-
 	err = inet_pton(AF_INET, mdm_param.network.ip_address.value_string, d4_addr);
 	if (err == 1) {
 		return 0;
 	}
 	return errno;
+#else
+	d4[0] = 0;
+	d4[1] = 0;
+	d4[2] = 0;
+	d4[3] = 0;
+	return 0;
+#endif
+
 }
-#endif /* CONFIG_MODEM_INFO */
+
+#if defined(CONFIG_COAP_DTLS_PSK)
 
 int provision_psk(void)
 {
@@ -176,15 +219,71 @@ exit:
 	return ret;
 }
 
+#else
+
+int provision_ca(void)
+{
+	int ret;
+
+	/* get IMEI so we can construct the PSK identity */
+	ret = get_modem_info();
+	if (ret) {
+		return ret;
+	}
+
+#if defined(CONFIG_NET_SOCKETS_OFFLOAD_TLS)
+	lte_lc_offline();
+
+	ret = modem_key_mgmt_write(sectag, MODEM_KEY_MGMT_CRED_TYPE_CA_CHAIN,
+				   ca_certificate, sizeof(ca_certificate) - 1);
+	if (ret < 0) {
+		LOG_ERR("Setting cred tag %d type %d failed (%d)", sectag,
+			(int)MODEM_KEY_MGMT_CRED_TYPE_CA_CHAIN, ret);
+	}
+
+#else
+	/* Load CA certificate */
+	ret = tls_credential_add(sectag, TLS_CREDENTIAL_CA_CERTIFICATE,
+				 ca_certificate, sizeof(ca_certificate));
+	if (ret < 0) {
+		LOG_ERR("Failed to register CA certificate: %d", ret);
+		goto exit;
+	}
+
+#if defined(ALL_CERTS)
+		/* Load server/client certificate */
+	ret = tls_credential_add(sectag,
+				TLS_CREDENTIAL_SERVER_CERTIFICATE,
+				client_certificate, sizeof(client_certificate));
+	if (ret < 0) {
+		LOG_ERR("Failed to register public cert: %d", ret);
+		goto exit;
+	}
+
+	/* Load private key */
+	ret = tls_credential_add(sectag, TLS_CREDENTIAL_PRIVATE_KEY,
+				private_key, sizeof(private_key));
+	if (ret < 0) {
+		LOG_ERR("Failed to register private key: %d", ret);
+		goto exit;
+	}
+#endif
+#endif
+exit:
+	return ret;
+}
+#endif
+
 int client_dtls_init(int sock)
 {
 	int err;
-	uint8_t d4_addr[4];
 #if defined(RESTRICT_CIPHERS)
 	static const int ciphers[] = {
 		MBEDTLS_TLS_PSK_WITH_AES_128_CCM_8, 0
 	};
 #endif
+
+	uint8_t d4_addr[4];
 
 	err = get_device_ip_address(d4_addr);
 	if (err) {
