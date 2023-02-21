@@ -195,6 +195,7 @@ static int generate_auth_header(const char *const tok, char **auth_hdr_out)
 			return err;
 		}
 		tok_len = strlen(tok_ptr);
+		printk("JWT: %s\n", tok_ptr);
 	}
 #endif /* CONFIG_NRF_CLOUD_REST_AUTOGEN_JWT */
 

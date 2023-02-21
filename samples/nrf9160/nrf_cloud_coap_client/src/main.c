@@ -821,6 +821,93 @@ static void check_connection(void)
 	}
 }
 
+
+int jwt_generate(uint32_t time_valid_s, char *const jwt_buf, size_t jwt_buf_sz)
+{
+	if (!jwt_buf || !jwt_buf_sz) {
+		return -EINVAL;
+	}
+
+	int err;
+	char buf[NRF_CLOUD_CLIENT_ID_MAX_LEN + 1];
+	struct jwt_data jwt = {
+		.audience = NULL,
+		.sec_tag = CONFIG_NRF_CLOUD_SEC_TAG,
+		.key = JWT_KEY_TYPE_CLIENT_PRIV,
+		.alg = JWT_ALG_TYPE_ES256,
+		.jwt_buf = jwt_buf,
+		.jwt_sz = jwt_buf_sz
+	};
+
+	/* Check if modem time is valid */
+	err = nrf_modem_at_cmd(buf, sizeof(buf), GET_TIME_CMD);
+	if (err != 0) {
+		LOG_ERR("Modem does not have valid date/time, JWT not generated");
+		return -ETIME;
+	}
+
+	if (time_valid_s > NRF_CLOUD_JWT_VALID_TIME_S_MAX) {
+		jwt.exp_delta_s = NRF_CLOUD_JWT_VALID_TIME_S_MAX;
+	} else if (time_valid_s == 0) {
+		jwt.exp_delta_s = NRF_CLOUD_JWT_VALID_TIME_S_DEF;
+	} else {
+		jwt.exp_delta_s = time_valid_s;
+	}
+
+	if (IS_ENABLED(CONFIG_NRF_CLOUD_CLIENT_ID_SRC_INTERNAL_UUID)) {
+		/* The UUID is present in the iss claim, so there is no need
+		 * to also include it in the sub claim.
+		 */
+		jwt.subject = NULL;
+	} else {
+		err = nrf_cloud_client_id_get(buf, sizeof(buf));
+		if (err) {
+			LOG_ERR("Failed to obtain client id, error: %d", err);
+			return err;
+		}
+		jwt.subject = buf;
+	}
+/*
+JWT: eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiIsImtpZCI6IjA3MDM3NWJkMjQxMTNlOGI4MzM4ZWRiZjUxZDg1NDliMjhjYTBlZjIwMmIxNjA0NGVlOGZjY2EyMjE1NDBiZDYifSAg.eyJpc3MiOiJuUkY5MTYwLjUwNGU1MzUzLTM4MzEtNDVjOC04MDBhLTI3MTlkOGJhMzlmNSIsImp0aSI6Im5SRjkxNjAuZjZlM2JkN2ItN2RmMy00Yjg4LWI0M2EtYTdhOTc2NmEwNGFkLjJmNzM1M2UwYTdkMzMzNWE0N2NmYjFhZDdlM2U5YWNiIiwiaWF0IjoxNjc2OTMwMzU4LCJleHAiOjE2NzY5MzA2NTgsInN1YiI6Im5yZi0zNTI2NTYxMDYxMDgxNDgifSAg.uv7rse7I4-peOgYU2twZc9HpItQU4K3JBYc7vEXPK7S7oLTvfDBoP_63T1J5EIquXLmCTmSTXLPEVcMkJm24FQ
+ 
+header: {
+  "typ": "JWT",
+  "alg": "ES256",
+  "kid": "070375bd24113e8b8338edbf51d8549b28ca0ef202b16044ee8fcca221540bd6"
+}
+
+payload: {
+  "iss": "nRF9160.504e5353-3831-45c8-800a-2719d8ba39f5",
+  "jti": "nRF9160.f6e3bd7b-7df3-4b88-b43a-a7a9766a04ad.2f7353e0a7d3335a47cfb1ad7e3e9acb",
+  "iat": 1676930358,
+  "exp": 1676930658,
+  "sub": "nrf-352656106108148"
+}
+
+verify signature:
+ECDSASHA256(
+  base64UrlEncode(header) + "." +
+  base64UrlEncode(payload),
+  Public Key in SPKI, PKCS #1, X.509 Certificate, or JWK string format.
+  ,
+  Private Key in PKCS #8, PKCS #1, or JWK string format. The key never leaves your browser.
+)
+
+NOTE:
+- omit iss if using sub
+- exp = expiration time after which should not be used
+- iat = issued at -- time it was issued
+- jti = jwt id; must be unique to prevent replay
+- kid = key id to perform key lookup
+*/
+
+	if (err) {
+		LOG_ERR("Failed to generate JWT, error: %d", err);
+	}
+
+	return err;
+}
+
 void main(void)
 {
 	int64_t next_msg_time;
@@ -882,10 +969,14 @@ void main(void)
 	next_msg_time = k_uptime_get();
 
 #if !defined(CONFIG_COAP_DTLS_PSK)
+#if defined(CONFIG_NET_SOCKETS_OFFLOAD_PRIORITY)
 	err = nrf_cloud_jwt_generate(JWT_DURATION_S, jwt, sizeof(jwt));
 	if (err) {
 		goto exit;
 	}
+#else
+	err = jwt_generate(JWT_DURATION_S, jwt, sizeof(jwt));
+#endif
 	err = client_post_send("/auth-jwt", (uint8_t *)jwt, sizeof(jwt));
 	if (err) {
 		goto exit;
