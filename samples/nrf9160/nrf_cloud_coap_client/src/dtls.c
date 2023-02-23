@@ -27,7 +27,7 @@
 
 #define ALL_CERTS
 
-#if defined(CONFIG_NET_SOCKETS_OFFLOAD_TLS)
+#if defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
 static const unsigned char ca_certificate[] = {
 	#include "ca_cert.pem"
 };
@@ -61,14 +61,14 @@ static const unsigned char private_key[] = {
 #include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(nrf_cloud_coap_client, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVEL);
 
-#if defined(CONFIG_MBEDTLS)
+#if defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
 /* Uncomment to limit cipher negotation to a list */
 //#define RESTRICT_CIPHERS
 /* Uncomment to display the cipherlist available */
 /* #define DUMP_CIPHERLIST */
 #endif
 
-static sec_tag_t sectag = CONFIG_COAP_SECTAG;
+static int sectag = CONFIG_COAP_SECTAG;
 
 #if defined(CONFIG_MODEM_INFO)
 static struct modem_param_info mdm_param;
@@ -178,7 +178,7 @@ int provision_psk(void)
 	psk_len = strlen(psk);
 	LOG_HEXDUMP_DBG(psk, psk_len, "psk");
 
-#if defined(CONFIG_NET_SOCKETS_OFFLOAD_TLS)
+#if !defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
 	char psk_hex[65];
 
 	/* Convert PSK to a format accepted by the modem. */
@@ -205,6 +205,7 @@ int provision_psk(void)
 			(int)MODEM_KEY_MGMT_CRED_TYPE_IDENTITY, ret);
 	}
 exit:
+	lte_lc_connect();
 
 #else
 	ret = tls_credential_add(sectag, TLS_CREDENTIAL_PSK, psk, psk_len);
@@ -231,7 +232,9 @@ int provision_ca(void)
 		return ret;
 	}
 
-#if defined(CONFIG_NET_SOCKETS_OFFLOAD_TLS)
+	printk("Updating CA cert\n");
+
+#if !defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
 	lte_lc_offline();
 
 	ret = modem_key_mgmt_write(sectag, MODEM_KEY_MGMT_CRED_TYPE_CA_CHAIN,
@@ -240,6 +243,8 @@ int provision_ca(void)
 		LOG_ERR("Setting cred tag %d type %d failed (%d)", sectag,
 			(int)MODEM_KEY_MGMT_CRED_TYPE_CA_CHAIN, ret);
 	}
+
+	lte_lc_connect();
 
 #else
 	/* Load CA certificate */
@@ -268,8 +273,8 @@ int provision_ca(void)
 		goto exit;
 	}
 #endif
-#endif
 exit:
+#endif
 	return ret;
 }
 #endif
@@ -286,13 +291,13 @@ int client_dtls_init(int sock)
 	uint8_t d4_addr[4];
 
 	err = get_device_ip_address(d4_addr);
-	if (err) {
-		return err;
+	if (!err) {
+		printk("Client IP address: %u.%u.%u.%u\n", d4_addr[0], d4_addr[1], d4_addr[2], d4_addr[3]);
 	}
-	printk("Client IP address: %u.%u.%u.%u\n", d4_addr[0], d4_addr[1], d4_addr[2], d4_addr[3]);
 
 	printk("Setting socket options\n");
 
+	printk("  hostname: %s\n", CONFIG_COAP_SERVER_HOSTNAME);
 	err = setsockopt(sock, SOL_TLS, TLS_HOSTNAME, CONFIG_COAP_SERVER_HOSTNAME,
 			 sizeof(CONFIG_COAP_SERVER_HOSTNAME));
 	if (err) {
@@ -300,13 +305,15 @@ int client_dtls_init(int sock)
 		return err;
 	}
 
-	err = setsockopt(sock, SOL_TLS, TLS_SEC_TAG_LIST, &sectag, sizeof(sec_tag_t));
+	printk("  sectag: %d\n", sectag);
+	err = setsockopt(sock, SOL_TLS, TLS_SEC_TAG_LIST, &sectag, sizeof(sectag));
 	if (err) {
 		printk("Error setting sectag list: %d\n", errno);
 		return err;
 	}
 
 #if defined(RESTRICT_CIPHERS)
+	printk("  restrict ciphers\n");
 	err = setsockopt(sock, SOL_TLS, TLS_CIPHERSUITE_LIST, ciphers, sizeof(ciphers));
 	if (err) {
 		printk("Error setting cipherlist: %d\n", errno);
@@ -335,11 +342,28 @@ int client_dtls_init(int sock)
 #if defined(CONFIG_MBEDTLS_SSL_DTLS_CONNECTION_ID)
 	uint8_t dummy;
 
+	printk("  Connection id:\n");
 	err = setsockopt(sock, SOL_TLS, TLS_DTLS_CONNECTION_ID, &dummy, 0);
 	if (err) {
 		printk("Error setting connection ID: %d\n", errno);
 	}
 #endif
+
+	enum {
+		NONE = 0,
+		OPTIONAL = 1,
+		REQUIRED = 2,
+	};
+
+	int verify = OPTIONAL;
+
+	printk("  Peer verify: %d\n", verify);
+	err = setsockopt(sock, SOL_TLS, TLS_PEER_VERIFY, &verify, sizeof(verify));
+	if (err) {
+		LOG_ERR("Failed to setup peer verification, errno %d", errno);
+		return -errno;
+	}
+
 	return err;
 }
 
