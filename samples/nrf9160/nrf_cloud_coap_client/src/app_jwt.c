@@ -3,26 +3,31 @@
 
 #include <zephyr/kernel.h>
 #include <modem/modem_jwt.h>
+#include <nrf_modem_at.h>
 #include <date_time.h>
 #include <net/nrf_cloud.h>
 #include <psa/crypto.h>
 #include <psa/crypto_extra.h>
-
 #ifdef CONFIG_BUILD_WITH_TFM
 #include <tfm_ns_interface.h>
 #endif
+#include <zephyr/sys/base64.h>
+#include <cJSON.h>
+#include "cJSON_os.h"
+
+#include "app_jwt.h"
 
 #include <zephyr/logging/log.h>
-LOG_MODULE_DECLARE(nrf_cloud_coap_client, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVEL);
+LOG_MODULE_DECLARE(app_jwt, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVEL);
 
-#define JWT_DURATION_S	(60*5)
 #define JWT_BUF_SZ	900
-/* Buffer used for JSON Web Tokens (JWTs) */
-//static char jwt[JWT_BUF_SZ];
+
+#if 0
 static psa_key_handle_t keypair_handle;
 static psa_key_handle_t pub_key_handle;
+#endif
 
-int jwt_init(void)
+int app_jwt_init(void)
 {
 	cJSON_Init();
 
@@ -36,6 +41,7 @@ int jwt_init(void)
 	return 0;
 }
 
+#if 0
 int import_ecdsa_pub_key(uint8_t *m_pub_key, size_t len_pub_key)
 {
 	/* Configure the key attributes */
@@ -52,13 +58,13 @@ int import_ecdsa_pub_key(uint8_t *m_pub_key, size_t len_pub_key)
 	status = psa_import_key(&key_attributes, m_pub_key, sizeof(m_pub_key), &pub_key_handle);
 	if (status != PSA_SUCCESS) {
 		LOG_INF("psa_import_key failed! (Error: %d)", status);
-		return APP_ERROR;
+		return -1;
 	}
 
 	/* After the key handle is acquired the attributes are not needed */
 	psa_reset_key_attributes(&key_attributes);
 
-	return APP_SUCCESS;
+	return 0;
 }
 
 int sign_message(void)
@@ -77,7 +83,7 @@ int sign_message(void)
 				  &output_len);
 	if (status != PSA_SUCCESS) {
 		LOG_INF("psa_hash_compute failed! (Error: %d)", status);
-		return APP_ERROR;
+		return -1;
 	}
 
 	/* Sign the hash */
@@ -90,7 +96,7 @@ int sign_message(void)
 			       &output_len);
 	if (status != PSA_SUCCESS) {
 		LOG_INF("psa_sign_hash failed! (Error: %d)", status);
-		return APP_ERROR;
+		return -1;
 	}
 
 	LOG_INF("Signing the message successful!");
@@ -98,10 +104,36 @@ int sign_message(void)
 	PRINT_HEX("SHA256 hash", m_hash, sizeof(m_hash));
 	PRINT_HEX("Signature", m_signature, sizeof(m_signature));
 
-	return APP_SUCCESS;
+	return 0;
+}
+#endif
+
+static void base64_url_format(char *const base64_string)
+{
+	if (base64_string == NULL) {
+		return;
+	}
+
+	char *found = NULL;
+
+	/* replace '+' with "-" */
+	for (found = base64_string; (found = strchr(found, '+'));) {
+		*found = '-';
+	}
+
+	/* replace '/' with "_" */
+	for (found = base64_string; (found = strchr(found, '/'));) {
+		*found = '_';
+	}
+
+	/* remove padding '=' */
+	found = strchr(base64_string, '=');
+	if (found) {
+		*found = '\0';
+	}
 }
 
-int jwt_generate(uint32_t time_valid_s, char *const jwt_buf, size_t jwt_buf_sz)
+int app_jwt_generate(uint32_t time_valid_s, char *const jwt_buf, size_t jwt_buf_sz)
 {
 	if (!jwt_buf || !jwt_buf_sz) {
 		return -EINVAL;
@@ -150,9 +182,21 @@ int jwt_generate(uint32_t time_valid_s, char *const jwt_buf, size_t jwt_buf_sz)
 
 	cJSON *header_obj = cJSON_CreateObject();
 
-	err = cJSON_AddStringToObjectCS(header_obj, "alg", "HS256");
-	err = cJSON_AddStringToObjectCS(header_obj, "typ", "JWT");
+	if ((cJSON_AddStringToObjectCS(header_obj, "alg", "ES256") == NULL) ||
+	    (cJSON_AddStringToObjectCS(header_obj, "typ", "JWT") == NULL)) {
+		err = -ENOMEM;
+		LOG_ERR("Unable to render json: %d", err);
+		cJSON_Delete(header_obj);
+		return err;
+	}
 	char *header = cJSON_PrintUnformatted(header_obj);
+	
+	if (header == NULL) {
+		err = -ENOMEM;
+		LOG_ERR("Unable to render json: %d", err);
+		cJSON_Delete(header_obj);
+		return err;
+	}
 
 	cJSON_Delete(header_obj);
 
@@ -163,13 +207,30 @@ int jwt_generate(uint32_t time_valid_s, char *const jwt_buf, size_t jwt_buf_sz)
 	now /= 1000;
 
 	if (jwt.subject) {
-		err = cJSON_AddStringToObjectCS(payload_obj, "sub", jwt.subject);
+		if (cJSON_AddStringToObjectCS(payload_obj, "sub", jwt.subject) == NULL) {
+			err = -ENOMEM;
+			LOG_ERR("Unable to render json: %d", err);
+			cJSON_Delete(payload_obj);
+			return err;
+		}
 	}
-	err = cJSON_AddNumberToObjectCS(payload_obj, "iat", now);
-	err = cJSON_AddNumberToObjectCS(payload_obj, "exp", now + jwt.exp_delta_s);
+	if ((cJSON_AddNumberToObjectCS(payload_obj, "iat", now) == NULL) ||
+	    (cJSON_AddNumberToObjectCS(payload_obj, "exp", now + jwt.exp_delta_s) == NULL)) {
+		err = -ENOMEM;
+		LOG_ERR("Unable to render json: %d", err);
+		cJSON_Delete(payload_obj);
+		return err;
+	}
 	/* iss field contains "nRF9160.<device uuid>" */
 
 	char *payload = cJSON_PrintUnformatted(payload_obj);
+
+	if (payload == NULL) {
+		err = -ENOMEM;
+		LOG_ERR("Unable to render json: %d", err);
+		cJSON_Delete(payload_obj);
+		return err;
+	}
 
 	cJSON_Delete(payload_obj);
 
@@ -186,9 +247,7 @@ int jwt_generate(uint32_t time_valid_s, char *const jwt_buf, size_t jwt_buf_sz)
 	base64_encode(&msg[hlen + 1], plen, &plen, payload, strlen(payload));
 	msg[hlen + 1 + plen] = '\0';
 
-
-	
-	/* replace + with - and / with _ */
+	base64_url_format(msg);
 
 /*
 JWT: eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiIsImtpZCI6IjA3MDM3NWJkMjQxMTNlOGI4MzM4ZWRiZjUxZDg1NDliMjhjYTBlZjIwMmIxNjA0NGVlOGZjY2EyMjE1NDBiZDYifSAg.eyJpc3MiOiJuUkY5MTYwLjUwNGU1MzUzLTM4MzEtNDVjOC04MDBhLTI3MTlkOGJhMzlmNSIsImp0aSI6Im5SRjkxNjAuZjZlM2JkN2ItN2RmMy00Yjg4LWI0M2EtYTdhOTc2NmEwNGFkLjJmNzM1M2UwYTdkMzMzNWE0N2NmYjFhZDdlM2U5YWNiIiwiaWF0IjoxNjc2OTMwMzU4LCJleHAiOjE2NzY5MzA2NTgsInN1YiI6Im5yZi0zNTI2NTYxMDYxMDgxNDgifSAg.uv7rse7I4-peOgYU2twZc9HpItQU4K3JBYc7vEXPK7S7oLTvfDBoP_63T1J5EIquXLmCTmSTXLPEVcMkJm24FQ

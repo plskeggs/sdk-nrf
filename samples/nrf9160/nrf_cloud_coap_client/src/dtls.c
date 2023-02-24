@@ -25,7 +25,19 @@
 #include <nrf_socket.h>
 #include <nrf_modem_at.h>
 
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(dtls, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVEL);
+
 #define ALL_CERTS
+
+#if defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
+/* Uncomment to limit cipher negotation to a list */
+//#define RESTRICT_CIPHERS
+/* Uncomment to display the cipherlist available */
+/* #define DUMP_CIPHERLIST */
+#endif
+
+static int sectag = CONFIG_COAP_SECTAG;
 
 #if defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
 static const unsigned char ca_certificate[] = {
@@ -58,18 +70,6 @@ static const unsigned char private_key[] = {
 #endif
 #endif
 
-#include <zephyr/logging/log.h>
-LOG_MODULE_DECLARE(nrf_cloud_coap_client, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVEL);
-
-#if defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
-/* Uncomment to limit cipher negotation to a list */
-//#define RESTRICT_CIPHERS
-/* Uncomment to display the cipherlist available */
-/* #define DUMP_CIPHERLIST */
-#endif
-
-static int sectag = CONFIG_COAP_SECTAG;
-
 #if defined(CONFIG_MODEM_INFO)
 static struct modem_param_info mdm_param;
 
@@ -79,7 +79,7 @@ static int get_modem_info(void)
 
 	err = modem_info_init();
 	if (err) {
-		printk("Could not init modem info: %d\n", err);
+		LOG_ERR("Could not init modem info: %d", err);
 		return err;
 	}
 
@@ -87,7 +87,7 @@ static int get_modem_info(void)
 				    mdm_param.device.imei.value_string,
 				    MODEM_INFO_MAX_RESPONSE_SIZE);
 	if (err <= 0) {
-		printk("Could not get IMEI: %d\n", err);
+		LOG_ERR("Could not get IMEI: %d", err);
 		return err;
 	}
 
@@ -95,7 +95,7 @@ static int get_modem_info(void)
 				    mdm_param.device.modem_fw.value_string,
 				    MODEM_INFO_MAX_RESPONSE_SIZE);
 	if (err <= 0) {
-		printk("Could not get mfw ver: %d\n", err);
+		LOG_ERR("Could not get mfw ver: %d", err);
 		return err;
 	}
 
@@ -120,7 +120,7 @@ static int get_device_ip_address(uint8_t *d4_addr)
 				    mdm_param.network.ip_address.value_string,
 				    MODEM_INFO_MAX_RESPONSE_SIZE);
 	if (err <= 0) {
-		printk("Could not get IP addr: %d\n", err);
+		LOG_ERR("Could not get IP addr: %d", err);
 		return err;
 	}
 	err = inet_pton(AF_INET, mdm_param.network.ip_address.value_string, d4_addr);
@@ -148,7 +148,7 @@ int provision_psk(void)
 	const char *psk;
 	uint16_t psk_len;
 
-	printk("Provisioning PSK to sectag %u\n", sectag);
+	LOG_INF("Provisioning PSK to sectag %u", sectag);
 
 	/* get IMEI so we can construct the PSK identity */
 	ret = get_modem_info();
@@ -232,7 +232,7 @@ int provision_ca(void)
 		return ret;
 	}
 
-	printk("Updating CA cert\n");
+	LOG_INF("Updating CA cert");
 
 #if !defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
 	lte_lc_offline();
@@ -279,7 +279,7 @@ exit:
 }
 #endif
 
-int client_dtls_init(int sock)
+int dtls_init(int sock)
 {
 	int err;
 #if defined(RESTRICT_CIPHERS)
@@ -292,31 +292,31 @@ int client_dtls_init(int sock)
 
 	err = get_device_ip_address(d4_addr);
 	if (!err) {
-		printk("Client IP address: %u.%u.%u.%u\n", d4_addr[0], d4_addr[1], d4_addr[2], d4_addr[3]);
+		LOG_INF("Client IP address: %u.%u.%u.%u", d4_addr[0], d4_addr[1], d4_addr[2], d4_addr[3]);
 	}
 
-	printk("Setting socket options\n");
+	LOG_INF("Setting socket options:");
 
-	printk("  hostname: %s\n", CONFIG_COAP_SERVER_HOSTNAME);
+	LOG_INF("  hostname: %s", CONFIG_COAP_SERVER_HOSTNAME);
 	err = setsockopt(sock, SOL_TLS, TLS_HOSTNAME, CONFIG_COAP_SERVER_HOSTNAME,
 			 sizeof(CONFIG_COAP_SERVER_HOSTNAME));
 	if (err) {
-		printk("Error setting hostname: %d\n", errno);
+		LOG_ERR("Error setting hostname: %d", errno);
 		return err;
 	}
 
-	printk("  sectag: %d\n", sectag);
+	LOG_INF("  sectag: %d", sectag);
 	err = setsockopt(sock, SOL_TLS, TLS_SEC_TAG_LIST, &sectag, sizeof(sectag));
 	if (err) {
-		printk("Error setting sectag list: %d\n", errno);
+		LOG_ERR("Error setting sectag list: %d", errno);
 		return err;
 	}
 
 #if defined(RESTRICT_CIPHERS)
-	printk("  restrict ciphers\n");
+	LOG_INF("  restrict ciphers");
 	err = setsockopt(sock, SOL_TLS, TLS_CIPHERSUITE_LIST, ciphers, sizeof(ciphers));
 	if (err) {
-		printk("Error setting cipherlist: %d\n", errno);
+		LOG_ERR("Error setting cipherlist: %d", errno);
 		return err;
 	}
 #endif
@@ -327,13 +327,13 @@ int client_dtls_init(int sock)
 	len = sizeof(ciphers);
 	err = getsockopt(sock, SOL_TLS, TLS_CIPHERSUITE_LIST, ciphers, &len);
 	if (err) {
-		printk("Error getting cipherlist: %d\n", errno);
+		LOG_ERR("Error getting cipherlist: %d", errno);
 	} else {
 		int count = len / sizeof(int);
 
-		printk("New cipherlist:\n");
+		LOG_INF("New cipherlist:");
 		for (int i = 0; i < count; i++) {
-			printk("%d. 0x%04X = %s\n", i, (unsigned int)ciphers[i],
+			LOG_INF("%d. 0x%04X = %s", i, (unsigned int)ciphers[i],
 			       mbedtls_ssl_get_ciphersuite_name(ciphers[i]));
 		}
 	}
@@ -342,10 +342,10 @@ int client_dtls_init(int sock)
 #if defined(CONFIG_MBEDTLS_SSL_DTLS_CONNECTION_ID)
 	uint8_t dummy;
 
-	printk("  Connection id:\n");
+	LOG_INF("  Connection id:");
 	err = setsockopt(sock, SOL_TLS, TLS_DTLS_CONNECTION_ID, &dummy, 0);
 	if (err) {
-		printk("Error setting connection ID: %d\n", errno);
+		LOG_ERR("Error setting connection ID: %d", errno);
 	}
 #endif
 
@@ -357,7 +357,7 @@ int client_dtls_init(int sock)
 
 	int verify = OPTIONAL;
 
-	printk("  Peer verify: %d\n", verify);
+	LOG_INF("  Peer verify: %d", verify);
 	err = setsockopt(sock, SOL_TLS, TLS_PEER_VERIFY, &verify, sizeof(verify));
 	if (err) {
 		LOG_ERR("Failed to setup peer verification, errno %d", errno);
@@ -367,7 +367,7 @@ int client_dtls_init(int sock)
 	return err;
 }
 
-int client_print_connection_id(int sock, bool verbose)
+int dtls_print_connection_id(int sock, bool verbose)
 {
 	int err = 0;
 #if defined(CONFIG_MBEDTLS_SSL_DTLS_CONNECTION_ID)
@@ -387,31 +387,31 @@ int client_print_connection_id(int sock, bool verbose)
 			LOG_WRN("CID LEN CHANGED from %d to %d", last_cid.peer_cid_len,
 			       cid.peer_cid_len);
 			if (cid.peer_cid_len) {
-				printk("DTLS CID IS  enabled:%d, len:%d ", cid.enabled,
+				LOG_INF("DTLS CID IS  enabled:%d, len:%d ", cid.enabled,
 				       cid.peer_cid_len);
 				for (i = 0; i < cid.peer_cid_len; i++) {
-					printk("0x%02x ", cid.peer_cid[i]);
+					LOG_DBG("0x%02x ", cid.peer_cid[i]);
 				}
-				printk("\n");
+				LOG_INF("");
 			}
 		} else {
 			if (memcmp(last_cid.peer_cid, cid.peer_cid, cid.peer_cid_len) != 0) {
 				LOG_WRN("CID CHANGED!");
 
-				printk("DTLS CID WAS enabled:%d, len:%d ", last_cid.enabled,
+				LOG_INF("DTLS CID WAS enabled:%d, len:%d ", last_cid.enabled,
 				       last_cid.peer_cid_len);
 				for (i = 0; i < last_cid.peer_cid_len; i++) {
-					printk("0x%02x ", last_cid.peer_cid[i]);
+					LOG_DBG("0x%02x ", last_cid.peer_cid[i]);
 				}
-				printk("\n");
+				LOG_INF("");
 			}
 			if (verbose) {
-				printk("DTLS CID IS  enabled:%d, len:%d ", cid.enabled,
+				LOG_INF("DTLS CID IS  enabled:%d, len:%d ", cid.enabled,
 				       cid.peer_cid_len);
 				for (i = 0; i < cid.peer_cid_len; i++) {
-					printk("0x%02x ", cid.peer_cid[i]);
+					LOG_DBG("0x%02x ", cid.peer_cid[i]);
 				}
-				printk("\n");
+				LOG_INF("");
 			}
 		}
 		memcpy(&last_cid, &cid, sizeof(last_cid));
