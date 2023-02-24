@@ -356,16 +356,16 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 		uri_path[0] = '\0';
 	}
 
-	LOG_INF("Got response uri:%s, code:0x%02x (%d.%02d), type:%u %s,"
-		"MID:0x%04x, token:0x%02x%02x (len %u)",
+	LOG_INF("Got response uri:%s, code:0x%02x (%d.%02d), type:%u %s, "
+		"MID:0x%04x, Token:0x%02x%02x (len %u)",
 		uri_path, code, code / 32u, code & 0x1f,
 		type, coap_types[type], message_id,
 		token[1], token[0], token_len);
 
 	err = -ENOMSG;
 	SYS_DLIST_FOR_EACH_CONTAINER(&con_messages, msg, node) {
-		LOG_DBG("  mid:0x%04x, token:0x%02x%02x ?",
-			msg->message_id, msg->token[1], msg->token[0]);
+		//LOG_DBG("  mid:0x%04x, Token:0x%02x%02x ?",
+		//	msg->message_id, msg->token[1], msg->token[0]);
 		if ((type == COAP_TYPE_CON) || (type == COAP_TYPE_NON_CON)) {
 			/* match token only */
 			if ((token_len == msg->token_len) &&
@@ -374,7 +374,7 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 				err = 0;
 				break;
 			} else {
-				LOG_DBG("  token not found yet");
+				//LOG_DBG("  token not found yet");
 			}
 		} else { /* ACK or RESET */
 			/* EMPTY responses: match MID only */
@@ -385,7 +385,7 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 					err = 0;
 					break;
 				} else {
-					LOG_DBG("  MID not found yet");
+					//LOG_DBG("  MID not found yet");
 				}
 			} else {
 				if ((msg->message_id == message_id) &&
@@ -395,7 +395,7 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 					err = 0;
 					break;
 				} else {
-					LOG_DBG("  MID and token not found yet");
+					//LOG_DBG("  MID and token not found yet");
 				}
 			}
 		}
@@ -475,6 +475,12 @@ int client_get_send(const char *resource, uint8_t *buf, size_t len)
 
 	next_token++;
 
+	LOG_DBG("GET %s, type:%d %s, contenttype:%d",
+		resource, msg_type, coap_types[msg_type], format);
+	if ((format == COAP_CONTENT_FORMAT_APP_CBOR) && (len != 0)) {
+		LOG_HEXDUMP_DBG(buf, len, "CBOR payload");
+	}
+
 	err = coap_packet_init(&request, coap_buf, sizeof(coap_buf),
 			       APP_COAP_VERSION, msg_type,
 			       sizeof(next_token), (uint8_t *)&next_token,
@@ -531,11 +537,11 @@ int client_get_send(const char *resource, uint8_t *buf, size_t len)
 			msg->token_len = sizeof(next_token);
 			sys_dlist_append(&con_messages, &msg->node);
 			num_con_messages++;
-			LOG_INF("Added MID:0x%04x, token:0x%04x to list; len:%d",
+			LOG_INF("Added MID:0x%04x, Token:0x%04x to list; len:%d",
 				message_id, next_token, num_con_messages);
 		}
 	}
-	LOG_INF("CoAP request sent: RESOURCE:%s, MID:0x%04x, token:0x%04x",
+	LOG_INF("CoAP request sent: RESOURCE:%s, MID:0x%04x, Token:0x%04x",
 		resource, message_id, next_token);
 
 	return 0;
@@ -554,6 +560,12 @@ int client_post_send(const char *resource, uint8_t *buf, size_t buf_len, bool cb
 
 	next_token++;
 
+	LOG_DBG("POST %s, type:%d %s, contenttype:%d, payload:%s",
+		resource, msg_type, coap_types[msg_type], format,
+		cbor_fmt ? "" : (const char *)buf);
+	if (cbor_fmt) {
+		LOG_HEXDUMP_DBG(buf, buf_len, "CBOR");
+	}
 	err = coap_packet_init(&request, coap_buf, sizeof(coap_buf),
 			       APP_COAP_VERSION, msg_type,
 			       sizeof(next_token), (uint8_t *)&next_token,
@@ -608,12 +620,12 @@ int client_post_send(const char *resource, uint8_t *buf, size_t buf_len, bool cb
 			msg->token_len = sizeof(next_token);
 			sys_dlist_append(&con_messages, &msg->node);
 			num_con_messages++;
-			LOG_INF("Added MID:0x%04x, token:0x%04x to list; len:%d",
+			LOG_INF("Added MID:0x%04x, Token:0x%04x to list; len:%d",
 				message_id, next_token, num_con_messages);
 		}
 	}
 
-	LOG_INF("CoAP request sent: RESOURCE:%s, MID:0x%04x, token:0x%04x",
+	LOG_INF("CoAP request sent: RESOURCE:%s, MID:0x%04x, Token:0x%04x",
 		resource, message_id, next_token);
 
 	return 0;
