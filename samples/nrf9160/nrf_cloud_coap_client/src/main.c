@@ -20,6 +20,7 @@
 #include <date_time.h>
 #include <net/nrf_cloud.h>
 #include <dk_buttons_and_leds.h>
+#include "nrf_cloud_codec.h"
 #include "coap_client.h"
 #include "coap_codec.h"
 #include "dtls.h"
@@ -44,6 +45,8 @@ LOG_MODULE_REGISTER(nrf_cloud_coap_client, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVE
 /* #define OPEN_AND_SHUT */
 
 #define BTN_NUM 1
+
+static char device_id[NRF_CLOUD_CLIENT_ID_MAX_LEN];
 
 /* Semaphore to indicate a button has been pressed */
 static K_SEM_DEFINE(button_press_sem, 0, 1);
@@ -218,6 +221,12 @@ int init(void)
 
 	modem_configure();
 
+	err = get_device_id(device_id, sizeof(device_id));
+	if (err) {
+		LOG_ERR("Error getting device id: %d", err);
+		return err;
+	}
+
 	err = client_init();
 	if (err) {
 		LOG_ERR("Failed to initialize CoAP client: %d", err);
@@ -234,10 +243,13 @@ int do_next_test(void)
 	static int get_count = 1;
 	static int cur_test = 1;
 	int err;
-	uint8_t buffer[100];
+	uint8_t buffer[500];
+	char topic[100];
 	uint8_t *get_payload;
 	size_t len;
 	int64_t ts;
+	struct lte_lc_cells_info cell_info = {0};
+	struct lte_lc_cell *c = &cell_info.current_cell;
 
 	LOG_INF("\n");
 	ts = k_uptime_get();
@@ -250,20 +262,39 @@ int do_next_test(void)
 	case 1:
 		LOG_INF("%d. Sending temperature", post_count++);
 		len = sizeof(buffer);
-		//cbor_encode_sensor(temp, ts, buffer, &len);
-		snprintf(buffer, len, "{\"appId\":\"TEMP\",\"messageType\":\"DATA\","
-			 "\"data\":%f,\"ts\":%ld}", temp, (long)ts);
+		snprintf(topic, sizeof(topic) - 1, "d/%s/d2c", device_id);
+		err = coap_codec_encode_sensor(NRF_CLOUD_JSON_APPID_VAL_TEMP, temp,
+					       topic, ts, buffer, &len,
+					       COAP_CONTENT_FORMAT_APP_JSON);
+		if (err) {
+			LOG_ERR("Unable to encode temp sensor data: %d", err);
+			break;
+		}
 		temp += 0.1;
-		if (client_post_send("/msg/d2c", buffer, len, false) != 0) {
+		if (client_post_send("/poc/msg", buffer, len,
+				     COAP_CONTENT_FORMAT_APP_JSON) != 0) {
 			LOG_ERR("Failed to send POST request");
 		}
 		break;
 	case 2:
 		LOG_INF("%d. Getting cell position", post_count++);
 		len = sizeof(buffer);
-		cbor_encode_cell_pos(true, 260, 310, 21858829, 333,
-				     0, 0, -157.0F, -34.5F, buffer, &len);
-		if (client_post_send("/loc/ground-fix?noReturn=false", buffer, len, true) != 0) {
+		c->mcc = 260;
+		c->mnc = 310;
+		c->id = 21858829;
+		c->tac = 333;
+		c->timing_advance = 0;
+		c->earfcn = 0;
+		c->rsrp = -157.0F;
+		c->rsrq = -34.5F;
+		err = coap_codec_encoder_cell_pos(&cell_info, buffer, &len,
+						  COAP_CONTENT_FORMAT_APP_JSON);
+		if (err) {
+			LOG_ERR("Unable to encode cell pos data: %d", err);
+			break;
+		}
+		if (client_post_send("/poc/loc/ground-fix", buffer, len,
+				     COAP_CONTENT_FORMAT_APP_JSON) != 0) {
 			LOG_ERR("Failed to send POST request");
 		}
 		break;
@@ -271,7 +302,8 @@ int do_next_test(void)
 		LOG_INF("%d. Getting pending FOTA job execution", get_count++);
 		get_payload = buffer;
 		len = 0;
-		if (client_get_send("/fota/exec/current", get_payload, len) != 0) {
+		if (client_get_send("/poc/fota/exec/current", get_payload, len,
+				    COAP_CONTENT_FORMAT_APP_JSON) != 0) {
 			LOG_ERR("Failed to send GET request");
 		}
 		break;

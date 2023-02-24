@@ -13,10 +13,12 @@ int cbor_decode_response(enum nrf_cloud_coap_response response,
 			 const uint8_t *payload, uint16_t payload_len,
 			 char *temp_buf, size_t temp_size);
 
-int cbor_encode_sensor(double value, int64_t ts, uint8_t *buf, size_t *len);
+int coap_codec_encode_sensor(const char *app_id, double value, const char *topic,
+			     int64_t ts, uint8_t *buf, size_t *len,
+			     enum coap_content_format fmt);
 
-int cbor_encode_cell_pos(bool do_reply, unsigned int mcc, unsigned int mnc, unsigned int eci,
-			 unsigned int tac, unsigned int adv, unsigned int earfcn,
-			 float rsrp, float rsrq, uint8_t *buf, size_t *len);
+int coap_codec_encoder_cell_pos(struct lte_lc_cells_info const *const cell_info,
+				uint8_t *buf, size_t *len,
+				enum coap_content_format fmt);
 
 #endif /* COAP_CODEC_H_ */

@@ -30,10 +30,12 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 			       uint8_t *buf, int received);
 
 /**@brief Send CoAP GET request. */
-int client_get_send(const char *resource, uint8_t *buf, size_t len);
+int client_get_send(const char *resource, uint8_t *buf, size_t len,
+		    enum coap_content_format fmt);
 
 /**@brief Send CoAP POST request. */
-int client_post_send(const char *resource, uint8_t *buf, size_t buf_len, bool cbor_fmt);
+int client_post_send(const char *resource, uint8_t *buf, size_t buf_len,
+		     enum coap_content_format fmt);
 
 int client_close(void);
 

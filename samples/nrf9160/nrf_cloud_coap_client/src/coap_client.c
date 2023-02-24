@@ -59,7 +59,7 @@ static const char *coap_types[] =
 	"CON", "NON", "ACK", "RST", NULL
 };
 
-static char jwt[600];
+static char jwt[700];
 static uint16_t next_token;
 
 /**@brief Resolves the configured hostname. */
@@ -73,9 +73,11 @@ static int server_resolve(void)
 	};
 	char ipv4_addr[NET_IPV4_ADDR_LEN];
 
+	LOG_DBG("Looking up server %s", CONFIG_COAP_SERVER_HOSTNAME);
 	err = getaddrinfo(CONFIG_COAP_SERVER_HOSTNAME, NULL, &hints, &result);
 	if (err != 0) {
-		LOG_ERR("ERROR: getaddrinfo failed %d", err);
+		LOG_ERR("ERROR: getaddrinfo for %s failed: %d",
+			CONFIG_COAP_SERVER_HOSTNAME, err);
 		return -EIO;
 	}
 
@@ -174,12 +176,14 @@ int client_init(void)
 		return err;
 	}
 #else
-	err = jwt_generate(JWT_DURATION_S, jwt, sizeof(jwt));
+	app_jwt_init();
+	err = app_jwt_generate(JWT_DURATION_S, jwt, sizeof(jwt));
 	if (err) {
 		return err;
 	}
 #endif
-	err = client_post_send("/auth-jwt", (uint8_t *)jwt, sizeof(jwt), false);
+	err = client_post_send("/poc/auth/jwt", (uint8_t *)jwt, strlen(jwt),
+			       COAP_CONTENT_FORMAT_TEXT_PLAIN);
 	if (err) {
 		return err;
 	}
@@ -462,23 +466,27 @@ done:
 }
 
 /**@brief Send CoAP GET request. */
-int client_get_send(const char *resource, uint8_t *buf, size_t len)
+int client_get_send(const char *resource, uint8_t *buf, size_t len, enum coap_content_format fmt)
 {
 	int err;
 	int i;
 	int num;
 	struct coap_packet request = {0};
-	uint8_t format = COAP_CONTENT_FORMAT_APP_CBOR;
 	uint16_t message_id = coap_next_id();
 	enum coap_msgtype msg_type = COAP_TYPE_CON;
 	struct nrf_cloud_coap_message *msg;
+	bool cbor_fmt = (fmt == COAP_CONTENT_FORMAT_APP_CBOR);
 
 	next_token++;
 
 	LOG_DBG("GET %s, type:%d %s, contenttype:%d",
-		resource, msg_type, coap_types[msg_type], format);
-	if ((format == COAP_CONTENT_FORMAT_APP_CBOR) && (len != 0)) {
-		LOG_HEXDUMP_DBG(buf, len, "CBOR payload");
+		resource, msg_type, coap_types[msg_type], fmt);
+	if (buf && len) {
+		if (cbor_fmt) {
+			LOG_HEXDUMP_DBG(buf, len, "CBOR payload");
+		} else {
+			LOG_DBG("payload: %s, len: %ld", (const char *)buf, (long)len);
+		}
 	}
 
 	err = coap_packet_init(&request, coap_buf, sizeof(coap_buf),
@@ -500,7 +508,7 @@ int client_get_send(const char *resource, uint8_t *buf, size_t len)
 
 	if (buf) {
 		err = coap_packet_append_option(&request, COAP_OPTION_CONTENT_FORMAT,
-						&format, sizeof(format));
+						&fmt, sizeof(fmt));
 		if (err < 0) {
 			LOG_ERR("Failed to encode CoAP content format option, %d", err);
 			return err;
@@ -548,21 +556,21 @@ int client_get_send(const char *resource, uint8_t *buf, size_t len)
 }
 
 /**@brief Send CoAP POST request. */
-int client_post_send(const char *resource, uint8_t *buf, size_t buf_len, bool cbor_fmt)
+int client_post_send(const char *resource, uint8_t *buf, size_t buf_len,
+		     enum coap_content_format fmt)
 {
 	int err;
 	struct coap_packet request = {0};
-	uint8_t format = cbor_fmt ? COAP_CONTENT_FORMAT_APP_CBOR :
-				    COAP_CONTENT_FORMAT_APP_JSON;
 	uint16_t message_id = coap_next_id();
 	enum coap_msgtype msg_type = COAP_TYPE_CON;
 	struct nrf_cloud_coap_message *msg;
+	bool cbor_fmt = (fmt == COAP_CONTENT_FORMAT_APP_CBOR);
 
 	next_token++;
 
-	LOG_DBG("POST %s, type:%d %s, contenttype:%d, payload:%s",
-		resource, msg_type, coap_types[msg_type], format,
-		cbor_fmt ? "" : (const char *)buf);
+	LOG_DBG("POST %s, type:%d %s, contenttype:%d, payload:%s, len:%ld",
+		resource, msg_type, coap_types[msg_type], fmt,
+		cbor_fmt ? "" : (const char *)buf, (long)buf_len);
 	if (cbor_fmt) {
 		LOG_HEXDUMP_DBG(buf, buf_len, "CBOR");
 	}
@@ -584,7 +592,7 @@ int client_post_send(const char *resource, uint8_t *buf, size_t buf_len, bool cb
 	}
 
 	err = coap_packet_append_option(&request, COAP_OPTION_CONTENT_FORMAT,
-					&format, sizeof(format));
+					&fmt, sizeof(fmt));
 	if (err < 0) {
 		LOG_ERR("Failed to encode CoAP content format option, %d", err);
 		return err;

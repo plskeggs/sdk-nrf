@@ -104,6 +104,20 @@ static int get_modem_info(void)
 
 	return 0;
 }
+
+int get_device_id(char *buf, size_t len)
+{
+	int err;
+
+	err = get_modem_info();
+	if (err) {
+		return err;
+	}
+
+	snprintf(buf, len, "nrf-%s", mdm_param.device.imei.value_string);
+	return 0;
+}
+
 #endif /* CONFIG_MODEM_INFO */
 
 static int get_device_ip_address(uint8_t *d4_addr)
