@@ -28,12 +28,6 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(nrf_cloud_coap_client, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVEL);
 
-#define APP_COAP_SEND_INTERVAL_MS 10000
-#define APP_COAP_RECEIVE_INTERVAL_MS 100
-#define APP_COAP_CLOSE_THRESHOLD_MS 4000
-#define APP_COAP_CONNECTION_CHECK_MS 30000
-#define APP_COAP_INTERVAL_LIMIT 60
-
 #define CREDS_REQ_WAIT_SEC 10
 
 //#define COAP_POC
@@ -271,7 +265,7 @@ int do_next_test(void)
 			break;
 		}
 		temp += 0.1;
-		if (client_post_send("/poc/msg", buffer, len,
+		if (client_post_send("poc/msg", buffer, len,
 				     COAP_CONTENT_FORMAT_APP_JSON) != 0) {
 			LOG_ERR("Failed to send POST request");
 		}
@@ -293,7 +287,7 @@ int do_next_test(void)
 			LOG_ERR("Unable to encode cell pos data: %d", err);
 			break;
 		}
-		if (client_post_send("/poc/loc/ground-fix", buffer, len,
+		if (client_post_send("poc/loc/ground-fix", buffer, len,
 				     COAP_CONTENT_FORMAT_APP_JSON) != 0) {
 			LOG_ERR("Failed to send POST request");
 		}
@@ -302,7 +296,7 @@ int do_next_test(void)
 		LOG_INF("%d. Getting pending FOTA job execution", get_count++);
 		get_payload = buffer;
 		len = 0;
-		if (client_get_send("/poc/fota/exec/current", get_payload, len,
+		if (client_get_send("poc/fota/exec/current", get_payload, len,
 				    COAP_CONTENT_FORMAT_APP_JSON) != 0) {
 			LOG_ERR("Failed to send GET request");
 		}
@@ -323,6 +317,7 @@ void main(void)
 	int err;
 	int i = 1;
 	bool reconnect = false;
+	bool authorized = false;
 	enum nrf_cloud_coap_response expected_response = NRF_CLOUD_COAP_LOCATION;
 
 	LOG_INF("\n");
@@ -334,12 +329,13 @@ void main(void)
 		for (;;) {
 		}
 	}
-	next_msg_time = k_uptime_get();
+	next_msg_time = k_uptime_get() + delta_ms;
 
 	while (1) {
-		if (k_uptime_get() >= next_msg_time) {
+		if (authorized && (k_uptime_get() >= next_msg_time)) {
 			if (reconnect) {
 				reconnect = false;
+				authorized = false;
 				LOG_INF("Going online");
 				err = lte_lc_normal();
 				if (err) {
@@ -387,6 +383,13 @@ void main(void)
 
 		err = client_receive(expected_response);
 
+		if (!err && !authorized) {
+			err = client_check_ack();
+			if (!err) {
+				LOG_INF("Authorization received");
+				authorized = true;
+			}
+		}
 #if defined(OPEN_AND_SHUT)
 		if (delta_ms > APP_COAP_CLOSE_THRESHOLD_MS) {
 			reconnect = true;

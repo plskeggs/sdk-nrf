@@ -62,6 +62,8 @@ static const char *coap_types[] =
 static char jwt[700];
 static uint16_t next_token;
 
+static K_SEM_DEFINE(con_ack_sem, 0, 1);
+
 /**@brief Resolves the configured hostname. */
 static int server_resolve(void)
 {
@@ -101,7 +103,8 @@ static int server_resolve(void)
 
 	inet_ntop(AF_INET, &server4->sin_addr.s_addr, ipv4_addr,
 		  sizeof(ipv4_addr));
-	LOG_INF("Server %s IP address: %s", CONFIG_COAP_SERVER_HOSTNAME, ipv4_addr);
+	LOG_INF("Server %s IP address: %s, port: %u",
+		CONFIG_COAP_SERVER_HOSTNAME, ipv4_addr, CONFIG_COAP_SERVER_PORT);
 
 	/* Free the address. */
 	freeaddrinfo(result);
@@ -169,6 +172,7 @@ int client_init(void)
 	/* Randomize token. */
 	next_token = sys_rand32_get();
 
+	LOG_DBG("Generate JWT");
 #if !defined(CONFIG_COAP_DTLS_PSK)
 #if !defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
 	err = nrf_cloud_jwt_generate(JWT_DURATION_S, jwt, sizeof(jwt));
@@ -182,13 +186,14 @@ int client_init(void)
 		return err;
 	}
 #endif
-	err = client_post_send("/poc/auth/jwt", (uint8_t *)jwt, strlen(jwt),
+	LOG_DBG("Send JWT");
+	err = client_post_send("poc/auth/jwt", (uint8_t *)jwt, strlen(jwt),
 			       COAP_CONTENT_FORMAT_TEXT_PLAIN);
 	if (err) {
 		return err;
 	}
 #endif
-	return 0;
+	return err;
 }
 
 int client_provision(bool force)
@@ -238,6 +243,18 @@ int client_wait(int timeout)
 	}
 
 	return 0;
+}
+
+int client_check_ack(void)
+{
+	int err;
+
+	LOG_DBG("Wait for ACK");
+	err = k_sem_take(&con_ack_sem, K_MSEC(APP_COAP_JWT_ACK_WAIT_MS));
+	if (err) {
+		LOG_ERR("Error waiting for JWT ACK: %d", err);
+	}
+	return err;
 }
 
 int client_receive(enum nrf_cloud_coap_response expected_response)
@@ -387,6 +404,9 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 					LOG_INF("Matched empty %s.",
 						(type == COAP_TYPE_ACK) ? "ACK" : "RESET");
 					err = 0;
+					if (type == COAP_TYPE_ACK) {
+						k_sem_give(&con_ack_sem);
+					}
 					break;
 				} else {
 					//LOG_DBG("  MID not found yet");
@@ -397,6 +417,9 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 				    (memcmp(msg->token, token, token_len) == 0)) {
 					LOG_INF("Found MID and token");
 					err = 0;
+					if (type == COAP_TYPE_ACK) {
+						k_sem_give(&con_ack_sem);
+					}
 					break;
 				} else {
 					//LOG_DBG("  MID and token not found yet");

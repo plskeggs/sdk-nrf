@@ -15,6 +15,13 @@ enum nrf_cloud_coap_response
 	NRF_CLOUD_COAP_FOTA_JOB
 };
 
+#define APP_COAP_JWT_ACK_WAIT_MS 1000
+#define APP_COAP_SEND_INTERVAL_MS 10000
+#define APP_COAP_RECEIVE_INTERVAL_MS 100
+#define APP_COAP_CLOSE_THRESHOLD_MS 4000
+#define APP_COAP_CONNECTION_CHECK_MS 30000
+#define APP_COAP_INTERVAL_LIMIT 60
+
 int client_get_sock(void);
 
 int client_init(void);
@@ -22,6 +29,8 @@ int client_init(void);
 int client_provision(bool force);
 
 int client_wait(int timeout);
+
+int client_check_ack(void);
 
 int client_receive(enum nrf_cloud_coap_response expected_response);
 
