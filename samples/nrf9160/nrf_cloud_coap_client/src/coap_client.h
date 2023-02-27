@@ -44,7 +44,7 @@ int client_get_send(const char *resource, uint8_t *buf, size_t len,
 
 /**@brief Send CoAP POST request. */
 int client_post_send(const char *resource, uint8_t *buf, size_t buf_len,
-		     enum coap_content_format fmt);
+		     enum coap_content_format fmt, bool response_expected);
 
 int client_close(void);
 

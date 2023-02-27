@@ -266,7 +266,7 @@ int do_next_test(void)
 		}
 		temp += 0.1;
 		if (client_post_send("poc/msg", buffer, len,
-				     COAP_CONTENT_FORMAT_APP_JSON) != 0) {
+				     COAP_CONTENT_FORMAT_APP_JSON, false) != 0) {
 			LOG_ERR("Failed to send POST request");
 		}
 		break;
@@ -288,7 +288,7 @@ int do_next_test(void)
 			break;
 		}
 		if (client_post_send("poc/loc/ground-fix", buffer, len,
-				     COAP_CONTENT_FORMAT_APP_JSON) != 0) {
+				     COAP_CONTENT_FORMAT_APP_JSON, true) != 0) {
 			LOG_ERR("Failed to send POST request");
 		}
 		break;

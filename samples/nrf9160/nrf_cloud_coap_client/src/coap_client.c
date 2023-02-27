@@ -188,7 +188,7 @@ int client_init(void)
 #endif
 	LOG_DBG("Send JWT");
 	err = client_post_send("poc/auth/jwt", (uint8_t *)jwt, strlen(jwt),
-			       COAP_CONTENT_FORMAT_TEXT_PLAIN);
+			       COAP_CONTENT_FORMAT_TEXT_PLAIN, false);
 	if (err) {
 		return err;
 	}
@@ -326,6 +326,86 @@ static int client_response(struct coap_packet *req,
 	return 0;
 }
 
+static int remove_msg_from_list(struct nrf_cloud_coap_message *msg)
+{
+	if (msg != NULL) {
+		sys_dlist_remove(&msg->node);
+		k_free(msg);
+		if (num_con_messages) {
+			num_con_messages--;
+		}
+		LOG_INF("messages left: %d", num_con_messages);
+	}
+	return 0;
+}
+
+static int find_response(uint8_t *token, uint16_t token_len, uint16_t message_id,
+			 uint8_t code, uint8_t type, uint16_t payload_len)
+{
+	struct nrf_cloud_coap_message *msg = NULL;
+	int err = -ENOMSG;
+
+	SYS_DLIST_FOR_EACH_CONTAINER(&con_messages, msg, node) {
+		//LOG_DBG("  mid:0x%04x, Token:0x%02x%02x ?",
+		//	msg->message_id, msg->token[1], msg->token[0]);
+		if ((type == COAP_TYPE_CON) || (type == COAP_TYPE_NON_CON)) {
+			/* match token only */
+			if ((token_len == msg->token_len) &&
+			    (memcmp(msg->token, token, token_len) == 0)) {
+				LOG_INF("Matched token");
+				err = 0;
+				break;
+			} else {
+				//LOG_DBG("  token not found yet");
+			}
+		} else { /* ACK or RESET */
+			/* EMPTY responses: match MID only */
+			if (code == 0) { 
+				if (msg->message_id == message_id) {
+					LOG_INF("Matched empty %s.",
+						(type == COAP_TYPE_ACK) ? "ACK" : "RESET");
+					err = 0;
+					if (type == COAP_TYPE_ACK) {
+						LOG_DBG("Empty ACK");
+						k_sem_give(&con_ack_sem);
+					}
+					break;
+				} else {
+					//LOG_DBG("  MID not found yet");
+				}
+			} else {
+				if ((msg->message_id == message_id) &&
+				    (token_len == msg->token_len) &&
+				    (memcmp(msg->token, token, token_len) == 0)) {
+					LOG_INF("Found MID and token");
+					err = 0;
+					if (type == COAP_TYPE_ACK) {
+						k_sem_give(&con_ack_sem);
+						LOG_DBG("ACK with code");
+						if (payload_len) {
+							/* piggy-backed response, so remove
+							 * this one and then look for and
+							 * remove the second (at end of handler)
+							 */
+							LOG_DBG("Piggy-backed response");
+							err = EAGAIN; /* positive value */
+							break;
+						}
+					}
+					break;
+				} else {
+					//LOG_DBG("  MID and token not found yet");
+				}
+			}
+		}
+	}
+	if (err >= 0) {
+		LOG_DBG("Removing");
+		remove_msg_from_list(msg);
+	}
+	return err;
+}
+
 /**@brief Handles responses from the remote CoAP server. */
 int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 			       uint8_t *buf, int received)
@@ -344,7 +424,6 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 	uint16_t message_id;
 	uint8_t code;
 	uint8_t type;
-	struct nrf_cloud_coap_message *msg = NULL;
 
 	err = coap_packet_parse(&reply, buf, received, NULL, 0);
 	if (err < 0) {
@@ -377,60 +456,26 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 		uri_path[0] = '\0';
 	}
 
+	payload = coap_packet_get_payload(&reply, &payload_len);
+
 	LOG_INF("Got response uri:%s, code:0x%02x (%d.%02d), type:%u %s, "
 		"MID:0x%04x, Token:0x%02x%02x (len %u)",
 		uri_path, code, code / 32u, code & 0x1f,
 		type, coap_types[type], message_id,
 		token[1], token[0], token_len);
 
-	err = -ENOMSG;
-	SYS_DLIST_FOR_EACH_CONTAINER(&con_messages, msg, node) {
-		//LOG_DBG("  mid:0x%04x, Token:0x%02x%02x ?",
-		//	msg->message_id, msg->token[1], msg->token[0]);
-		if ((type == COAP_TYPE_CON) || (type == COAP_TYPE_NON_CON)) {
-			/* match token only */
-			if ((token_len == msg->token_len) &&
-			    (memcmp(msg->token, token, token_len) == 0)) {
-				LOG_INF("Matched token");
-				err = 0;
-				break;
-			} else {
-				//LOG_DBG("  token not found yet");
-			}
-		} else { /* ACK or RESET */
-			/* EMPTY responses: match MID only */
-			if (code == 0) { 
-				if (msg->message_id == message_id) {
-					LOG_INF("Matched empty %s.",
-						(type == COAP_TYPE_ACK) ? "ACK" : "RESET");
-					err = 0;
-					if (type == COAP_TYPE_ACK) {
-						k_sem_give(&con_ack_sem);
-					}
-					break;
-				} else {
-					//LOG_DBG("  MID not found yet");
-				}
-			} else {
-				if ((msg->message_id == message_id) &&
-				    (token_len == msg->token_len) &&
-				    (memcmp(msg->token, token, token_len) == 0)) {
-					LOG_INF("Found MID and token");
-					err = 0;
-					if (type == COAP_TYPE_ACK) {
-						k_sem_give(&con_ack_sem);
-					}
-					break;
-				} else {
-					//LOG_DBG("  MID and token not found yet");
-				}
-			}
-		}
-	}
-	if (err) {
+	/* Look for a record related to this message, and remove if found */
+	err = find_response(token, token_len, message_id, code, type, payload_len);
+	if (err < 0) {
 		LOG_ERR("No match for message and token");
 		LOG_INF("Sending RESET to server");
 		err = client_response(&reply, NULL, message_id, 0, NULL, false);
+		if (err) {
+			goto done;
+		}
+	} else if (err > 0) {
+		LOG_DBG("Looking for and removing 2nd entry");
+		err = find_response(token, token_len, message_id, code, type, 0);
 		if (err) {
 			goto done;
 		}
@@ -462,7 +507,6 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 		LOG_DBG("Content format: %d", format);
 	}
 
-	payload = coap_packet_get_payload(&reply, &payload_len);
 	if (payload_len > 0) {
 		if (format == COAP_CONTENT_FORMAT_APP_CBOR) {
 			err = cbor_decode_response(expected_response, payload, payload_len,
@@ -479,12 +523,6 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 	}
 
 done:
-	if (msg != NULL) {
-		sys_dlist_remove(&msg->node);
-		k_free(msg);
-		num_con_messages--;
-		LOG_INF("messages left: %d", num_con_messages);
-	}
 	return err;
 }
 
@@ -580,9 +618,11 @@ int client_get_send(const char *resource, uint8_t *buf, size_t len, enum coap_co
 
 /**@brief Send CoAP POST request. */
 int client_post_send(const char *resource, uint8_t *buf, size_t buf_len,
-		     enum coap_content_format fmt)
+		     enum coap_content_format fmt, bool response_expected)
 {
 	int err;
+	int i;
+	int num;
 	struct coap_packet request = {0};
 	uint16_t message_id = coap_next_id();
 	enum coap_msgtype msg_type = COAP_TYPE_CON;
@@ -641,8 +681,9 @@ int client_post_send(const char *resource, uint8_t *buf, size_t buf_len,
 		return -errno;
 	}
 
-	if (msg_type == COAP_TYPE_CON) {
-		/* we expect an ACK back from the server */
+	num = (msg_type == COAP_TYPE_CON) ? 1 : 0;
+	num += response_expected  ? 1 : 0;
+	for (i = 0; i < num; i++) {
 		msg = k_malloc(sizeof(struct nrf_cloud_coap_message));
 		if (msg) {
 			sys_dnode_init(&msg->node);
