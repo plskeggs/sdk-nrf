@@ -507,8 +507,7 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 				goto done;
 			}
 		} else {
-			snprintf(temp_buf, MIN(payload_len + 1, sizeof(temp_buf)), "%s", payload);
-			LOG_INF("CoAP payload: %s", temp_buf);
+			LOG_INF("CoAP payload: %.*s", payload_len, (const char *)payload);
 		}
 	} else {
 		LOG_INF("CoAP payload: EMPTY");

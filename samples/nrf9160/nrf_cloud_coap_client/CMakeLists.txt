@@ -15,6 +15,7 @@ target_sources(app PRIVATE src/app_jwt.c)
 target_sources(app PRIVATE src/coap_client.c)
 target_sources(app PRIVATE src/coap_codec.c)
 target_sources(app PRIVATE src/dtls.c)
+target_sources(app PRIVATE src/nrf_cloud_coap.c)
 # NORDIC SDK APP END
 
 zephyr_include_directories(src)

@@ -11,6 +11,7 @@
 #include <zephyr/net/coap.h>
 #include <zephyr/net/socket.h>
 #include <modem/lte_lc.h>
+#include <modem/modem_info.h>
 #include <zephyr/random/rand32.h>
 #if defined(CONFIG_LWM2M_CARRIER)
 #include <lwm2m_carrier.h>
@@ -43,8 +44,38 @@ LOG_MODULE_REGISTER(nrf_cloud_coap_client, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVE
 
 static char device_id[NRF_CLOUD_CLIENT_ID_MAX_LEN];
 
+/* Type of data to be sent in the cellular positioning request */
+enum nrf_cloud_location_type active_cell_pos_type = LOCATION_TYPE_SINGLE_CELL;
+
+static bool authorized = false;
+
+#if 0
+/* Search type used for neighbor cell measurements; modem FW version depenedent */
+static enum lte_lc_neighbor_search_type search_type = LTE_LC_NEIGHBOR_SEARCH_TYPE_DEFAULT;
+
+/* Buffer to hold neighbor cell measurement data for multi-cell requests */
+static struct lte_lc_ncell neighbor_cells[CONFIG_LTE_NEIGHBOR_CELLS_MAX];
+
+/* Buffer to hold GCI cell measurement data for multi-cell requests */
+static struct lte_lc_cell gci_cells[CONFIG_REST_CELL_GCI_COUNT];
+#endif
+
+/* Modem info struct used for modem FW version and cell info used for single-cell requests */
+static struct modem_param_info mdm_param;
+
+/* Structure to hold all cell info */
+static struct lte_lc_cells_info cell_info;
+
+/* Semaphore to indicate that cell info has been received */
+static K_SEM_DEFINE(cell_info_ready_sem, 0, 1);
+
+/* Mutex for cell info struct */
+static K_MUTEX_DEFINE(cell_info_mutex);
+
 /* Semaphore to indicate a button has been pressed */
 static K_SEM_DEFINE(button_press_sem, 0, 1);
+
+static void get_cell_info(void);
 
 static void button_handler(uint32_t button_states, uint32_t has_changed)
 {
@@ -131,6 +162,15 @@ static void lte_handler(const struct lte_lc_evt *const evt)
 		}
 		break;
 
+	case LTE_LC_EVT_CELL_UPDATE:
+		if (evt->cell.id == LTE_LC_CELL_EUTRAN_ID_INVALID) {
+			break;
+		}
+
+		/* Get new info when cell ID changes */
+		LOG_INF("Cell info changed");
+		get_cell_info();
+		break;
 	default:
 		LOG_DBG("LTE event %d (0x%x)", evt->type, evt->type);
 		break;
@@ -143,6 +183,8 @@ static void lte_handler(const struct lte_lc_evt *const evt)
  */
 static void modem_configure(void)
 {
+	int err;
+
 	lte_lc_register_handler(lte_handler);
 #if defined(CONFIG_LTE_LINK_CONTROL)
 	if (IS_ENABLED(CONFIG_LTE_AUTO_INIT_AND_CONNECT)) {
@@ -178,6 +220,20 @@ static void modem_configure(void)
 #endif /* defined(CONFIG_LWM2M_CARRIER) */
 	}
 #endif /* defined(CONFIG_LTE_LINK_CONTROL) */
+	/* Modem info library is used to obtain the modem FW version
+	 * and network info for single-cell requests
+	 */
+	err = modem_info_init();
+	if (err) {
+		LOG_ERR("Modem info initialization failed, error: %d", err);
+		return;
+	}
+
+	err = modem_info_params_init(&mdm_param);
+	if (err) {
+		LOG_ERR("Modem info params initialization failed, error: %d", err);
+		return;
+	}
 }
 
 static void check_connection(void)
@@ -239,6 +295,43 @@ int init(void)
 	return err;
 }
 
+static void get_cell_info(void)
+{
+	int err;
+
+	if (!authorized) {
+		return;
+	}
+
+	LOG_INF("Getting current cell info...");
+
+	/* Use the modem info library to easily obtain the required network info
+	 * for a single-cell request without performing a neighbor cell measurement
+	 */
+	err = modem_info_params_get(&mdm_param);
+	if (err) {
+		LOG_ERR("Unable to obtain modem info, error: %d", err);
+		return;
+	}
+
+	(void)k_mutex_lock(&cell_info_mutex, K_FOREVER);
+	memset(&cell_info, 0, sizeof(cell_info));
+	/* Required parameters */
+	cell_info.current_cell.id	= (uint32_t)mdm_param.network.cellid_dec;
+	cell_info.current_cell.mcc	= mdm_param.network.mcc.value;
+	cell_info.current_cell.mnc	= mdm_param.network.mnc.value;
+	cell_info.current_cell.tac	= mdm_param.network.area_code.value;
+	/* Optional */
+	cell_info.current_cell.rsrp	= mdm_param.network.rsrp.value;
+	/* Omitted - optional parameters not available from modem_info */
+	cell_info.current_cell.timing_advance	= NRF_CLOUD_LOCATION_CELL_OMIT_TIME_ADV;
+	cell_info.current_cell.rsrq		= NRF_CLOUD_LOCATION_CELL_OMIT_RSRQ;
+	cell_info.current_cell.earfcn		= NRF_CLOUD_LOCATION_CELL_OMIT_EARFCN;
+	(void)k_mutex_unlock(&cell_info_mutex);
+
+	k_sem_give(&cell_info_ready_sem);
+}
+
 int do_next_test(void)
 {
 	static double temp = 21.5;
@@ -246,8 +339,6 @@ int do_next_test(void)
 	static int get_count = 1;
 	static int cur_test = 1;
 	int err = 0;
-	struct lte_lc_cells_info cell_info = {0};
-	struct lte_lc_cell *c = &cell_info.current_cell;
 	struct nrf_cloud_location_result result;
 	struct nrf_cloud_fota_job_info job;
 
@@ -263,14 +354,6 @@ int do_next_test(void)
 		break;
 	case 2:
 		LOG_INF("******** %d. Getting cell position", post_count++);
-		c->mcc = 260;
-		c->mnc = 310;
-		c->id = 21858829;
-		c->tac = 333;
-		c->timing_advance = 0;
-		c->earfcn = 0;
-		c->rsrp = -157.0F;
-		c->rsrq = -34.5F;
 		err = nrf_cloud_coap_get_location(&cell_info, &result);
 		if (err) {
 			LOG_ERR("Unable to get location: %d", err);
@@ -282,6 +365,8 @@ int do_next_test(void)
 		err = nrf_cloud_get_current_fota_job(&job);
 		if (err) {
 			LOG_ERR("Failed to request pending FOTA job: %d", err);
+		} else {
+			/* process the job... */
 		}
 		break;
 	}
@@ -301,7 +386,6 @@ void main(void)
 	int err;
 	int i = 1;
 	bool reconnect = false;
-	bool authorized = false;
 	enum nrf_cloud_coap_response expected_response = NRF_CLOUD_COAP_LOCATION;
 
 	LOG_INF("\n");
@@ -372,6 +456,7 @@ void main(void)
 			if (!err) {
 				LOG_INF("Authorization received");
 				authorized = true;
+				get_cell_info();
 			}
 		}
 #if defined(OPEN_AND_SHUT)

@@ -77,12 +77,6 @@ static int get_modem_info(void)
 {
 	int err;
 
-	err = modem_info_init();
-	if (err) {
-		LOG_ERR("Could not init modem info: %d", err);
-		return err;
-	}
-
 	err = modem_info_string_get(MODEM_INFO_IMEI,
 				    mdm_param.device.imei.value_string,
 				    MODEM_INFO_MAX_RESPONSE_SIZE);
@@ -99,8 +93,8 @@ static int get_modem_info(void)
 		return err;
 	}
 
-	LOG_DBG("IMEI:                    %s", mdm_param.device.imei.value_string);
-	LOG_DBG("Modem FW version:        %s", mdm_param.device.modem_fw.value_string);
+	LOG_INF("IMEI:                    %s", mdm_param.device.imei.value_string);
+	LOG_INF("Modem FW version:        %s", mdm_param.device.modem_fw.value_string);
 
 	return 0;
 }
