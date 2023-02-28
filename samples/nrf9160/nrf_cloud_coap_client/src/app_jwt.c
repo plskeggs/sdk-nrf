@@ -18,7 +18,7 @@
 #include "app_jwt.h"
 
 #include <zephyr/logging/log.h>
-LOG_MODULE_DECLARE(app_jwt, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVEL);
+LOG_MODULE_REGISTER(app_jwt, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVEL);
 
 #define JWT_BUF_SZ	900
 
@@ -29,6 +29,7 @@ static psa_key_handle_t pub_key_handle;
 
 int app_jwt_init(void)
 {
+#if defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
 	cJSON_Init();
 
 	psa_status_t status;
@@ -38,6 +39,7 @@ int app_jwt_init(void)
 	if (status != PSA_SUCCESS) {
 		return -1;
 	}
+#endif
 	return 0;
 }
 
@@ -108,6 +110,7 @@ int sign_message(void)
 }
 #endif
 
+#if defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
 static void base64_url_format(char *const base64_string)
 {
 	if (base64_string == NULL) {
@@ -132,15 +135,23 @@ static void base64_url_format(char *const base64_string)
 		*found = '\0';
 	}
 }
+#endif
 
 int app_jwt_generate(uint32_t time_valid_s, char *const jwt_buf, size_t jwt_buf_sz)
 {
+	int err;
+
 	if (!jwt_buf || !jwt_buf_sz) {
 		return -EINVAL;
 	}
 
+#if !defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
+	err = nrf_cloud_jwt_generate(time_valid_s, jwt_buf, jwt_buf_sz);
+	if (err) {
+		LOG_ERR("Error generating JWT with modem: %d", err);
+	}
+#else
 	#define GET_TIME_CMD "AT%%CCLK?"
-	int err;
 	char buf[NRF_CLOUD_CLIENT_ID_MAX_LEN + 1];
 	struct jwt_data jwt = {
 		.audience = NULL,
@@ -249,6 +260,13 @@ int app_jwt_generate(uint32_t time_valid_s, char *const jwt_buf, size_t jwt_buf_
 
 	base64_url_format(msg);
 
+	if (err) {
+		LOG_ERR("Failed to generate JWT, error: %d", err);
+	}
+#endif
+	return err;
+}
+
 /*
 JWT: eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiIsImtpZCI6IjA3MDM3NWJkMjQxMTNlOGI4MzM4ZWRiZjUxZDg1NDliMjhjYTBlZjIwMmIxNjA0NGVlOGZjY2EyMjE1NDBiZDYifSAg.eyJpc3MiOiJuUkY5MTYwLjUwNGU1MzUzLTM4MzEtNDVjOC04MDBhLTI3MTlkOGJhMzlmNSIsImp0aSI6Im5SRjkxNjAuZjZlM2JkN2ItN2RmMy00Yjg4LWI0M2EtYTdhOTc2NmEwNGFkLjJmNzM1M2UwYTdkMzMzNWE0N2NmYjFhZDdlM2U5YWNiIiwiaWF0IjoxNjc2OTMwMzU4LCJleHAiOjE2NzY5MzA2NTgsInN1YiI6Im5yZi0zNTI2NTYxMDYxMDgxNDgifSAg.uv7rse7I4-peOgYU2twZc9HpItQU4K3JBYc7vEXPK7S7oLTvfDBoP_63T1J5EIquXLmCTmSTXLPEVcMkJm24FQ
  
@@ -282,11 +300,3 @@ NOTE:
 - jti = jwt id; must be unique to prevent replay
 - kid = key id to perform key lookup
 */
-
-	if (err) {
-		LOG_ERR("Failed to generate JWT, error: %d", err);
-	}
-
-	return err;
-}
-

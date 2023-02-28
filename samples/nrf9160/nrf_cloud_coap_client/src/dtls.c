@@ -433,7 +433,7 @@ int dtls_print_connection_id(int sock, bool verbose)
 		LOG_ERR("Unable to get connection ID: %d", -errno);
 	}
 #else
-	LOG_INF("Skipping CID");
+	LOG_DBG("Skipping CID");
 #endif
 	return err;
 }

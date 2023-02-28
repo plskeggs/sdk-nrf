@@ -172,20 +172,12 @@ int client_init(void)
 	/* Randomize token. */
 	next_token = sys_rand32_get();
 
-	LOG_DBG("Generate JWT");
 #if !defined(CONFIG_COAP_DTLS_PSK)
-#if !defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
-	err = nrf_cloud_jwt_generate(JWT_DURATION_S, jwt, sizeof(jwt));
+	LOG_DBG("Generate JWT");
+	err = app_jwt_generate(NRF_CLOUD_JWT_VALID_TIME_S_MAX, jwt, sizeof(jwt));
 	if (err) {
 		return err;
 	}
-#else
-	app_jwt_init();
-	err = app_jwt_generate(JWT_DURATION_S, jwt, sizeof(jwt));
-	if (err) {
-		return err;
-	}
-#endif
 	LOG_DBG("Send JWT");
 	err = client_post_send("poc/auth/jwt", (uint8_t *)jwt, strlen(jwt),
 			       COAP_CONTENT_FORMAT_TEXT_PLAIN, false);
@@ -214,7 +206,7 @@ int client_provision(bool force)
  * Returns -EAGAIN if timeout occured and there is no data.
  * Returns other, negative error code in case of poll error.
  */
-int client_wait(int timeout)
+int client_wait_data(int timeout)
 {
 	int ret = poll(&fds, 1, timeout);
 
@@ -245,12 +237,12 @@ int client_wait(int timeout)
 	return 0;
 }
 
-int client_check_ack(void)
+int client_wait_ack(int wait_ms)
 {
 	int err;
 
 	LOG_DBG("Wait for ACK");
-	err = k_sem_take(&con_ack_sem, K_MSEC(APP_COAP_JWT_ACK_WAIT_MS));
+	err = k_sem_take(&con_ack_sem, K_MSEC(wait_ms));
 	if (err) {
 		LOG_ERR("Error waiting for JWT ACK: %d", err);
 	}
@@ -334,7 +326,7 @@ static int remove_msg_from_list(struct nrf_cloud_coap_message *msg)
 		if (num_con_messages) {
 			num_con_messages--;
 		}
-		LOG_INF("messages left: %d", num_con_messages);
+		LOG_DBG("messages left: %d", num_con_messages);
 	}
 	return 0;
 }
@@ -352,7 +344,7 @@ static int find_response(uint8_t *token, uint16_t token_len, uint16_t message_id
 			/* match token only */
 			if ((token_len == msg->token_len) &&
 			    (memcmp(msg->token, token, token_len) == 0)) {
-				LOG_INF("Matched token");
+				LOG_DBG("Matched token");
 				err = 0;
 				break;
 			} else {
@@ -362,7 +354,7 @@ static int find_response(uint8_t *token, uint16_t token_len, uint16_t message_id
 			/* EMPTY responses: match MID only */
 			if (code == 0) { 
 				if (msg->message_id == message_id) {
-					LOG_INF("Matched empty %s.",
+					LOG_DBG("Matched empty %s.",
 						(type == COAP_TYPE_ACK) ? "ACK" : "RESET");
 					err = 0;
 					if (type == COAP_TYPE_ACK) {
@@ -377,11 +369,11 @@ static int find_response(uint8_t *token, uint16_t token_len, uint16_t message_id
 				if ((msg->message_id == message_id) &&
 				    (token_len == msg->token_len) &&
 				    (memcmp(msg->token, token, token_len) == 0)) {
-					LOG_INF("Found MID and token");
+					LOG_DBG("Found MID and token");
 					err = 0;
 					if (type == COAP_TYPE_ACK) {
 						k_sem_give(&con_ack_sem);
-						LOG_DBG("ACK with code");
+						LOG_DBG("ACK with code: %u", payload_len);
 						if (payload_len) {
 							/* piggy-backed response, so remove
 							 * this one and then look for and
@@ -459,10 +451,10 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 	payload = coap_packet_get_payload(&reply, &payload_len);
 
 	LOG_INF("Got response uri:%s, code:0x%02x (%d.%02d), type:%u %s, "
-		"MID:0x%04x, Token:0x%02x%02x (len %u)",
+		"MID:0x%04x, Token:0x%02x%02x (len %u), payload_len:%u",
 		uri_path, code, code / 32u, code & 0x1f,
 		type, coap_types[type], message_id,
-		token[1], token[0], token_len);
+		token[1], token[0], token_len, payload_len);
 
 	/* Look for a record related to this message, and remove if found */
 	err = find_response(token, token_len, message_id, code, type, payload_len);
@@ -606,11 +598,11 @@ int client_get_send(const char *resource, uint8_t *buf, size_t len, enum coap_co
 			msg->token_len = sizeof(next_token);
 			sys_dlist_append(&con_messages, &msg->node);
 			num_con_messages++;
-			LOG_INF("Added MID:0x%04x, Token:0x%04x to list; len:%d",
+			LOG_DBG("Added MID:0x%04x, Token:0x%04x to list; len:%d",
 				message_id, next_token, num_con_messages);
 		}
 	}
-	LOG_INF("CoAP request sent: RESOURCE:%s, MID:0x%04x, Token:0x%04x",
+	LOG_INF("CoAP GET: RESOURCE:%s, MID:0x%04x, Token:0x%04x",
 		resource, message_id, next_token);
 
 	return 0;
@@ -692,12 +684,12 @@ int client_post_send(const char *resource, uint8_t *buf, size_t buf_len,
 			msg->token_len = sizeof(next_token);
 			sys_dlist_append(&con_messages, &msg->node);
 			num_con_messages++;
-			LOG_INF("Added MID:0x%04x, Token:0x%04x to list; len:%d",
+			LOG_DBG("Added MID:0x%04x, Token:0x%04x to list; len:%d",
 				message_id, next_token, num_con_messages);
 		}
 	}
 
-	LOG_INF("CoAP request sent: RESOURCE:%s, MID:0x%04x, Token:0x%04x",
+	LOG_INF("CoAP POST: RESOURCE:%s, MID:0x%04x, Token:0x%04x",
 		resource, message_id, next_token);
 
 	return 0;

@@ -185,8 +185,8 @@ int cbor_encode_cell_pos(bool do_reply, unsigned int mcc, unsigned int mnc, unsi
 	return 0;
 }
 
-int coap_codec_encoder_cell_pos(struct lte_lc_cells_info const *const cell_info,
-				uint8_t *buf, size_t *len, enum coap_content_format fmt)
+int coap_codec_encode_cell_pos(struct lte_lc_cells_info const *const cell_info,
+			       uint8_t *buf, size_t *len, enum coap_content_format fmt)
 {
 	int err;
 

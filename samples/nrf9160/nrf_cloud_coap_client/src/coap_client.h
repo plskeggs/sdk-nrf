@@ -11,6 +11,7 @@ enum nrf_cloud_coap_response
 {
 	NRF_CLOUD_COAP_NONE,
 	NRF_CLOUD_COAP_LOCATION,
+	NRF_CLOUD_COAP_AGPS,
 	NRF_CLOUD_COAP_PGPS,
 	NRF_CLOUD_COAP_FOTA_JOB
 };
@@ -28,9 +29,9 @@ int client_init(void);
 
 int client_provision(bool force);
 
-int client_wait(int timeout);
+int client_wait_data(int timeout);
 
-int client_check_ack(void);
+int client_wait_ack(int wait_ms);
 
 int client_receive(enum nrf_cloud_coap_response expected_response);
 

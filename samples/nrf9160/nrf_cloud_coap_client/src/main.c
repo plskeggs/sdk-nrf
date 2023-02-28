@@ -21,6 +21,7 @@
 #include <net/nrf_cloud.h>
 #include <dk_buttons_and_leds.h>
 #include "nrf_cloud_codec.h"
+#include "nrf_cloud_coap.h"
 #include "coap_client.h"
 #include "coap_codec.h"
 #include "dtls.h"
@@ -131,7 +132,7 @@ static void lte_handler(const struct lte_lc_evt *const evt)
 		break;
 
 	default:
-		LOG_INF("LTE event %d (0x%x)", evt->type, evt->type);
+		LOG_DBG("LTE event %d (0x%x)", evt->type, evt->type);
 		break;
 	}
 }
@@ -181,6 +182,10 @@ static void modem_configure(void)
 
 static void check_connection(void)
 {
+#if !defined(DELAY_INTERPACKET_PERIOD) && (APP_COAP_SEND_INTERVAL_MS < APP_COAP_CONNECTION_CHECK_MS)
+	return;
+#endif
+
 	static int64_t next_keep_serial_alive_time;
 	char scratch_buf[256];
 	int err;
@@ -227,6 +232,10 @@ int init(void)
 		return err;
 	}
 
+	err = nrf_cloud_coap_init(device_id);
+	if (err) {
+		LOG_ERR("Failed to initialize nRF Cloud CoAP library: %d", err);
+	}
 	return err;
 }
 
@@ -236,43 +245,24 @@ int do_next_test(void)
 	static int post_count = 1;
 	static int get_count = 1;
 	static int cur_test = 1;
-	int err;
-	uint8_t buffer[500];
-	char topic[100];
-	uint8_t *get_payload;
-	size_t len;
-	int64_t ts;
+	int err = 0;
 	struct lte_lc_cells_info cell_info = {0};
 	struct lte_lc_cell *c = &cell_info.current_cell;
-
-	LOG_INF("\n");
-	ts = k_uptime_get();
-	err = date_time_uptime_to_unix_time_ms(&ts);
-	if (err) {
-		LOG_ERR("Error converting time: %d", err);
-	}
+	struct nrf_cloud_location_result result;
+	struct nrf_cloud_fota_job_info job;
 
 	switch (cur_test) {
 	case 1:
-		LOG_INF("%d. Sending temperature", post_count++);
-		len = sizeof(buffer);
-		snprintf(topic, sizeof(topic) - 1, "d/%s/d2c", device_id);
-		err = coap_codec_encode_sensor(NRF_CLOUD_JSON_APPID_VAL_TEMP, temp,
-					       topic, ts, buffer, &len,
-					       COAP_CONTENT_FORMAT_APP_JSON);
+		LOG_INF("******** %d. Sending temperature", post_count++);
+		err = nrf_cloud_coap_send_sensor(NRF_CLOUD_JSON_APPID_VAL_TEMP, temp);
 		if (err) {
-			LOG_ERR("Unable to encode temp sensor data: %d", err);
+			LOG_ERR("Error sending sensor data: %d", err);
 			break;
 		}
 		temp += 0.1;
-		if (client_post_send("poc/msg", buffer, len,
-				     COAP_CONTENT_FORMAT_APP_JSON, false) != 0) {
-			LOG_ERR("Failed to send POST request");
-		}
 		break;
 	case 2:
-		LOG_INF("%d. Getting cell position", post_count++);
-		len = sizeof(buffer);
+		LOG_INF("******** %d. Getting cell position", post_count++);
 		c->mcc = 260;
 		c->mnc = 310;
 		c->id = 21858829;
@@ -281,24 +271,17 @@ int do_next_test(void)
 		c->earfcn = 0;
 		c->rsrp = -157.0F;
 		c->rsrq = -34.5F;
-		err = coap_codec_encoder_cell_pos(&cell_info, buffer, &len,
-						  COAP_CONTENT_FORMAT_APP_JSON);
+		err = nrf_cloud_coap_get_location(&cell_info, &result);
 		if (err) {
-			LOG_ERR("Unable to encode cell pos data: %d", err);
+			LOG_ERR("Unable to get location: %d", err);
 			break;
-		}
-		if (client_post_send("poc/loc/ground-fix", buffer, len,
-				     COAP_CONTENT_FORMAT_APP_JSON, true) != 0) {
-			LOG_ERR("Failed to send POST request");
 		}
 		break;
 	case 3:
-		LOG_INF("%d. Getting pending FOTA job execution", get_count++);
-		get_payload = buffer;
-		len = 0;
-		if (client_get_send("poc/fota/exec/current", get_payload, len,
-				    COAP_CONTENT_FORMAT_APP_JSON) != 0) {
-			LOG_ERR("Failed to send GET request");
+		LOG_INF("******** %d. Getting pending FOTA job execution", get_count++);
+		err = nrf_cloud_get_current_fota_job(&job);
+		if (err) {
+			LOG_ERR("Failed to request pending FOTA job: %d", err);
 		}
 		break;
 	}
@@ -306,6 +289,7 @@ int do_next_test(void)
 	if (++cur_test > 3) {
 		cur_test = 1;
 	}
+	LOG_DBG("Posts: %d, Gets: %d\n", post_count, get_count);
 	return err;
 }
 
@@ -370,7 +354,7 @@ void main(void)
 			check_connection();
 			continue;
 		}
-		err = client_wait(APP_COAP_RECEIVE_INTERVAL_MS);
+		err = client_wait_data(APP_COAP_RECEIVE_INTERVAL_MS);
 		if (err < 0) {
 			if (err == -EAGAIN) {
 				check_connection();
@@ -384,7 +368,7 @@ void main(void)
 		err = client_receive(expected_response);
 
 		if (!err && !authorized) {
-			err = client_check_ack();
+			err = client_wait_ack(APP_COAP_JWT_ACK_WAIT_MS);
 			if (!err) {
 				LOG_INF("Authorization received");
 				authorized = true;
