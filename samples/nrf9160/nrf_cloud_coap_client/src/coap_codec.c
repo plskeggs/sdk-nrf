@@ -21,6 +21,11 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(coap_codec, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVEL);
 
+#define AGPS_FILTERED			"filtered=true"
+#define AGPS_ELEVATION_MASK		"&mask=%u"
+#define AGPS_NET_INFO			"&mcc=%u&mnc=%u&tac=%u&eci=%u"
+#define AGPS_CUSTOM_TYPE		"&customTypes=%s"
+
 int cbor_decode_response(enum nrf_cloud_coap_response response,
 			 const uint8_t *payload, uint16_t payload_len,
 			 char *temp_buf, size_t temp_size)
@@ -213,4 +218,150 @@ int coap_codec_encode_cell_pos(struct lte_lc_cells_info const *const cell_info,
 	return err;
 }
 
+int cbor_encode_agps(struct nrf_cloud_rest_agps_request const *const request,
+		     uint8_t *buf, size_t *len)
+{
+	return 0;
+}
+
+/* Macro to print the comma separated list of custom types */
+#define AGPS_TYPE_PRINT(buf, type)		\
+	if (pos != 0) {				\
+		buf[pos++] = ',';		\
+	}					\
+	buf[pos++] = (char)('0' + type)
+
+static int format_agps_custom_types_str(struct nrf_modem_gnss_agps_data_frame const *const req,
+	char *const types_buf)
+{
+	__ASSERT_NO_MSG(req != NULL);
+	__ASSERT_NO_MSG(types_buf != NULL);
+
+	int pos = 0;
+
+	if (req->data_flags & NRF_MODEM_GNSS_AGPS_GPS_UTC_REQUEST) {
+		AGPS_TYPE_PRINT(types_buf, NRF_CLOUD_AGPS_UTC_PARAMETERS);
+	}
+	if (req->sv_mask_ephe) {
+		AGPS_TYPE_PRINT(types_buf, NRF_CLOUD_AGPS_EPHEMERIDES);
+	}
+	if (req->sv_mask_alm) {
+		AGPS_TYPE_PRINT(types_buf, NRF_CLOUD_AGPS_ALMANAC);
+	}
+	if (req->data_flags & NRF_MODEM_GNSS_AGPS_KLOBUCHAR_REQUEST) {
+		AGPS_TYPE_PRINT(types_buf, NRF_CLOUD_AGPS_KLOBUCHAR_CORRECTION);
+	}
+	if (req->data_flags & NRF_MODEM_GNSS_AGPS_NEQUICK_REQUEST) {
+		AGPS_TYPE_PRINT(types_buf, NRF_CLOUD_AGPS_NEQUICK_CORRECTION);
+	}
+	if (req->data_flags & NRF_MODEM_GNSS_AGPS_SYS_TIME_AND_SV_TOW_REQUEST) {
+		AGPS_TYPE_PRINT(types_buf, NRF_CLOUD_AGPS_GPS_TOWS);
+		AGPS_TYPE_PRINT(types_buf, NRF_CLOUD_AGPS_GPS_SYSTEM_CLOCK);
+	}
+	if (req->data_flags & NRF_MODEM_GNSS_AGPS_POSITION_REQUEST) {
+		AGPS_TYPE_PRINT(types_buf, NRF_CLOUD_AGPS_LOCATION);
+	}
+	if (req->data_flags & NRF_MODEM_GNSS_AGPS_INTEGRITY_REQUEST) {
+		AGPS_TYPE_PRINT(types_buf, NRF_CLOUD_AGPS_INTEGRITY);
+	}
+
+	types_buf[pos] = '\0';
+
+	return pos ? 0 : -EBADF;
+}
+
+int coap_codec_encode_agps(struct nrf_cloud_rest_agps_request const *const request,
+			   uint8_t *buf, size_t *len, bool *query_string,
+			   enum coap_content_format fmt)
+{
+	int ret;
+	if (fmt == COAP_CONTENT_FORMAT_APP_CBOR) {
+		*query_string = false; /* Data should be sent in payload */
+		return cbor_encode_agps(request, buf, len);
+	} else {
+		char *url = (char *)buf;
+		char custom_types[NRF_CLOUD_AGPS__LAST * 2];
+		size_t pos = 0;
+		size_t remain = *len;
+
+		*query_string = true;
+		*url = '\0';
+		if (request->filtered) {
+			ret = snprintk(&url[pos], remain, AGPS_FILTERED);
+			if ((ret < 0) || (ret >= remain)) {
+				LOG_ERR("Could not format URL: filtered");
+				ret = -ETXTBSY;
+				goto clean_up;
+			}
+			pos += ret;
+			remain -= ret;
+			ret = snprintk(&url[pos], remain, AGPS_ELEVATION_MASK, request->mask_angle);
+			if ((ret < 0) || (ret >= remain)) {
+				LOG_ERR("Could not format URL: mask angle");
+				ret = -ETXTBSY;
+				goto clean_up;
+			}
+			pos += ret;
+			remain -= ret;
+		}
+
+#if 0 /* Not needed for CoAP? */
+		if (req_type) {
+			ret = snprintk(&url[pos], remain, AGPS_REQ_TYPE, req_type);
+			if ((ret < 0) || (ret >= remain)) {
+				LOG_ERR("Could not format URL: request type");
+				ret = -ETXTBSY;
+				goto clean_up;
+			}
+			pos += ret;
+			remain -= ret;
+		}
+#endif
+
+		if (request->type == NRF_CLOUD_REST_AGPS_REQ_CUSTOM) {
+			ret = format_agps_custom_types_str(request->agps_req, custom_types);
+			ret = snprintk(&url[pos], remain, AGPS_CUSTOM_TYPE, custom_types);
+			if ((ret < 0) || (ret >= remain)) {
+				LOG_ERR("Could not format URL: custom types");
+				ret = -ETXTBSY;
+				goto clean_up;
+			}
+			pos += ret;
+			remain -= ret;
+		}
+
+		if (request->net_info) {
+			ret = snprintk(&url[pos], remain, AGPS_NET_INFO,
+				       request->net_info->current_cell.mcc,
+				       request->net_info->current_cell.mnc,
+				       request->net_info->current_cell.tac,
+				       request->net_info->current_cell.id);
+			if ((ret < 0) || (ret >= remain)) {
+				LOG_ERR("Could not format URL: network info");
+				ret = -ETXTBSY;
+				goto clean_up;
+			}
+			pos += ret;
+			remain -= ret;
+		}
+
+		if (buf[0] == '&') {
+			char *s = &buf[1];
+			char *d = buf;
+
+			while (*s) {
+				*(d++) = *(s++);
+			}
+			*d = '\0';
+		}
+		*len = pos;
+		LOG_INF("A-GPS query: %s", (const char *)buf);
+		return 0;
+
+clean_up:
+		buf[0] = 0;
+		*len = 0;
+		return ret;
+	}
+}
 

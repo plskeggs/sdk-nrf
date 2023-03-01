@@ -54,9 +54,27 @@ struct nrf_cloud_coap_message {
 	uint8_t token[8];
 };
 
-static const char *coap_types[] =
-{
+static const char *coap_types[] = {
 	"CON", "NON", "ACK", "RST", NULL
+};
+
+struct content_type {
+	int type;
+	bool text;
+	const char *name;
+};
+
+static const struct content_type coap_content_types[] = {
+	{COAP_CONTENT_FORMAT_TEXT_PLAIN, true, "text plain"},
+	{COAP_CONTENT_FORMAT_APP_LINK_FORMAT, true, "link format"},
+	{COAP_CONTENT_FORMAT_APP_XML, true, "XML"},
+	{COAP_CONTENT_FORMAT_APP_OCTET_STREAM, false, "octet stream"},
+	{COAP_CONTENT_FORMAT_APP_EXI, false, "EXI"},
+	{COAP_CONTENT_FORMAT_APP_JSON, true, "JSON"},
+	{COAP_CONTENT_FORMAT_APP_JSON_PATCH_JSON, true, "JSON patch"},
+	{COAP_CONTENT_FORMAT_APP_MERGE_PATCH_JSON, true, "JSON merge"},
+	{COAP_CONTENT_FORMAT_APP_CBOR, false, "CBOR"},
+	{0, false, NULL}
 };
 
 static char jwt[700];
@@ -412,7 +430,7 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 	uint16_t token_len;
 	uint8_t temp_buf[100];
 	char uri_path[64];
-	enum coap_content_format format = 0;
+	enum coap_content_format format = COAP_CONTENT_FORMAT_TEXT_PLAIN;
 	uint16_t message_id;
 	uint8_t code;
 	uint8_t type;
@@ -479,6 +497,17 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 		}
 	}
 
+	int block2 = coap_get_option_int(&reply, COAP_OPTION_BLOCK2);
+	int size2 = coap_get_option_int(&reply, COAP_OPTION_SIZE2);
+	bool last_block = !GET_MORE(block2);
+	int block_num = GET_BLOCK_NUM(block2);
+	int block_size = 1 << (GET_BLOCK_SIZE(block2) + 4);
+
+	if (block2 > 0) {
+		LOG_INF("BLOCK TRANSFER: total size:%d, block num:%d, block_size:%d, last_block:%d",
+			size2, block_num, block_size, last_block);
+	}
+
 	count = ARRAY_SIZE(options) - 1;
 	count = coap_find_options(&reply, COAP_OPTION_CONTENT_FORMAT,
 				   options, count);
@@ -496,7 +525,22 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 		} else {
 			format = options[0].value[0];
 		}
-		LOG_DBG("Content format: %d", format);
+	}
+
+	bool text = true;
+	int i;
+
+	for (i = 0; coap_content_types[i].name != NULL; i++) {
+		if (coap_content_types[i].type == format) {
+			text = coap_content_types[i].text;
+			LOG_INF("Content format: %s (%d)", coap_content_types[i].name,
+				format);
+			break;
+		}
+	}
+	if (coap_content_types[i].type != format) { /* not found */
+		LOG_WRN("Undefined content format received: %d", format);
+		text = false;
 	}
 
 	if (payload_len > 0) {
@@ -506,8 +550,11 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 			if (err) {
 				goto done;
 			}
-		} else {
+			LOG_INF("CoAP payload: %s", temp_buf);
+		} else if (text) {
 			LOG_INF("CoAP payload: %.*s", payload_len, (const char *)payload);
+		} else {
+			LOG_HEXDUMP_INF(payload, payload_len, "CoAP payload");
 		}
 	} else {
 		LOG_INF("CoAP payload: EMPTY");
@@ -518,7 +565,8 @@ done:
 }
 
 /**@brief Send CoAP GET request. */
-int client_get_send(const char *resource, uint8_t *buf, size_t len, enum coap_content_format fmt)
+int client_get_send(const char *resource, const char *query, uint8_t *buf, size_t len,
+		    enum coap_content_format fmt)
 {
 	int err;
 	int i;
@@ -546,7 +594,7 @@ int client_get_send(const char *resource, uint8_t *buf, size_t len, enum coap_co
 			       sizeof(next_token), (uint8_t *)&next_token,
 			       COAP_METHOD_GET, message_id);
 	if (err < 0) {
-		LOG_ERR("Failed to create CoAP request, %d", err);
+		LOG_ERR("Failed to create CoAP request: %d", err);
 		return err;
 	}
 
@@ -554,27 +602,35 @@ int client_get_send(const char *resource, uint8_t *buf, size_t len, enum coap_co
 					(uint8_t *)resource,
 					strlen(resource));
 	if (err < 0) {
-		LOG_ERR("Failed to encode CoAP option, %d", err);
+		LOG_ERR("Failed to encode CoAP option: %d", err);
 		return err;
+	}
+
+	if (query) {
+		err = coap_packet_append_option(&request, COAP_OPTION_URI_QUERY,
+						query, strlen(query));
+		if (err < 0) {
+			LOG_ERR("Failed to encode query: %d", err);
+		}
 	}
 
 	if (buf) {
 		err = coap_packet_append_option(&request, COAP_OPTION_CONTENT_FORMAT,
 						&fmt, sizeof(fmt));
 		if (err < 0) {
-			LOG_ERR("Failed to encode CoAP content format option, %d", err);
+			LOG_ERR("Failed to encode CoAP content format option: %d", err);
 			return err;
 		}
 
 		err = coap_packet_append_payload_marker(&request);
 		if (err < 0) {
-			LOG_ERR("Failed to add CoAP payload marker, %d", err);
+			LOG_ERR("Failed to add CoAP payload marker: %d", err);
 			return err;
 		}
 
 		err = coap_packet_append_payload(&request, buf, len);
 		if (err < 0) {
-			LOG_ERR("Failed to add CoAP payload, %d", err);
+			LOG_ERR("Failed to add CoAP payload: %d", err);
 			return err;
 		}
 	}
@@ -633,7 +689,7 @@ int client_post_send(const char *resource, uint8_t *buf, size_t buf_len,
 			       sizeof(next_token), (uint8_t *)&next_token,
 			       COAP_METHOD_POST, message_id);
 	if (err < 0) {
-		LOG_ERR("Failed to create CoAP request, %d", err);
+		LOG_ERR("Failed to create CoAP request: %d", err);
 		return err;
 	}
 
@@ -641,26 +697,26 @@ int client_post_send(const char *resource, uint8_t *buf, size_t buf_len,
 					(uint8_t *)resource,
 					strlen(resource));
 	if (err < 0) {
-		LOG_ERR("Failed to encode CoAP URI option, %d", err);
+		LOG_ERR("Failed to encode CoAP URI option: %d", err);
 		return err;
 	}
 
 	err = coap_packet_append_option(&request, COAP_OPTION_CONTENT_FORMAT,
 					&fmt, sizeof(fmt));
 	if (err < 0) {
-		LOG_ERR("Failed to encode CoAP content format option, %d", err);
+		LOG_ERR("Failed to encode CoAP content format option: %d", err);
 		return err;
 	}
 
 	err = coap_packet_append_payload_marker(&request);
 	if (err < 0) {
-		LOG_ERR("Failed to add CoAP payload marker, %d", err);
+		LOG_ERR("Failed to add CoAP payload marker: %d", err);
 		return err;
 	}
 
 	err = coap_packet_append_payload(&request, buf, buf_len);
 	if (err < 0) {
-		LOG_ERR("Failed to add CoAP payload, %d", err);
+		LOG_ERR("Failed to add CoAP payload: %d", err);
 		return err;
 	}
 

@@ -7,7 +7,11 @@
 #ifndef NRF_CLOUD_COAP_H_
 #define NRF_CLOUD_COAP_H_
 
+#include <net/nrf_cloud_rest.h>
+
 int nrf_cloud_coap_init(const char *device_id);
+
+int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request);
 
 int nrf_cloud_coap_send_sensor(const char *app_id, double value);
 

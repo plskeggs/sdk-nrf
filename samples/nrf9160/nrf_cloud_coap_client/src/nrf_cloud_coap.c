@@ -11,6 +11,7 @@
 #include <zephyr/net/coap.h>
 #include <date_time.h>
 #include <dk_buttons_and_leds.h>
+#include <net/nrf_cloud_rest.h>
 #include "nrf_cloud_codec.h"
 #include "nrf_cloud_coap.h"
 #include "coap_client.h"
@@ -40,6 +41,26 @@ static int64_t get_ts(void)
 		ts = 0;
 	}
 	return ts;
+}
+
+int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request)
+{
+	size_t len = sizeof(buffer);
+	bool query_string;
+	int err;
+
+	err = coap_codec_encode_agps(request, buffer, &len, &query_string,
+				     COAP_CONTENT_FORMAT_APP_JSON);
+	if (err) {
+		LOG_ERR("Unable to encode A-GPS request: %d", err);
+		return err;
+	}
+	err = client_get_send("poc/loc/agps", (const char *)buffer, NULL, 0,
+			      COAP_CONTENT_FORMAT_APP_JSON);
+	if (err) {
+		LOG_ERR("Failed to send GET request: %d", err);
+	}
+	return err;
 }
 
 int nrf_cloud_coap_send_sensor(const char *app_id, double value)
@@ -93,7 +114,7 @@ int nrf_cloud_get_current_fota_job(struct nrf_cloud_fota_job_info *const job)
 {
 	int err;
 
-	err = client_get_send("poc/fota/exec/current", NULL, 0,
+	err = client_get_send("poc/fota/exec/current", NULL, NULL, 0,
 			    COAP_CONTENT_FORMAT_APP_JSON);
 	if (err) {
 		LOG_ERR("Failed to send GET request: %d", err);

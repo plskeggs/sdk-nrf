@@ -341,6 +341,8 @@ int do_next_test(void)
 	int err = 0;
 	struct nrf_cloud_location_result result;
 	struct nrf_cloud_fota_job_info job;
+	struct nrf_cloud_rest_agps_request agps_request;
+	struct nrf_modem_gnss_agps_data_frame agps_req;
 
 	switch (cur_test) {
 	case 1:
@@ -358,6 +360,8 @@ int do_next_test(void)
 		if (err) {
 			LOG_ERR("Unable to get location: %d", err);
 			break;
+		} else {
+			/* Process the returned location once it arrives */
 		}
 		break;
 	case 3:
@@ -366,12 +370,28 @@ int do_next_test(void)
 		if (err) {
 			LOG_ERR("Failed to request pending FOTA job: %d", err);
 		} else {
-			/* process the job... */
+			/* process the job */
 		}
 		break;
+	case 4:
+		LOG_INF("******** %d. Getting A-GPS data", get_count++);
+		memset(&agps_request, 0, sizeof(agps_request));
+		memset(&agps_req, 0, sizeof(agps_req));
+		agps_request.type = NRF_CLOUD_REST_AGPS_REQ_CUSTOM;
+		agps_request.net_info = &cell_info;
+		agps_request.agps_req = &agps_req;
+		agps_req.data_flags = 0x3f;
+		agps_req.sv_mask_alm = 0xffffffff;
+		agps_req.sv_mask_ephe = 0xffffffff;
+		err = nrf_cloud_coap_agps(&agps_request);
+		if (err) {
+			LOG_ERR("Failed to request A-GPS: %d", err);
+		} else {
+			/* Process the data once it arrives... */
+		}
 	}
 
-	if (++cur_test > 3) {
+	if (++cur_test > 4) {
 		cur_test = 1;
 	}
 	LOG_DBG("Posts: %d, Gets: %d\n", post_count, get_count);
