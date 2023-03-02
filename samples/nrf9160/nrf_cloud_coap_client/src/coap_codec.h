@@ -14,9 +14,9 @@
 #include <modem/lte_lc.h>
 #include "coap_client.h"
 
-int cbor_decode_response(enum nrf_cloud_coap_response response,
-			 const uint8_t *payload, uint16_t payload_len,
-			 char *temp_buf, size_t temp_size);
+int cbor_decode_loc_response(enum nrf_cloud_coap_response response,
+			     const uint8_t *payload, uint16_t payload_len,
+			     char *temp_buf, size_t temp_size);
 
 int coap_codec_encode_sensor(const char *app_id, double value, const char *topic,
 			     int64_t ts, uint8_t *buf, size_t *len,

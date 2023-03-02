@@ -501,7 +501,7 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 	int size2 = coap_get_option_int(&reply, COAP_OPTION_SIZE2);
 	bool last_block = !GET_MORE(block2);
 	int block_num = GET_BLOCK_NUM(block2);
-	int block_size = 1 << (GET_BLOCK_SIZE(block2) + 4);
+	int block_size = coap_block_size_to_bytes(GET_BLOCK_SIZE(block2));
 
 	if (block2 > 0) {
 		LOG_INF("BLOCK TRANSFER: total size:%d, block num:%d, block_size:%d, last_block:%d",
@@ -545,8 +545,8 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 
 	if (payload_len > 0) {
 		if (format == COAP_CONTENT_FORMAT_APP_CBOR) {
-			err = cbor_decode_response(expected_response, payload, payload_len,
-						   temp_buf, sizeof(temp_buf));
+			err = cbor_decode_loc_response(expected_response, payload, payload_len,
+						       temp_buf, sizeof(temp_buf));
 			if (err) {
 				goto done;
 			}

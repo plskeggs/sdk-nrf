@@ -26,9 +26,9 @@ LOG_MODULE_REGISTER(coap_codec, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVEL);
 #define AGPS_NET_INFO			"&mcc=%u&mnc=%u&tac=%u&eci=%u"
 #define AGPS_CUSTOM_TYPE		"&customTypes=%s"
 
-int cbor_decode_response(enum nrf_cloud_coap_response response,
-			 const uint8_t *payload, uint16_t payload_len,
-			 char *temp_buf, size_t temp_size)
+int cbor_decode_loc_response(enum nrf_cloud_coap_response response,
+			     const uint8_t *payload, uint16_t payload_len,
+			     char *temp_buf, size_t temp_size)
 {
 	struct CborParser parser;
 	struct cbor_buf_reader reader;
