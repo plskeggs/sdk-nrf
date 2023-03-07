@@ -1,0 +1,42 @@
+;
+; Copyright (c) 2023 Nordic Semiconductor ASA
+;
+; SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+;
+
+; Ground Fix
+
+ncell = [
+	earfcn: uint,
+	pci: uint,
+	? rsrp: int,
+	? rsrq: float,
+	? timeDiff: int
+       ]
+
+cell = [
+	mcc: int,
+	mnc: int,
+       eci: uint,
+	tac: uint,
+	? earfcn: uint,
+	? adv: uint,
+	nmr: [* ncells: ncell],
+	? rsrp: int,
+	? rsrq: float
+       ]
+
+lte = [+ cell]
+
+ap = [
+	mac: tstr,
+       ? age: uint,
+       ? freq: uint,
+       ? rssi: int,
+       ? ch: uint,
+       ? ssid: tstr
+     ]
+
+wifi = [2*60 ap]
+
+groundfix = [* lte, * wifi]
