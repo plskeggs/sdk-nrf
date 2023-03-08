@@ -57,10 +57,12 @@ int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request)
 	}
 	if (query_string) {
 		err = client_get_send("poc/loc/agps", (const char *)buffer,
-				      NULL, 0, COAP_CONTENT_FORMAT_APP_JSON);
+				      NULL, 0, COAP_CONTENT_FORMAT_APP_JSON,
+				      COAP_CONTENT_FORMAT_APP_JSON);
 	} else {
 		err = client_get_send("poc/loc/agps", NULL,
-				      buffer, len, COAP_CONTENT_FORMAT_APP_JSON);
+				      buffer, len, COAP_CONTENT_FORMAT_APP_JSON,
+				      COAP_CONTENT_FORMAT_APP_JSON);
 	}
 	if (err) {
 		LOG_ERR("Failed to send GET request: %d", err);
@@ -82,7 +84,7 @@ int nrf_cloud_coap_send_sensor(const char *app_id, double value)
 		return err;
 	}
 	err = client_post_send("poc/msg", NULL, buffer, len,
-			     COAP_CONTENT_FORMAT_APP_JSON, false);
+			     COAP_CONTENT_FORMAT_APP_JSON);
 	if (err) {
 		LOG_ERR("Failed to send POST request: %d", err);
 	}
@@ -97,13 +99,14 @@ int nrf_cloud_coap_get_location(struct lte_lc_cells_info const *const cell_info,
 	int err;
 
 	err = coap_codec_encode_location_req(cell_info, wifi_info, buffer, &len,
-					     COAP_CONTENT_FORMAT_APP_CBOR);
+					     COAP_CONTENT_FORMAT_APP_JSON);
 	if (err) {
 		LOG_ERR("Unable to encode cell pos data: %d", err);
 		return err;
 	}
-	err = client_post_send("poc/loc/ground-fix", NULL, buffer, len,
-			     COAP_CONTENT_FORMAT_APP_CBOR, true);
+	err = client_fetch_send("poc/loc/ground-fix", NULL, buffer, len,
+				COAP_CONTENT_FORMAT_APP_JSON,
+				COAP_CONTENT_FORMAT_APP_JSON);
 	if (err) {
 		LOG_ERR("Failed to send POST request: %d", err);
 	}
@@ -121,7 +124,8 @@ int nrf_cloud_get_current_fota_job(struct nrf_cloud_fota_job_info *const job)
 	int err;
 
 	err = client_get_send("poc/fota/exec/current", NULL, NULL, 0,
-			    COAP_CONTENT_FORMAT_APP_JSON);
+			      COAP_CONTENT_FORMAT_APP_JSON,
+			      COAP_CONTENT_FORMAT_APP_JSON);
 	if (err) {
 		LOG_ERR("Failed to send GET request: %d", err);
 	}

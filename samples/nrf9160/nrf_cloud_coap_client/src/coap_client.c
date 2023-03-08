@@ -55,6 +55,17 @@ struct nrf_cloud_coap_message {
 	uint8_t token[8];
 };
 
+static const char *coap_methods[] = {
+	"NONE",
+	"GET",
+	"POST",
+	"PUT",
+	"DELETE",
+	"FETCH",
+	"PATCH",
+	"IPATCH"
+};
+
 static const char *coap_types[] = {
 	"CON", "NON", "ACK", "RST", NULL
 };
@@ -198,7 +209,7 @@ int client_init(void)
 		return err;
 	}
 
-	char ver_string[90] = {0};
+	char ver_string[120] = {0};
 	char mfw_string[60];
 
 	err = modem_info_get_fw_version(mfw_string, sizeof(mfw_string));
@@ -209,9 +220,10 @@ int client_init(void)
 		LOG_ERR("Unable to obtain the modem firmware version: %d", err);
 	}
 	LOG_DBG("Send JWT");
+	err = 1;
 	err = client_post_send("poc/auth/jwt", err ? NULL : ver_string,
 			       (uint8_t *)jwt, strlen(jwt),
-			       COAP_CONTENT_FORMAT_TEXT_PLAIN, false);
+			       COAP_CONTENT_FORMAT_TEXT_PLAIN);
 	if (err) {
 		return err;
 	}
@@ -487,6 +499,10 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 		type, coap_types[type], message_id,
 		token[1], token[0], token_len, payload_len);
 
+	if (payload && payload_len) {
+		LOG_HEXDUMP_DBG(payload, payload_len, "payload");
+	}
+
 	/* Look for a record related to this message, and remove if found */
 	err = find_response(token, token_len, message_id, code, type, payload_len);
 	if (err < 0) {
@@ -578,10 +594,12 @@ done:
 	return err;
 }
 
-/**@brief Send CoAP GET request. */
-int client_get_send(const char *resource, const char *query,
-		    uint8_t *buf, size_t len,
-		    enum coap_content_format fmt)
+/**@brief Send CoAP request. */
+static int client_send(enum coap_method method, const char *resource, const char *query,
+		       uint8_t *buf, size_t buf_len,
+		       enum coap_content_format fmt_out,
+		       enum coap_content_format fmt_in,
+		       bool response_expected)
 {
 	int err;
 	int i;
@@ -590,25 +608,29 @@ int client_get_send(const char *resource, const char *query,
 	uint16_t message_id = coap_next_id();
 	enum coap_msgtype msg_type = COAP_TYPE_CON;
 	struct nrf_cloud_coap_message *msg;
-	bool cbor_fmt = (fmt == COAP_CONTENT_FORMAT_APP_CBOR);
+	bool cbor_fmt = (fmt_out == COAP_CONTENT_FORMAT_APP_CBOR);
+	const char *method_name;
+
+	if ((method >= 0) && (method <= COAP_METHOD_IPATCH)) {
+		method_name = coap_methods[method];
+	} else {
+		LOG_ERR("Unknown method: %d", method);
+		return -EINVAL;
+	}
 
 	next_token++;
 
-	LOG_DBG("GET %s%c%s, type:%d %s, contenttype:%d",
-		resource, query ? '?' : ' ', query ? query : "",
-		msg_type, coap_types[msg_type], fmt);
-	if (buf && len) {
-		if (cbor_fmt) {
-			LOG_HEXDUMP_INF(buf, len, "CBOR payload");
-		} else {
-			LOG_DBG("payload: %s, len: %ld", (const char *)buf, (long)len);
-		}
+	LOG_INF("%s %s%c%s, type:%d %s, contenttype:%d, accept:%d, payload:%s, len:%ld",
+		method_name, resource, query ? '?' : ' ', query ? query : "",
+		msg_type, coap_types[msg_type], fmt_out, fmt_in,
+		cbor_fmt ? "" : (const char *)buf, (long)buf_len);
+	if (cbor_fmt) {
+		LOG_HEXDUMP_INF(buf, buf_len, "CBOR");
 	}
-
 	err = coap_packet_init(&request, coap_buf, sizeof(coap_buf),
 			       APP_COAP_VERSION, msg_type,
 			       sizeof(next_token), (uint8_t *)&next_token,
-			       COAP_METHOD_GET, message_id);
+			       method, message_id);
 	if (err < 0) {
 		LOG_ERR("Failed to create CoAP request: %d", err);
 		return err;
@@ -618,13 +640,13 @@ int client_get_send(const char *resource, const char *query,
 					(uint8_t *)resource,
 					strlen(resource));
 	if (err < 0) {
-		LOG_ERR("Failed to encode CoAP option: %d", err);
+		LOG_ERR("Failed to encode CoAP URI option: %d", err);
 		return err;
 	}
 
-	if (buf) {
+	if (buf && buf_len) {
 		err = coap_packet_append_option(&request, COAP_OPTION_CONTENT_FORMAT,
-						&fmt, sizeof(fmt));
+						&fmt_out, sizeof(fmt_out));
 		if (err < 0) {
 			LOG_ERR("Failed to encode CoAP content format option: %d", err);
 			return err;
@@ -636,7 +658,7 @@ int client_get_send(const char *resource, const char *query,
 			return err;
 		}
 
-		err = coap_packet_append_payload(&request, buf, len);
+		err = coap_packet_append_payload(&request, buf, buf_len);
 		if (err < 0) {
 			LOG_ERR("Failed to add CoAP payload: %d", err);
 			return err;
@@ -651,113 +673,13 @@ int client_get_send(const char *resource, const char *query,
 		}
 	}
 
-	fmt = COAP_CONTENT_FORMAT_APP_JSON;
-	err = coap_packet_append_option(&request, COAP_OPTION_ACCEPT, &fmt, sizeof(fmt));
-	if (err < 0) {
-		LOG_ERR("Failed to encode accept option: %d", err);
-		return err;
-	}
-
-	err = send(sock, request.data, request.offset, 0);
-	if (err < 0) {
-		LOG_ERR("Failed to send CoAP request, errno %d, err %d, sock %d, "
-			"request.data %p, request.offset %u",
-			-errno, err, sock, request.data, request.offset);
-		return -errno;
-	}
-
-	num = (msg_type == COAP_TYPE_CON) ? 2 : 1;
-	for (i = 0; i < num; i++) {
-		msg = k_malloc(sizeof(struct nrf_cloud_coap_message));
-		if (msg) {
-			sys_dnode_init(&msg->node);
-			msg->message_id = message_id;
-			memcpy(msg->token, &next_token, sizeof(next_token));
-			msg->token_len = sizeof(next_token);
-			sys_dlist_append(&con_messages, &msg->node);
-			num_con_messages++;
-			LOG_DBG("Added MID:0x%04x, Token:0x%04x to list; len:%d",
-				message_id, next_token, num_con_messages);
-		}
-	}
-	LOG_INF("CoAP GET: RESOURCE:%s, QUERY:%s, MID:0x%04x, Token:0x%04x",
-		resource, query ? query : "", message_id, next_token);
-
-	return 0;
-}
-
-/**@brief Send CoAP POST request. */
-int client_post_send(const char *resource, const char *query, 
-		     uint8_t *buf, size_t buf_len,
-		     enum coap_content_format fmt, bool response_expected)
-{
-	int err;
-	int i;
-	int num;
-	struct coap_packet request = {0};
-	uint16_t message_id = coap_next_id();
-	enum coap_msgtype msg_type = COAP_TYPE_CON;
-	struct nrf_cloud_coap_message *msg;
-	bool cbor_fmt = (fmt == COAP_CONTENT_FORMAT_APP_CBOR);
-
-	next_token++;
-
-	LOG_DBG("POST %s%c%s, type:%d %s, contenttype:%d, payload:%s, len:%ld",
-		resource, query ? '?' : ' ', query ? query : "",
-		msg_type, coap_types[msg_type], fmt,
-		cbor_fmt ? "" : (const char *)buf, (long)buf_len);
-	if (cbor_fmt) {
-		LOG_HEXDUMP_INF(buf, buf_len, "CBOR");
-	}
-	err = coap_packet_init(&request, coap_buf, sizeof(coap_buf),
-			       APP_COAP_VERSION, msg_type,
-			       sizeof(next_token), (uint8_t *)&next_token,
-			       COAP_METHOD_POST, message_id);
-	if (err < 0) {
-		LOG_ERR("Failed to create CoAP request: %d", err);
-		return err;
-	}
-
-	err = coap_packet_append_option(&request, COAP_OPTION_URI_PATH,
-					(uint8_t *)resource,
-					strlen(resource));
-	if (err < 0) {
-		LOG_ERR("Failed to encode CoAP URI option: %d", err);
-		return err;
-	}
-
-	err = coap_packet_append_option(&request, COAP_OPTION_CONTENT_FORMAT,
-					&fmt, sizeof(fmt));
-	if (err < 0) {
-		LOG_ERR("Failed to encode CoAP content format option: %d", err);
-		return err;
-	}
-
-	if (query) {
-		err = coap_packet_append_option(&request, COAP_OPTION_URI_QUERY,
-						query, strlen(query));
+	if (response_expected) {
+		err = coap_packet_append_option(&request, COAP_OPTION_ACCEPT,
+						&fmt_in, sizeof(fmt_in));
 		if (err < 0) {
-			LOG_ERR("Failed to encode query: %d", err);
+			LOG_ERR("Failed to encode accept option: %d", err);
+			return err;
 		}
-	}
-
-	fmt = COAP_CONTENT_FORMAT_APP_JSON;
-	err = coap_packet_append_option(&request, COAP_OPTION_ACCEPT, &fmt, sizeof(fmt));
-	if (err < 0) {
-		LOG_ERR("Failed to encode accept option: %d", err);
-		return err;
-	}
-
-	err = coap_packet_append_payload_marker(&request);
-	if (err < 0) {
-		LOG_ERR("Failed to add CoAP payload marker: %d", err);
-		return err;
-	}
-
-	err = coap_packet_append_payload(&request, buf, buf_len);
-	if (err < 0) {
-		LOG_ERR("Failed to add CoAP payload: %d", err);
-		return err;
 	}
 
 	err = send(sock, request.data, request.offset, 0);
@@ -784,10 +706,66 @@ int client_post_send(const char *resource, const char *query,
 		}
 	}
 
-	LOG_INF("CoAP POST: RESOURCE:%s, QUERY:%s, MID:0x%04x, Token:0x%04x",
-		resource, query ? query : "", message_id, next_token);
+	LOG_INF("CoAP %s: MID:0x%04x, Token:0x%04x",
+		method_name, message_id, next_token);
 
 	return 0;
+}
+
+/**@brief Send CoAP GET request. */
+int client_get_send(const char *resource, const char *query,
+		    uint8_t *buf, size_t len,
+		    enum coap_content_format fmt_out,
+		    enum coap_content_format fmt_in)
+{
+	return client_send(COAP_METHOD_GET, resource, query,
+			   buf, len, fmt_out, fmt_in, true);
+}
+
+/**@brief Send CoAP POST request. */
+int client_post_send(const char *resource, const char *query,
+		    uint8_t *buf, size_t len,
+		    enum coap_content_format fmt)
+{
+	return client_send(COAP_METHOD_POST, resource, query,
+			   buf, len, fmt, fmt, false);
+}
+
+/**@brief Send CoAP PUT request. */
+int client_put_send(const char *resource, const char *query,
+		    uint8_t *buf, size_t len,
+		    enum coap_content_format fmt)
+{
+	return client_send(COAP_METHOD_PUT, resource, query,
+			   buf, len, fmt, fmt, false);
+}
+
+/**@brief Send CoAP DELETE request. */
+int client_delete_send(const char *resource, const char *query,
+		       uint8_t *buf, size_t len,
+		       enum coap_content_format fmt)
+{
+	return client_send(COAP_METHOD_DELETE, resource, query,
+			   buf, len, fmt, fmt, false);
+}
+
+/**@brief Send CoAP FETCH request. */
+int client_fetch_send(const char *resource, const char *query,
+		      uint8_t *buf, size_t len,
+		      enum coap_content_format fmt_out,
+		      enum coap_content_format fmt_in)
+{
+	return client_send(COAP_METHOD_FETCH, resource, query,
+			   buf, len, fmt_out, fmt_in, true);
+}
+
+/**@brief Send CoAP PATCH request. */
+int client_patch_send(const char *resource, const char *query,
+		      uint8_t *buf, size_t len,
+		      enum coap_content_format fmt)
+{
+	return client_send(COAP_METHOD_PATCH, resource, query,
+			   buf, len, fmt, fmt, false);
 }
 
 int client_close(void)

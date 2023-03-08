@@ -201,7 +201,7 @@ static void copy_cell(struct cell *dst, struct lte_lc_cell const *const src)
 	dst->_cell_eci = src->id;
 	dst->_cell_tac = src->tac;
 	if (src->earfcn != NRF_CLOUD_LOCATION_CELL_OMIT_EARFCN) {
-		dst->_cell_earfcn = src->earfcn;
+		dst->_cell_earfcn._cell_earfcn = src->earfcn;
 		dst->_cell_earfcn_present = true;
 	} else {
 		dst->_cell_earfcn_present = false;
@@ -212,19 +212,19 @@ static void copy_cell(struct cell *dst, struct lte_lc_cell const *const src)
 		if (t_adv > NRF_CLOUD_LOCATION_CELL_TIME_ADV_MAX) {
 			t_adv = NRF_CLOUD_LOCATION_CELL_TIME_ADV_MAX;
 		}
-		dst->_cell_adv = t_adv;
+		dst->_cell_adv._cell_adv = t_adv;
 		dst->_cell_adv_present = true;
 	} else {
 		dst->_cell_adv_present = false;
 	}
 	if (src->rsrp != NRF_CLOUD_LOCATION_CELL_OMIT_RSRP) {
-		dst->_cell_rsrp = RSRP_IDX_TO_DBM(src->rsrp);
+		dst->_cell_rsrp._cell_rsrp = RSRP_IDX_TO_DBM(src->rsrp);
 		dst->_cell_rsrp_present = true;
 	} else {
 		dst->_cell_rsrp_present = false;
 	}
 	if (src->rsrq != NRF_CLOUD_LOCATION_CELL_OMIT_RSRQ) {
-		dst->_cell_rsrq = RSRQ_IDX_TO_DB(src->rsrq);
+		dst->_cell_rsrq._cell_rsrq = RSRQ_IDX_TO_DB(src->rsrq);
 		dst->_cell_rsrq_present = true;
 	} else {
 		dst->_cell_rsrq_present = false;
@@ -237,19 +237,19 @@ static void copy_ncells(struct ncell *dst, int num, struct lte_lc_ncell *src)
 		dst->_ncell_earfcn = src->earfcn;
 		dst->_ncell_pci = src->phys_cell_id;
 		if (src->rsrp != NRF_CLOUD_LOCATION_CELL_OMIT_RSRP) {
-			dst->_ncell_rsrp = RSRP_IDX_TO_DBM(src->rsrp);
+			dst->_ncell_rsrp._ncell_rsrp = RSRP_IDX_TO_DBM(src->rsrp);
 			dst->_ncell_rsrp_present = true;
 		} else {
 			dst->_ncell_rsrp_present = false;
 		}
 		if (src->rsrq != NRF_CLOUD_LOCATION_CELL_OMIT_RSRQ) {
-			dst->_ncell_rsrq = RSRQ_IDX_TO_DB(src->rsrq);
+			dst->_ncell_rsrq._ncell_rsrq = RSRQ_IDX_TO_DB(src->rsrq);
 			dst->_ncell_rsrq_present = true;
 		} else {
 			dst->_ncell_rsrq_present = false;
 		}
 		if (src->time_diff != LTE_LC_CELL_TIME_DIFF_INVALID) {
-			dst->_ncell_timeDiff = src->time_diff;
+			dst->_ncell_timeDiff._ncell_timeDiff = src->time_diff;
 			dst->_ncell_timeDiff_present = true;
 		} else {
 			dst->_ncell_timeDiff_present = false;
@@ -259,15 +259,15 @@ static void copy_ncells(struct ncell *dst, int num, struct lte_lc_ncell *src)
 	}
 }
 
-static void copy_cell_info(struct lte *lte_encode,
+static void copy_cell_info(struct lte_ar *lte_encode,
 			   struct lte_lc_cells_info const *const cell_info)
 {
 	if (cell_info != NULL) {
-		struct cell *cell = lte_encode->_lte__cell;
-		size_t num_cells = ARRAY_SIZE(lte_encode->_lte__cell);
+		struct cell *cell = lte_encode->_lte_ar__cell;
+		size_t num_cells = ARRAY_SIZE(lte_encode->_lte_ar__cell);
 
 		if (cell_info->current_cell.id != LTE_LC_CELL_EUTRAN_ID_INVALID) {
-			lte_encode->_lte__cell_count++;
+			lte_encode->_lte_ar__cell_count++;
 			copy_cell(cell, &cell_info->current_cell);
 			cell->_cell_nmr_ncells_count = cell_info->ncells_count;
 			if (cell_info->ncells_count) {
@@ -281,7 +281,7 @@ static void copy_cell_info(struct lte *lte_encode,
 		}
 		if (cell_info->gci_cells != NULL) {
 			for (int i = 0; i < cell_info->gci_cells_count; i++) {
-				lte_encode->_lte__cell_count++;
+				lte_encode->_lte_ar__cell_count++;
 				copy_cell(cell, &cell_info->gci_cells[i]);
 				cell++;
 				num_cells--;
@@ -293,35 +293,39 @@ static void copy_cell_info(struct lte *lte_encode,
 	}
 }
 
-static void copy_wifi_info(struct wifi *wifi_encode,
+static void copy_wifi_info(struct wifi_ob *wifi_encode,
 			   struct wifi_scan_info const *const wifi_info)
 {
-	struct ap *dst = wifi_encode->_wifi__ap;
+	struct ap *dst = wifi_encode->_wifi_ob_accessPoints__ap;
 	struct wifi_scan_result *src = wifi_info->ap_info;
-	size_t num_aps = sizeof(wifi_encode->_wifi__ap) / sizeof(struct ap);
+	size_t num_aps = ARRAY_SIZE(wifi_encode->_wifi_ob_accessPoints__ap);
 
-	wifi_encode->_wifi__ap_count = 0;
+	wifi_encode->_wifi_ob_accessPoints__ap_count = 0;
 
 	for (int i = 0; i < wifi_info->cnt; i++) {
-		wifi_encode->_wifi__ap_count++;
+		wifi_encode->_wifi_ob_accessPoints__ap_count++;
 
-		dst->_ap_mac.value = src->mac;
-		dst->_ap_mac.len = src->mac_length;
-		dst->_ap_ssid.value = src->ssid;
-		dst->_ap_ssid.len = src->ssid_length;
+		dst->_ap_macAddress.value = src->mac;
+		dst->_ap_macAddress.len = src->mac_length;
+		if (src->ssid_length && src->ssid[0]) {
+			dst->_ap_ssid._ap_ssid.value = src->ssid;
+			dst->_ap_ssid._ap_ssid.len = src->ssid_length;
+			dst->_ap_ssid_present = true;
+		} else {
+			dst->_ap_ssid_present = false;
+		}
 		dst->_ap_age_present = false;
 		if (src->channel != NRF_CLOUD_LOCATION_WIFI_OMIT_CHAN) {
-			dst->_ap_ch = src->channel;
-			dst->_ap_ch_present = true;
+			dst->_ap_channel._ap_channel = src->channel;
+			dst->_ap_channel_present = true;
 		} else {
-			dst->_ap_ch_present = false;
+			dst->_ap_channel_present = false;
 		}
-		dst->_ap_freq_present = false;
 		if (src->rssi != NRF_CLOUD_LOCATION_WIFI_OMIT_RSSI) {
-			dst->_ap_rssi = src->rssi;
-			dst->_ap_rssi_present = true;
+			dst->_ap_signalStrength._ap_signalStrength = src->rssi;
+			dst->_ap_signalStrength_present = true;
 		} else {
-			dst->_ap_rssi_present = false;
+			dst->_ap_signalStrength_present = false;
 		}
 		num_aps--;
 		if (!num_aps) {
@@ -341,13 +345,13 @@ int coap_codec_encode_location_req(struct lte_lc_cells_info const *const cell_in
 		size_t out_len;
 
 		memset(&input, 0, sizeof(struct location_req));
-		input._location_req__lte_present = (cell_info != NULL);
+		input._location_req_lte_present = (cell_info != NULL);
 		if (cell_info) {
-			copy_cell_info(&input._location_req__lte, cell_info);
+			copy_cell_info(&input._location_req_lte._location_req_lte, cell_info);
 		}
-		input._location_req__wifi_present = (wifi_info != NULL);
+		input._location_req_wifi_present = (wifi_info != NULL);
 		if (wifi_info) {
-			copy_wifi_info(&input._location_req__wifi, wifi_info);
+			copy_wifi_info(&input._location_req_wifi._location_req_wifi, wifi_info);
 		}
 		err = cbor_encode_location_req(buf, *len, &input, &out_len);
 		if (err) {

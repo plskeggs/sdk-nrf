@@ -40,12 +40,36 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 			       uint8_t *buf, int received);
 
 /**@brief Send CoAP GET request. */
-int client_get_send(const char *resource, const char *query, uint8_t *buf, size_t len,
-		    enum coap_content_format fmt);
+int client_get_send(const char *resource, const char *query,
+		    uint8_t *buf, size_t len,
+		    enum coap_content_format fmt_out,
+		    enum coap_content_format fmt_in);
 
 /**@brief Send CoAP POST request. */
-int client_post_send(const char *resource, const char *query, uint8_t *buf, size_t buf_len,
-		     enum coap_content_format fmt, bool response_expected);
+int client_post_send(const char *resource, const char *query,
+		    uint8_t *buf, size_t len,
+		    enum coap_content_format fmt);
+
+/**@brief Send CoAP PUT request. */
+int client_put_send(const char *resource, const char *query,
+		    uint8_t *buf, size_t len,
+		    enum coap_content_format fmt);
+
+/**@brief Send CoAP DELETE request. */
+int client_delete_send(const char *resource, const char *query,
+		       uint8_t *buf, size_t len,
+		       enum coap_content_format fmt);
+
+/**@brief Send CoAP FETCH request. */
+int client_fetch_send(const char *resource, const char *query,
+		      uint8_t *buf, size_t len,
+		      enum coap_content_format fmt_out,
+		      enum coap_content_format fmt_in);
+
+/**@brief Send CoAP PATCH request. */
+int client_patch_send(const char *resource, const char *query,
+  		    uint8_t *buf, size_t len,
+  		    enum coap_content_format fmt);
 
 int client_close(void);
 

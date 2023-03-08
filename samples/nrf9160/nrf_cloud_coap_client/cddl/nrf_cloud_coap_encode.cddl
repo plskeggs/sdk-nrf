@@ -7,35 +7,60 @@
 ; Location Req
 
 ncell = {
-	earfcn: uint,
-	pci: uint,
-	? rsrp: int,
-	? rsrq: float,
-	? timeDiff: int
+	earfcn => uint,
+	pci => uint,
+	? rsrp => int,
+	? rsrq => float,
+	? timeDiff => int
        }
 
 cell = {
-	mcc: int,
-	mnc: int,
-       eci: uint,
-	tac: uint,
-	? earfcn: uint,
-	? adv: uint,
-	nmr: [0*5 ncells: ncell],
-	? rsrp: int,
-	? rsrq: float
+	mcc => int,
+	mnc => int,
+       eci => uint,
+	tac => uint,
+	? earfcn => uint,
+	? adv => uint,
+	nmr => [0*5 ncells: ncell],
+	? rsrp => int,
+	? rsrq => float
        }
 
-lte = [1*5 cell]
+lte_ar = [1*5 cell]
 
 ap = {
-	macAddress: tstr,
-       ? age: uint,
-       ? signalStrength: int,
-       ? channel: uint,
-       ? ssid: tstr
+	macAddress => tstr,
+       ? age => uint,
+       ? signalStrength => int,
+       ? channel => uint,
+       ? ssid => tstr
      }
 
-wifi = {accessPoints: [2*20 ap]}
+wifi_ob = {
+		accessPoints => [2*20 ap]
+	   }
 
-location_req = {? lte: lte, ? wifi: wifi}
+location_req = {
+	? lte => lte_ar,
+	? wifi => wifi_ob
+	}
+
+ earfcn = "earfcn"
+ pci = "pci"
+ rsrp = "rsrp"
+ rsrq = "rsrq"
+ timeDiff = "timeDiff"
+ mcc = "mcc"
+ mnc = "mnc"
+ eci = "eci"
+ tac = "tac"
+ adv = "adv"
+ nmr = "nmr"
+ macAddress = "macAddress"
+ age = "age"
+ signalStrength = "signalStrength"
+ channel = "channel"
+ ssid = "ssid"
+ accessPoints = "accessPoints"
+ lte = "lte"
+ wifi = "wifi"

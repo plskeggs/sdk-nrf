@@ -22,15 +22,43 @@
  */
 #define DEFAULT_MAX_QTY 3
 
+struct cell_earfcn {
+	uint32_t _cell_earfcn;
+};
+
+struct cell_adv {
+	uint32_t _cell_adv;
+};
+
+struct ncell_rsrp {
+	int32_t _ncell_rsrp;
+};
+
+struct ncell_rsrq {
+	double _ncell_rsrq;
+};
+
+struct ncell_timeDiff {
+	int32_t _ncell_timeDiff;
+};
+
 struct ncell {
 	uint32_t _ncell_earfcn;
 	uint32_t _ncell_pci;
-	int32_t _ncell_rsrp;
+	struct ncell_rsrp _ncell_rsrp;
 	uint_fast32_t _ncell_rsrp_present;
-	double _ncell_rsrq;
+	struct ncell_rsrq _ncell_rsrq;
 	uint_fast32_t _ncell_rsrq_present;
-	int32_t _ncell_timeDiff;
+	struct ncell_timeDiff _ncell_timeDiff;
 	uint_fast32_t _ncell_timeDiff_present;
+};
+
+struct cell_rsrp {
+	int32_t _cell_rsrp;
+};
+
+struct cell_rsrq {
+	double _cell_rsrq;
 };
 
 struct cell {
@@ -38,47 +66,69 @@ struct cell {
 	int32_t _cell_mnc;
 	uint32_t _cell_eci;
 	uint32_t _cell_tac;
-	uint32_t _cell_earfcn;
+	struct cell_earfcn _cell_earfcn;
 	uint_fast32_t _cell_earfcn_present;
-	uint32_t _cell_adv;
+	struct cell_adv _cell_adv;
 	uint_fast32_t _cell_adv_present;
 	struct ncell _cell_nmr_ncells[5];
 	uint_fast32_t _cell_nmr_ncells_count;
-	int32_t _cell_rsrp;
+	struct cell_rsrp _cell_rsrp;
 	uint_fast32_t _cell_rsrp_present;
-	double _cell_rsrq;
+	struct cell_rsrq _cell_rsrq;
 	uint_fast32_t _cell_rsrq_present;
 };
 
-struct lte {
-	struct cell _lte__cell[5];
-	uint_fast32_t _lte__cell_count;
+struct lte_ar {
+	struct cell _lte_ar__cell[5];
+	uint_fast32_t _lte_ar__cell_count;
+};
+
+struct location_req_lte {
+	struct lte_ar _location_req_lte;
+};
+
+struct ap_age {
+	uint32_t _ap_age;
+};
+
+struct ap_signalStrength {
+	int32_t _ap_signalStrength;
+};
+
+struct ap_channel {
+	uint32_t _ap_channel;
+};
+
+struct ap_ssid {
+	struct zcbor_string _ap_ssid;
 };
 
 struct ap {
-	struct zcbor_string _ap_mac;
-	uint32_t _ap_age;
+	struct zcbor_string _ap_macAddress;
+	struct ap_age _ap_age;
 	uint_fast32_t _ap_age_present;
-	uint32_t _ap_freq;
-	uint_fast32_t _ap_freq_present;
-	int32_t _ap_rssi;
-	uint_fast32_t _ap_rssi_present;
-	uint32_t _ap_ch;
-	uint_fast32_t _ap_ch_present;
-	struct zcbor_string _ap_ssid;
+	struct ap_signalStrength _ap_signalStrength;
+	uint_fast32_t _ap_signalStrength_present;
+	struct ap_channel _ap_channel;
+	uint_fast32_t _ap_channel_present;
+	struct ap_ssid _ap_ssid;
 	uint_fast32_t _ap_ssid_present;
 };
 
-struct wifi {
-	struct ap _wifi__ap[20];
-	uint_fast32_t _wifi__ap_count;
+struct wifi_ob {
+	struct ap _wifi_ob_accessPoints__ap[20];
+	uint_fast32_t _wifi_ob_accessPoints__ap_count;
+};
+
+struct location_req_wifi {
+	struct wifi_ob _location_req_wifi;
 };
 
 struct location_req {
-	struct lte _location_req__lte;
-	uint_fast32_t _location_req__lte_present;
-	struct wifi _location_req__wifi;
-	uint_fast32_t _location_req__wifi_present;
+	struct location_req_lte _location_req_lte;
+	uint_fast32_t _location_req_lte_present;
+	struct location_req_wifi _location_req_wifi;
+	uint_fast32_t _location_req_wifi_present;
 };
 
 
