@@ -4,39 +4,38 @@
 ; SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
 ;
 
-; Ground Fix
+; Location Req
 
-ncell = [
+ncell = {
 	earfcn: uint,
 	pci: uint,
 	? rsrp: int,
 	? rsrq: float,
 	? timeDiff: int
-       ]
+       }
 
-cell = [
+cell = {
 	mcc: int,
 	mnc: int,
        eci: uint,
 	tac: uint,
 	? earfcn: uint,
 	? adv: uint,
-	nmr: [* ncells: ncell],
+	nmr: [0*5 ncells: ncell],
 	? rsrp: int,
 	? rsrq: float
-       ]
+       }
 
-lte = [+ cell]
+lte = [1*5 cell]
 
-ap = [
-	mac: tstr,
+ap = {
+	macAddress: tstr,
        ? age: uint,
-       ? freq: uint,
-       ? rssi: int,
-       ? ch: uint,
+       ? signalStrength: int,
+       ? channel: uint,
        ? ssid: tstr
-     ]
+     }
 
-wifi = [2*60 ap]
+wifi = {accessPoints: [2*20 ap]}
 
-groundfix = [* lte, * wifi]
+location_req = {? lte: lte, ? wifi: wifi}

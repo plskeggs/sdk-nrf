@@ -17,6 +17,7 @@
 #include <date_time.h>
 #include <net/nrf_cloud.h>
 #include <cJSON.h>
+#include <version.h>
 #include "dtls.h"
 #include "app_jwt.h"
 #include "coap_codec.h"
@@ -196,8 +197,20 @@ int client_init(void)
 	if (err) {
 		return err;
 	}
+
+	char ver_string[90] = {0};
+	char mfw_string[60];
+
+	err = modem_info_get_fw_version(mfw_string, sizeof(mfw_string));
+	if (!err) {
+		snprintf(ver_string, sizeof(ver_string) - 1, "mver=%s&cver=%s",
+			 mfw_string, STRINGIFY(BUILD_VERSION));
+	} else {
+		LOG_ERR("Unable to obtain the modem firmware version: %d", err);
+	}
 	LOG_DBG("Send JWT");
-	err = client_post_send("poc/auth/jwt", (uint8_t *)jwt, strlen(jwt),
+	err = client_post_send("poc/auth/jwt", err ? NULL : ver_string,
+			       (uint8_t *)jwt, strlen(jwt),
 			       COAP_CONTENT_FORMAT_TEXT_PLAIN, false);
 	if (err) {
 		return err;
@@ -545,8 +558,9 @@ int client_handle_get_response(enum nrf_cloud_coap_response expected_response,
 
 	if (payload_len > 0) {
 		if (format == COAP_CONTENT_FORMAT_APP_CBOR) {
-			err = cbor_decode_loc_response(expected_response, payload, payload_len,
-						       temp_buf, sizeof(temp_buf));
+			//err = cbor_decode_loc_response(expected_response, payload, payload_len,
+			//			       temp_buf, sizeof(temp_buf));
+			err = -ENOTSUP;
 			if (err) {
 				goto done;
 			}
@@ -565,7 +579,8 @@ done:
 }
 
 /**@brief Send CoAP GET request. */
-int client_get_send(const char *resource, const char *query, uint8_t *buf, size_t len,
+int client_get_send(const char *resource, const char *query,
+		    uint8_t *buf, size_t len,
 		    enum coap_content_format fmt)
 {
 	int err;
@@ -579,11 +594,12 @@ int client_get_send(const char *resource, const char *query, uint8_t *buf, size_
 
 	next_token++;
 
-	LOG_DBG("GET %s, type:%d %s, contenttype:%d",
-		resource, msg_type, coap_types[msg_type], fmt);
+	LOG_DBG("GET %s%c%s, type:%d %s, contenttype:%d",
+		resource, query ? '?' : ' ', query ? query : "",
+		msg_type, coap_types[msg_type], fmt);
 	if (buf && len) {
 		if (cbor_fmt) {
-			LOG_HEXDUMP_DBG(buf, len, "CBOR payload");
+			LOG_HEXDUMP_INF(buf, len, "CBOR payload");
 		} else {
 			LOG_DBG("payload: %s, len: %ld", (const char *)buf, (long)len);
 		}
@@ -606,14 +622,6 @@ int client_get_send(const char *resource, const char *query, uint8_t *buf, size_
 		return err;
 	}
 
-	if (query) {
-		err = coap_packet_append_option(&request, COAP_OPTION_URI_QUERY,
-						query, strlen(query));
-		if (err < 0) {
-			LOG_ERR("Failed to encode query: %d", err);
-		}
-	}
-
 	if (buf) {
 		err = coap_packet_append_option(&request, COAP_OPTION_CONTENT_FORMAT,
 						&fmt, sizeof(fmt));
@@ -633,6 +641,21 @@ int client_get_send(const char *resource, const char *query, uint8_t *buf, size_
 			LOG_ERR("Failed to add CoAP payload: %d", err);
 			return err;
 		}
+	}
+
+	if (query) {
+		err = coap_packet_append_option(&request, COAP_OPTION_URI_QUERY,
+						query, strlen(query));
+		if (err < 0) {
+			LOG_ERR("Failed to encode query: %d", err);
+		}
+	}
+
+	fmt = COAP_CONTENT_FORMAT_APP_JSON;
+	err = coap_packet_append_option(&request, COAP_OPTION_ACCEPT, &fmt, sizeof(fmt));
+	if (err < 0) {
+		LOG_ERR("Failed to encode accept option: %d", err);
+		return err;
 	}
 
 	err = send(sock, request.data, request.offset, 0);
@@ -657,14 +680,15 @@ int client_get_send(const char *resource, const char *query, uint8_t *buf, size_
 				message_id, next_token, num_con_messages);
 		}
 	}
-	LOG_INF("CoAP GET: RESOURCE:%s, MID:0x%04x, Token:0x%04x",
-		resource, message_id, next_token);
+	LOG_INF("CoAP GET: RESOURCE:%s, QUERY:%s, MID:0x%04x, Token:0x%04x",
+		resource, query ? query : "", message_id, next_token);
 
 	return 0;
 }
 
 /**@brief Send CoAP POST request. */
-int client_post_send(const char *resource, uint8_t *buf, size_t buf_len,
+int client_post_send(const char *resource, const char *query, 
+		     uint8_t *buf, size_t buf_len,
 		     enum coap_content_format fmt, bool response_expected)
 {
 	int err;
@@ -678,11 +702,12 @@ int client_post_send(const char *resource, uint8_t *buf, size_t buf_len,
 
 	next_token++;
 
-	LOG_DBG("POST %s, type:%d %s, contenttype:%d, payload:%s, len:%ld",
-		resource, msg_type, coap_types[msg_type], fmt,
+	LOG_DBG("POST %s%c%s, type:%d %s, contenttype:%d, payload:%s, len:%ld",
+		resource, query ? '?' : ' ', query ? query : "",
+		msg_type, coap_types[msg_type], fmt,
 		cbor_fmt ? "" : (const char *)buf, (long)buf_len);
 	if (cbor_fmt) {
-		LOG_HEXDUMP_DBG(buf, buf_len, "CBOR");
+		LOG_HEXDUMP_INF(buf, buf_len, "CBOR");
 	}
 	err = coap_packet_init(&request, coap_buf, sizeof(coap_buf),
 			       APP_COAP_VERSION, msg_type,
@@ -705,6 +730,21 @@ int client_post_send(const char *resource, uint8_t *buf, size_t buf_len,
 					&fmt, sizeof(fmt));
 	if (err < 0) {
 		LOG_ERR("Failed to encode CoAP content format option: %d", err);
+		return err;
+	}
+
+	if (query) {
+		err = coap_packet_append_option(&request, COAP_OPTION_URI_QUERY,
+						query, strlen(query));
+		if (err < 0) {
+			LOG_ERR("Failed to encode query: %d", err);
+		}
+	}
+
+	fmt = COAP_CONTENT_FORMAT_APP_JSON;
+	err = coap_packet_append_option(&request, COAP_OPTION_ACCEPT, &fmt, sizeof(fmt));
+	if (err < 0) {
+		LOG_ERR("Failed to encode accept option: %d", err);
 		return err;
 	}
 
@@ -744,8 +784,8 @@ int client_post_send(const char *resource, uint8_t *buf, size_t buf_len,
 		}
 	}
 
-	LOG_INF("CoAP POST: RESOURCE:%s, MID:0x%04x, Token:0x%04x",
-		resource, message_id, next_token);
+	LOG_INF("CoAP POST: RESOURCE:%s, QUERY:%s, MID:0x%04x, Token:0x%04x",
+		resource, query ? query : "", message_id, next_token);
 
 	return 0;
 }

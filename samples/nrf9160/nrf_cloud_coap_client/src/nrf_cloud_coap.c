@@ -55,8 +55,13 @@ int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request)
 		LOG_ERR("Unable to encode A-GPS request: %d", err);
 		return err;
 	}
-	err = client_get_send("poc/loc/agps", (const char *)buffer, NULL, 0,
-			      COAP_CONTENT_FORMAT_APP_JSON);
+	if (query_string) {
+		err = client_get_send("poc/loc/agps", (const char *)buffer,
+				      NULL, 0, COAP_CONTENT_FORMAT_APP_JSON);
+	} else {
+		err = client_get_send("poc/loc/agps", NULL,
+				      buffer, len, COAP_CONTENT_FORMAT_APP_JSON);
+	}
 	if (err) {
 		LOG_ERR("Failed to send GET request: %d", err);
 	}
@@ -76,7 +81,7 @@ int nrf_cloud_coap_send_sensor(const char *app_id, double value)
 		LOG_ERR("Unable to encode sensor data: %d", err);
 		return err;
 	}
-	err = client_post_send("poc/msg", buffer, len,
+	err = client_post_send("poc/msg", NULL, buffer, len,
 			     COAP_CONTENT_FORMAT_APP_JSON, false);
 	if (err) {
 		LOG_ERR("Failed to send POST request: %d", err);
@@ -84,20 +89,21 @@ int nrf_cloud_coap_send_sensor(const char *app_id, double value)
 	return err;
 }
 
-int nrf_cloud_coap_get_location(struct lte_lc_cells_info *cell_info,
+int nrf_cloud_coap_get_location(struct lte_lc_cells_info const *const cell_info,
+				struct wifi_scan_info const *const wifi_info,
 				struct nrf_cloud_location_result *const result)
 {
 	size_t len = sizeof(buffer);
 	int err;
 
-	err = coap_codec_encode_cell_pos(cell_info, buffer, &len,
-					 COAP_CONTENT_FORMAT_APP_JSON);
+	err = coap_codec_encode_location_req(cell_info, wifi_info, buffer, &len,
+					     COAP_CONTENT_FORMAT_APP_CBOR);
 	if (err) {
 		LOG_ERR("Unable to encode cell pos data: %d", err);
 		return err;
 	}
-	err = client_post_send("poc/loc/ground-fix", buffer, len,
-			     COAP_CONTENT_FORMAT_APP_JSON, true);
+	err = client_post_send("poc/loc/ground-fix", NULL, buffer, len,
+			     COAP_CONTENT_FORMAT_APP_CBOR, true);
 	if (err) {
 		LOG_ERR("Failed to send POST request: %d", err);
 	}

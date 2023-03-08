@@ -15,7 +15,8 @@ int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request)
 
 int nrf_cloud_coap_send_sensor(const char *app_id, double value);
 
-int nrf_cloud_coap_get_location(struct lte_lc_cells_info *cell_info,
+int nrf_cloud_coap_get_location(struct lte_lc_cells_info const *const cell_info,
+				struct wifi_scan_info const *const wifi_info,
 				struct nrf_cloud_location_result *const result);
 
 int nrf_cloud_get_current_fota_job(struct nrf_cloud_fota_job_info *const job);

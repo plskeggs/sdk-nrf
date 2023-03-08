@@ -22,9 +22,9 @@ int coap_codec_encode_sensor(const char *app_id, double value, const char *topic
 			     int64_t ts, uint8_t *buf, size_t *len,
 			     enum coap_content_format fmt);
 
-int coap_codec_encode_cell_pos(struct lte_lc_cells_info const *const cell_info,
-			       uint8_t *buf, size_t *len,
-			       enum coap_content_format fmt);
+int coap_codec_encode_location_req(struct lte_lc_cells_info const *const cell_info,
+				   struct wifi_scan_info const *const wifi_info,
+				   uint8_t *buf, size_t *len, enum coap_content_format fmt);
 
 int coap_codec_encode_agps(struct nrf_cloud_rest_agps_request const *const request,
 			   uint8_t *buf, size_t *len, bool *query_string,

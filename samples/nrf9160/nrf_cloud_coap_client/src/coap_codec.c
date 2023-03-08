@@ -9,12 +9,12 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/net/coap.h>
-#include <tinycbor/cbor.h>
-#include <tinycbor/cbor_buf_reader.h>
-#include <tinycbor/cbor_buf_writer.h>
 #include <modem/lte_lc.h>
-#include "nrf_cloud_codec.h"
+#include <net/wifi_location_common.h>
 #include <cJSON.h>
+#include "nrf_cloud_codec.h"
+#include "cbor_encode_types.h"
+#include "cbor_encode.h"
 #include "coap_client.h"
 #include "coap_codec.h"
 
@@ -26,6 +26,7 @@ LOG_MODULE_REGISTER(coap_codec, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVEL);
 #define AGPS_NET_INFO			"&mcc=%u&mnc=%u&tac=%u&eci=%u"
 #define AGPS_CUSTOM_TYPE		"&customTypes=%s"
 
+#if 0
 int cbor_decode_loc_response(enum nrf_cloud_coap_response response,
 			     const uint8_t *payload, uint16_t payload_len,
 			     char *temp_buf, size_t temp_size)
@@ -132,6 +133,7 @@ int cbor_encode_sensor(const char *app_id, double value, int64_t ts, uint8_t *bu
 
 	return 0;
 }
+#endif
 
 int coap_codec_encode_sensor(const char *app_id, double value, const char *topic,
 			     int64_t ts, uint8_t *buf, size_t *len, enum coap_content_format fmt)
@@ -139,7 +141,7 @@ int coap_codec_encode_sensor(const char *app_id, double value, const char *topic
 	int err;
 
 	if (fmt == COAP_CONTENT_FORMAT_APP_CBOR) {
-		err = cbor_encode_sensor(app_id, value, ts, buf, len);
+		err = -ENOTSUP; // cbor_encode_sensor(app_id, value, ts, buf, len);
 	} else {
 		struct nrf_cloud_data out;
 
@@ -159,6 +161,7 @@ int coap_codec_encode_sensor(const char *app_id, double value, const char *topic
 	return err;
 }
 
+#if 0
 int cbor_encode_cell_pos(bool do_reply, unsigned int mcc, unsigned int mnc, unsigned int eci,
 			 unsigned int tac, unsigned int adv, unsigned int earfcn,
 			 float rsrp, float rsrq, uint8_t *buf, size_t *len)
@@ -189,21 +192,175 @@ int cbor_encode_cell_pos(bool do_reply, unsigned int mcc, unsigned int mnc, unsi
 
 	return 0;
 }
+#endif
 
-int coap_codec_encode_cell_pos(struct lte_lc_cells_info const *const cell_info,
-			       uint8_t *buf, size_t *len, enum coap_content_format fmt)
+static void copy_cell(struct cell *dst, struct lte_lc_cell const *const src)
+{
+	dst->_cell_mcc = src->mcc;
+	dst->_cell_mnc = src->mnc;
+	dst->_cell_eci = src->id;
+	dst->_cell_tac = src->tac;
+	if (src->earfcn != NRF_CLOUD_LOCATION_CELL_OMIT_EARFCN) {
+		dst->_cell_earfcn = src->earfcn;
+		dst->_cell_earfcn_present = true;
+	} else {
+		dst->_cell_earfcn_present = false;
+	}
+	if (src->timing_advance != NRF_CLOUD_LOCATION_CELL_OMIT_TIME_ADV) {
+		uint16_t t_adv = src->timing_advance;
+
+		if (t_adv > NRF_CLOUD_LOCATION_CELL_TIME_ADV_MAX) {
+			t_adv = NRF_CLOUD_LOCATION_CELL_TIME_ADV_MAX;
+		}
+		dst->_cell_adv = t_adv;
+		dst->_cell_adv_present = true;
+	} else {
+		dst->_cell_adv_present = false;
+	}
+	if (src->rsrp != NRF_CLOUD_LOCATION_CELL_OMIT_RSRP) {
+		dst->_cell_rsrp = RSRP_IDX_TO_DBM(src->rsrp);
+		dst->_cell_rsrp_present = true;
+	} else {
+		dst->_cell_rsrp_present = false;
+	}
+	if (src->rsrq != NRF_CLOUD_LOCATION_CELL_OMIT_RSRQ) {
+		dst->_cell_rsrq = RSRQ_IDX_TO_DB(src->rsrq);
+		dst->_cell_rsrq_present = true;
+	} else {
+		dst->_cell_rsrq_present = false;
+	}
+}
+
+static void copy_ncells(struct ncell *dst, int num, struct lte_lc_ncell *src)
+{
+	for (int i = 0; i < num; i++) {
+		dst->_ncell_earfcn = src->earfcn;
+		dst->_ncell_pci = src->phys_cell_id;
+		if (src->rsrp != NRF_CLOUD_LOCATION_CELL_OMIT_RSRP) {
+			dst->_ncell_rsrp = RSRP_IDX_TO_DBM(src->rsrp);
+			dst->_ncell_rsrp_present = true;
+		} else {
+			dst->_ncell_rsrp_present = false;
+		}
+		if (src->rsrq != NRF_CLOUD_LOCATION_CELL_OMIT_RSRQ) {
+			dst->_ncell_rsrq = RSRQ_IDX_TO_DB(src->rsrq);
+			dst->_ncell_rsrq_present = true;
+		} else {
+			dst->_ncell_rsrq_present = false;
+		}
+		if (src->time_diff != LTE_LC_CELL_TIME_DIFF_INVALID) {
+			dst->_ncell_timeDiff = src->time_diff;
+			dst->_ncell_timeDiff_present = true;
+		} else {
+			dst->_ncell_timeDiff_present = false;
+		}
+		src++;
+		dst++;
+	}
+}
+
+static void copy_cell_info(struct lte *lte_encode,
+			   struct lte_lc_cells_info const *const cell_info)
+{
+	if (cell_info != NULL) {
+		struct cell *cell = lte_encode->_lte__cell;
+		size_t num_cells = ARRAY_SIZE(lte_encode->_lte__cell);
+
+		if (cell_info->current_cell.id != LTE_LC_CELL_EUTRAN_ID_INVALID) {
+			lte_encode->_lte__cell_count++;
+			copy_cell(cell, &cell_info->current_cell);
+			cell->_cell_nmr_ncells_count = cell_info->ncells_count;
+			if (cell_info->ncells_count) {
+				copy_ncells(cell->_cell_nmr_ncells,
+					    MIN(ARRAY_SIZE(cell->_cell_nmr_ncells),
+						cell_info->ncells_count),
+					    cell_info->neighbor_cells);
+			}
+			cell++;
+			num_cells--;
+		}
+		if (cell_info->gci_cells != NULL) {
+			for (int i = 0; i < cell_info->gci_cells_count; i++) {
+				lte_encode->_lte__cell_count++;
+				copy_cell(cell, &cell_info->gci_cells[i]);
+				cell++;
+				num_cells--;
+				if (!num_cells) {
+					break;
+				}
+			}
+		}
+	}
+}
+
+static void copy_wifi_info(struct wifi *wifi_encode,
+			   struct wifi_scan_info const *const wifi_info)
+{
+	struct ap *dst = wifi_encode->_wifi__ap;
+	struct wifi_scan_result *src = wifi_info->ap_info;
+	size_t num_aps = sizeof(wifi_encode->_wifi__ap) / sizeof(struct ap);
+
+	wifi_encode->_wifi__ap_count = 0;
+
+	for (int i = 0; i < wifi_info->cnt; i++) {
+		wifi_encode->_wifi__ap_count++;
+
+		dst->_ap_mac.value = src->mac;
+		dst->_ap_mac.len = src->mac_length;
+		dst->_ap_ssid.value = src->ssid;
+		dst->_ap_ssid.len = src->ssid_length;
+		dst->_ap_age_present = false;
+		if (src->channel != NRF_CLOUD_LOCATION_WIFI_OMIT_CHAN) {
+			dst->_ap_ch = src->channel;
+			dst->_ap_ch_present = true;
+		} else {
+			dst->_ap_ch_present = false;
+		}
+		dst->_ap_freq_present = false;
+		if (src->rssi != NRF_CLOUD_LOCATION_WIFI_OMIT_RSSI) {
+			dst->_ap_rssi = src->rssi;
+			dst->_ap_rssi_present = true;
+		} else {
+			dst->_ap_rssi_present = false;
+		}
+		num_aps--;
+		if (!num_aps) {
+			break;
+		}
+	}
+}
+
+int coap_codec_encode_location_req(struct lte_lc_cells_info const *const cell_info,
+				   struct wifi_scan_info const *const wifi_info,
+				   uint8_t *buf, size_t *len, enum coap_content_format fmt)
 {
 	int err;
 
 	if (fmt == COAP_CONTENT_FORMAT_APP_CBOR) {
-		const struct lte_lc_cell *c = &cell_info->current_cell;
+		struct location_req input;
+		size_t out_len;
 
-		err = cbor_encode_cell_pos(true, c->mcc, c->mnc, c->id, c->tac, c->timing_advance,
-					   c->earfcn, c->rsrp, c->rsrq, buf, len);
+		memset(&input, 0, sizeof(struct location_req));
+		input._location_req__lte_present = (cell_info != NULL);
+		if (cell_info) {
+			copy_cell_info(&input._location_req__lte, cell_info);
+		}
+		input._location_req__wifi_present = (wifi_info != NULL);
+		if (wifi_info) {
+			copy_wifi_info(&input._location_req__wifi, wifi_info);
+		}
+		err = cbor_encode_location_req(buf, *len, &input, &out_len);
+		if (err) {
+			LOG_ERR("Error %d encoding groundfix", err);
+			err = -EINVAL;
+			*len = 0;
+		} else {
+			*len = out_len;
+		}
 	} else {
 		char *out;
 
-		err = nrf_cloud_format_location_req(cell_info, NULL, &out);
+		err = nrf_cloud_format_location_req(cell_info, wifi_info, &out);
 		if (!err) {
 			if (strlen(out) >= *len) {
 				err = -E2BIG;
@@ -277,7 +434,7 @@ int coap_codec_encode_agps(struct nrf_cloud_rest_agps_request const *const reque
 	int ret;
 	if (fmt == COAP_CONTENT_FORMAT_APP_CBOR) {
 		*query_string = false; /* Data should be sent in payload */
-		return cbor_encode_agps(request, buf, len);
+		return -ENOTSUP; // cbor_encode_agps(request, buf, len);
 	} else {
 		char *url = (char *)buf;
 		char custom_types[NRF_CLOUD_AGPS__LAST * 2];

@@ -356,7 +356,7 @@ int do_next_test(void)
 		break;
 	case 2:
 		LOG_INF("******** %d. Getting cell position", post_count++);
-		err = nrf_cloud_coap_get_location(&cell_info, &result);
+		err = nrf_cloud_coap_get_location(&cell_info, NULL, &result);
 		if (err) {
 			LOG_ERR("Unable to get location: %d", err);
 			break;
