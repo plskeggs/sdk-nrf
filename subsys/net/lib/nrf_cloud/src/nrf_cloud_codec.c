@@ -2639,7 +2639,6 @@ int nrf_cloud_encode_alert(const struct nrf_cloud_alert_info *alert,
 	return 0;
 }
 
-#if defined(CONFIG_NRF_CLOUD_LOGS)
 static int encode_json_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size_t size,
 			   struct nrf_cloud_data *output)
 {
@@ -2685,7 +2684,6 @@ static int encode_json_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size
 	output->len = strlen(buffer);
 	return 0;
 }
-#endif /* CONFIG_NRF_CLOUD_LOGS */
 
 int nrf_cloud_encode_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size_t size,
 			 struct nrf_cloud_data *output)
@@ -2694,14 +2692,5 @@ int nrf_cloud_encode_log(struct nrf_cloud_log_context *ctx, uint8_t *buf, size_t
 	__ASSERT_NO_MSG(buf != NULL);
 	__ASSERT_NO_MSG(output != NULL);
 
-#if defined(CONFIG_NRF_CLOUD_LOGS)
 	return encode_json_log(ctx, buf, size, output);
-#else
-	ARG_UNUSED(ctx);
-	ARG_UNUSED(buf);
-	ARG_UNUSED(size);
-	output->ptr = NULL;
-	output->len = 0;
-	return 0;
-#endif /* CONFIG_NRF_CLOUD_ALERTS */
 }

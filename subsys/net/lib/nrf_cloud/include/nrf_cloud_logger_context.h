@@ -25,14 +25,15 @@ struct nrf_cloud_log_context {
 	int level;
 	/** The real clock time at which the log entry was generated. It must
 	 *  be Unix epoch time in ms, or else nRF Cloud cannot properly display
-	 *  it or search for it.  */
+	 *  it or search for it.
+	 */
 	int64_t ts;
 	/** Monotonically increasing sequence number */
 	unsigned int sequence;
 	/** When using REST, this points to the context structure */
 	void *rest_ctx;
 	/** When using REST, this is the device_id making the REST connection */
-	const char device_id[NRF_CLOUD_CLIENT_ID_MAX_LEN + 1];
+	char device_id[NRF_CLOUD_CLIENT_ID_MAX_LEN + 1];
 };
 
 #ifdef __cplusplus

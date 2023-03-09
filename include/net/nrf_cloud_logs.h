@@ -50,6 +50,13 @@ void nrf_cloud_rest_log_context_set(struct nrf_cloud_rest_context *ctx, const ch
  */
 void nrf_cloud_log_enable(bool enable);
 
+#if defined(NRF_CLOUD_MQTT)
+int nrf_cloud_logs_send(int log_level, const char *fmt, ...);
+#elif defined(NRF_CLOUD_REST)
+int nrf_cloud_rest_logs_send(struct nrf_cloud_rest_context *ctx, const char *dev_id,
+			     int log_level, const char *fmt, ...);
+#endif
+
 /** @} */
 
 #ifdef __cplusplus

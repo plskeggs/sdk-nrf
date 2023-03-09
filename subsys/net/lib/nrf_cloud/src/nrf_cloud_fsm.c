@@ -248,11 +248,9 @@ static int handle_device_control_update(const struct nct_evt *const evt,
 #else
 	ctrl_data.alerts_enabled = false;
 #endif /* CONFIG_NRF_CLOUD_ALERTS */
-#if IS_ENABLED(CONFIG_NRF_CLOUD_LOGS)
+
 	ctrl_data.log_level = nrf_cloud_log_control_get();
-#else
-	ctrl_data.log_level = 0;
-#endif /* CONFIG_NRF_CLOUD_LOGS */
+
 	err = nrf_cloud_decode_control(&evt->param.cc->data, &status, &ctrl_data);
 	if (err) {
 		return (err == -ESRCH) ? 0 : err;
@@ -260,12 +258,12 @@ static int handle_device_control_update(const struct nct_evt *const evt,
 
 	*control_found = (status != NRF_CLOUD_CTRL_NOT_PRESENT);
 	if (*control_found) {
+
 #if IS_ENABLED(CONFIG_NRF_CLOUD_ALERTS)
 		nrf_cloud_alert_control_set(ctrl_data.alerts_enabled);
 #endif /* CONFIG_NRF_CLOUD_ALERTS */
-#if IS_ENABLED(CONFIG_NRF_CLOUD_LOGS)
+
 		nrf_cloud_log_control_set(ctrl_data.log_level);
-#endif /* CONFIG_NRF_CLOUD_LOGS */
 	}
 
 	/* Acknowledge that shadow delta changes have been made. */

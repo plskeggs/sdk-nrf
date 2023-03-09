@@ -24,6 +24,13 @@
 #define LOCAL_LOG_NAME nrf_cloud_logs
 LOG_MODULE_REGISTER(LOCAL_LOG_NAME, CONFIG_NRF_CLOUD_LOGGER_LOG_LEVEL);
 
+static bool enabled;
+static int64_t starting_timestamp;
+static atomic_t log_sequence;
+static int nrf_cloud_log_level = CONFIG_NRF_CLOUD_LOGS_LEVEL;
+
+#if defined(CONFIG_NRF_CLOUD_LOGS)
+
 #define JSON_FMT1 "{\"b64\":\""
 #define JSON_FMT2 "\"}"
 
@@ -45,8 +52,6 @@ static int logger_format_set(const struct log_backend *const backend, uint32_t l
 static void logger_notify(const struct log_backend *const backend, enum log_backend_evt event,
 		       union log_backend_evt_arg *arg);
 static int logger_out(uint8_t *buf, size_t size, void *ctx);
-
-#if defined(CONFIG_NRF_CLOUD_LOGS)
 
 static const struct log_backend_api logger_api = {
 	.init		= logger_init,
@@ -72,12 +77,8 @@ static struct nrf_cloud_log_stats {
 static uint8_t log_buf[CONFIG_NRF_CLOUD_LOG_BUF_SIZE + 1];
 static uint32_t log_format_current = CONFIG_LOG_BACKEND_NRF_CLOUD_OUTPUT_DEFAULT;
 static uint32_t log_output_flags = LOG_OUTPUT_FLAG_CRLF_NONE;
-static int nrf_cloud_log_level = CONFIG_NRF_CLOUD_LOGS_LEVEL;
-static bool enabled;
-static atomic_t log_sequence;
 static uint32_t self_source_id;
 static int num_msgs;
-static int64_t starting_timestamp;
 
 /* Information about a log message is stored in the context by the logger_process backend function,
  * then used by the logger_out function when encoding messages for transport.
@@ -92,8 +93,6 @@ LOG_OUTPUT_DEFINE(log_nrf_cloud_output, logger_out, log_buf, (sizeof(log_buf) - 
 RING_BUF_DECLARE(log_nrf_cloud_rb, RING_BUF_SIZE);
 
 static int send_ring_buffer(void);
-
-#endif /* CONFIG_NRF_CLOUD_LOGS */
 
 static void logger_init(const struct log_backend *const backend)
 {
@@ -124,7 +123,6 @@ static void logger_init(const struct log_backend *const backend)
 		log_src_cnt_get(Z_LOG_LOCAL_DOMAIN_ID));
 }
 
-#if defined(CONFIG_NRF_CLOUD_LOGS)
 static uint32_t get_source_id(void *source_data)
 {
 	if (IS_ENABLED(CONFIG_LOG_MULTIDOMAIN) && (context.dom_id != Z_LOG_LOCAL_DOMAIN_ID)) {
@@ -138,7 +136,6 @@ static uint32_t get_source_id(void *source_data)
 			 UNKNOWN_LOG_SOURCE;
 	}
 }
-
 
 static void logger_process(const struct log_backend *const backend, union log_msg_generic *msg)
 {
@@ -293,7 +290,6 @@ static int send_ring_buffer(void)
 	if (IS_ENABLED(CONFIG_NRF_CLOUD_MQTT)) {
 		err = nrf_cloud_send(&output);
 	} else if (IS_ENABLED(CONFIG_NRF_CLOUD_REST)) {
-		/* send to d2c topic, unless bulk is true, in which case d2c/bulk is used */
 		err = nrf_cloud_rest_send_device_message(context.rest_ctx,
 							 context.device_id,
 							 output.data.ptr, true, NULL);
@@ -334,8 +330,13 @@ static int logger_out(uint8_t *buf, size_t size, void *ctx)
 	}
 
 	if (log_format_current == LOG_OUTPUT_TEXT) {
-		__ASSERT((buf >= log_buf) && (&buf[size] < &log_buf[CONFIG_NRF_CLOUD_LOG_BUF_SIZE]),
-			 "buf is not inside our log_buf");
+		if ((buf >= log_buf) && (&buf[size] <= &log_buf[CONFIG_NRF_CLOUD_LOG_BUF_SIZE])) {
+		} else {
+			printk("buf %p..%p is not inside our log_buf %p..%p\n",
+				buf, &buf[size], log_buf,
+				&log_buf[CONFIG_NRF_CLOUD_LOG_BUF_SIZE]);
+			return orig_size;
+		}
 		buf[size] = '\0'; /* Our log_buf has 1 extra byte so this can be done safely */
 
 		extra = 2;
@@ -415,7 +416,85 @@ end:
 }
 #endif /* CONFIG_NRF_CLOUD_LOGS */
 
-#if defined(NRF_CLOUD_REST)
+/**
+ * @brief These functions provide a simple logging interface as an alternative
+ * to using the full logger backend above.
+ */
+#if defined(CONFIG_NRF_CLOUD_MQTT)
+int nrf_cloud_logs_send(int log_level, const char *fmt, ...)
+#elif defined(CONFIG_NRF_CLOUD_REST)
+int nrf_cloud_rest_logs_send(struct nrf_cloud_rest_context *ctx, const char *dev_id,
+			     int log_level, const char *fmt, ...)
+#endif
+{
+	va_list ap;
+	int err = 0;
+
+#if defined(CONFIG_NRF_CLOUD_LOGS)
+
+	/* Cloud logging is enabled, so send it through the main logging system. */
+	va_start(ap, fmt);
+	z_log_msg_runtime_vcreate(Z_LOG_LOCAL_DOMAIN_ID, NULL, log_level,
+				  NULL, 0, Z_LOG_MSG2_CBPRINTF_FLAGS(0), fmt, ap);
+	va_end(ap);
+	return 0;
+
+#else
+
+	/* Cloud logging is disabled, so construct a temporary cloud
+	 * logging context needed by nrf_cloud_encode_log().
+	 */
+	char buf[CONFIG_NRF_CLOUD_LOG_BUF_SIZE];
+	struct nrf_cloud_log_context context = {0};
+	struct nrf_cloud_tx_data output = {
+		.qos = MQTT_QOS_0_AT_MOST_ONCE,
+		.topic_type = NRF_CLOUD_TOPIC_MESSAGE
+	};
+
+	/* Do we want any level filtering in this simple logging configuration? */
+	if (log_level > nrf_cloud_log_level) {
+		return 0;
+	}
+
+	va_start(ap, fmt);
+	vsnprintk(buf, CONFIG_NRF_CLOUD_LOG_BUF_SIZE - 1, fmt, ap);
+	va_end(ap);
+
+#if defined(CONFIG_NRF_CLOUD_REST)
+	strncpy(context.device_id, dev_id, NRF_CLOUD_CLIENT_ID_MAX_LEN);
+	context.rest_ctx = ctx;
+#endif
+	context.level = log_level;
+	context.sequence = log_sequence++;
+	context.src_name = "nrf_cloud_logs";
+
+	if (IS_ENABLED(CONFIG_DATE_TIME)) {
+		if (!starting_timestamp) {
+			date_time_now(&starting_timestamp);
+		}
+		context.ts = k_uptime_get() + starting_timestamp;
+	} else {
+		context.ts = 0;
+	}
+
+	err = nrf_cloud_encode_log(&context, buf, strlen(buf), &output.data);
+	if (err) {
+		return err;
+	}
+
+	if (IS_ENABLED(CONFIG_NRF_CLOUD_MQTT)) {
+		err = nrf_cloud_send(&output);
+	} else if (IS_ENABLED(CONFIG_NRF_CLOUD_REST)) {
+		err = nrf_cloud_rest_send_device_message(context.rest_ctx,
+							 context.device_id,
+							 output.data.ptr, true, NULL);
+	}
+
+#endif /* CONFIG_NRF_CLOUD_LOGS */
+
+	return err;
+}
+
 void nrf_cloud_rest_log_context_set(struct nrf_cloud_rest_context *ctx, const char *dev_id)
 {
 #if defined(CONFIG_NRF_CLOUD_LOGS)
@@ -426,41 +505,33 @@ void nrf_cloud_rest_log_context_set(struct nrf_cloud_rest_context *ctx, const ch
 	ARG_UNUSED(dev_id);
 #endif
 }
-#endif /* CONFIG_NRF_CLOUD_REST */
 
 void nrf_cloud_log_control_set(int level)
 {
-#if defined(CONFIG_NRF_CLOUD_LOGS)
 	if (nrf_cloud_log_level != level) {
 		LOG_DBG("Changing log level from:%d to:%d", nrf_cloud_log_level, level);
 		nrf_cloud_log_level = level;
 		nrf_cloud_log_enable(level != 0);
 	}
-#else
-	ARG_UNUSED(level);
-#endif /* CONFIG_NRF_CLOUD_LOGS */
 }
 
 int nrf_cloud_log_control_get(void)
 {
-	if (IS_ENABLED(CONFIG_NRF_CLOUD_LOGS)) {
-		return nrf_cloud_log_level;
-	} else {
-		return 0;
-	}
+	return nrf_cloud_log_level;
 }
 
 void nrf_cloud_log_enable(bool enable)
 {
 	if (enable != enabled) {
+#if defined(CONFIG_NRF_CLOUD_LOGS)
 		if (enable) {
-			LOG_DBG("enabling logger");
 			logger_init(&log_nrf_cloud_backend);
 			log_backend_enable(&log_nrf_cloud_backend, NULL, nrf_cloud_log_level);
 		} else {
-			LOG_DBG("disabling logger");
 			log_backend_disable(&log_nrf_cloud_backend);
 		}
+#endif
 		enabled = enable;
+		LOG_DBG("enabled = %d", enabled);
 	}
 }

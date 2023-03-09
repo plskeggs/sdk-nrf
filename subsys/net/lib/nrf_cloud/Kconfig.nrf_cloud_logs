@@ -9,18 +9,8 @@ menuconfig NRF_CLOUD_LOGS
 	depends on !LOG_PRINTK
 	depends on !LOG_MODE_MINIMAL
 	select BASE64 if LOG_BACKEND_NRF_CLOUD_OUTPUT_DICTIONARY
-	select RING_BUFFER if LOG_BACKEND_NRF_CLOUD_OUTPUT_DICTIONARY
+	select RING_BUFFER
 	bool "nRF Cloud Logging System"
-
-if NRF_CLOUD_LOGS
-
-config NRF_CLOUD_LOGS_SEQ_ALWAYS
-	bool "Always include the sequence number in log messages"
-	default y
-	help
-	  If set, send the seq field regardless of whether the ts field
-	  is set.  If not set, only send the seq field when ts is not
-	  available.
 
 config NRF_CLOUD_LOGS_LEVEL
 	int "Only log entries less than or equal to this will be sent"
@@ -35,6 +25,16 @@ config NRF_CLOUD_LOG_BUF_SIZE
 	default 256
 	help
 	  Set size in bytes for buffer for log output system before it flushes.
+
+if NRF_CLOUD_LOGS
+
+config NRF_CLOUD_LOGS_SEQ_ALWAYS
+	bool "Always include the sequence number in log messages"
+	default y
+	help
+	  If set, send the seq field regardless of whether the ts field
+	  is set.  If not set, only send the seq field when ts is not
+	  available.
 
 config NRF_CLOUD_LOG_RING_BUF_SIZE
 	int "Size of buffer for log output before network transfer"
