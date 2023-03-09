@@ -9,6 +9,7 @@
 #include <nrf_modem_at.h>
 #include <nrf_errno.h>
 #include <net/nrf_cloud.h>
+#include <net/nrf_cloud_logs.h>
 #include <net/nrf_cloud_alerts.h>
 #include <date_time.h>
 #include <cJSON.h>
@@ -339,8 +340,10 @@ void main_application_thread_fn(void)
 	} else {
 		LOG_INF("Current date and time determined");
 	}
+
 	nrf_cloud_log_enable(true);
 	LOG_INF("Enabled cloud log");
+	nrf_cloud_logs_send(LOG_LEVEL_INF, "Hello world.");
 
 	/* Begin tracking location at the configured interval. */
 	(void)start_location_tracking(on_location_update,
