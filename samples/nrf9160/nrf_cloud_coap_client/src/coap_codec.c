@@ -153,8 +153,9 @@ int coap_codec_encode_sensor(const char *app_id, double value, const char *topic
 			cJSON_free((void *)out.ptr);
 			err = -E2BIG;
 		} else {
-			*len = MIN(out.len, *len);
+			*len = out.len;
 			memcpy(buf, out.ptr, *len);
+			buf[*len] = '\0';
 			cJSON_free((void *)out.ptr);
 		}
 	}
@@ -369,7 +370,7 @@ int coap_codec_encode_location_req(struct lte_lc_cells_info const *const cell_in
 			if (strlen(out) >= *len) {
 				err = -E2BIG;
 			} else {
-				*len = MIN(strlen(out), *len);
+				*len = strlen(out);
 				memcpy(buf, out, *len);
 				buf[*len] = '\0';
 			}

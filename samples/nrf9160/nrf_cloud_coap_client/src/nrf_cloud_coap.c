@@ -99,13 +99,13 @@ int nrf_cloud_coap_get_location(struct lte_lc_cells_info const *const cell_info,
 	int err;
 
 	err = coap_codec_encode_location_req(cell_info, wifi_info, buffer, &len,
-					     COAP_CONTENT_FORMAT_APP_JSON);
+					     COAP_CONTENT_FORMAT_APP_CBOR);
 	if (err) {
 		LOG_ERR("Unable to encode cell pos data: %d", err);
 		return err;
 	}
 	err = client_fetch_send("poc/loc/ground-fix", NULL, buffer, len,
-				COAP_CONTENT_FORMAT_APP_JSON,
+				COAP_CONTENT_FORMAT_APP_CBOR,
 				COAP_CONTENT_FORMAT_APP_JSON);
 	if (err) {
 		LOG_ERR("Failed to send POST request: %d", err);

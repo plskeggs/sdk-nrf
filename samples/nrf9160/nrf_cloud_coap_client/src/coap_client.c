@@ -651,18 +651,6 @@ static int client_send(enum coap_method method, const char *resource, const char
 			LOG_ERR("Failed to encode CoAP content format option: %d", err);
 			return err;
 		}
-
-		err = coap_packet_append_payload_marker(&request);
-		if (err < 0) {
-			LOG_ERR("Failed to add CoAP payload marker: %d", err);
-			return err;
-		}
-
-		err = coap_packet_append_payload(&request, buf, buf_len);
-		if (err < 0) {
-			LOG_ERR("Failed to add CoAP payload: %d", err);
-			return err;
-		}
 	}
 
 	if (query) {
@@ -678,6 +666,20 @@ static int client_send(enum coap_method method, const char *resource, const char
 						&fmt_in, sizeof(fmt_in));
 		if (err < 0) {
 			LOG_ERR("Failed to encode accept option: %d", err);
+			return err;
+		}
+	}
+
+	if (buf && buf_len) {
+		err = coap_packet_append_payload_marker(&request);
+		if (err < 0) {
+			LOG_ERR("Failed to add CoAP payload marker: %d", err);
+			return err;
+		}
+
+		err = coap_packet_append_payload(&request, buf, buf_len);
+		if (err < 0) {
+			LOG_ERR("Failed to add CoAP payload: %d", err);
 			return err;
 		}
 	}
