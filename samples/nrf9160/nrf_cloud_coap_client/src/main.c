@@ -295,7 +295,7 @@ static void lte_handler(const struct lte_lc_evt *const evt)
 			LOG_INF("Received measurements for %u neighbor cells",
 				cell_info.ncells_count);
 		} else {
-			LOG_WRN("No neighbor cells were measured");
+			LOG_DBG("No neighbor cells were measured");
 		}
 
 		/* Copy GCI cell information if present. */
@@ -307,7 +307,7 @@ static void lte_handler(const struct lte_lc_evt *const evt)
 			LOG_INF("Received measurements for %u GCI cells",
 				cell_info.gci_cells_count);
 		} else if (search_type == LTE_LC_NEIGHBOR_SEARCH_TYPE_GCI_EXTENDED_COMPLETE) {
-			LOG_WRN("No GCI cells were measured");
+			LOG_DBG("No GCI cells were measured");
 		}
 
 		(void)k_mutex_unlock(&cell_info_mutex);
