@@ -30,7 +30,7 @@ LOG_MODULE_REGISTER(dtls, CONFIG_NRF_CLOUD_COAP_LOG_LEVEL);
 
 /* #define ALL_CERTS */
 
-static bool dtls_saved;
+static bool dtls_connected;
 
 #if defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
 /* Uncomment to limit cipher negotation to a list */
@@ -301,7 +301,7 @@ int dtls_init(int sock)
 	uint8_t d4_addr[4];
 
 	/* once connected, cache the connection info */
-	dtls_saved = false;
+	dtls_connected = false;
 
 	err = get_device_ip_address(d4_addr);
 	if (!err) {
@@ -415,10 +415,16 @@ int dtls_load_session(int sock)
 int dtls_print_connection_id(int sock, bool verbose)
 {
 	int err = 0;
+
+	if (dtls_connected) {
+		return 0;
+	}
+
 #if defined(CONFIG_NRF_CLOUD_COAP_DTLS_CID)
 	int status = 0;
 	int len = sizeof(status);
 
+#if defined(MFW_2_0) /* TODO: determine proper way to identify mfw 2 */
 	err = getsockopt(sock, SOL_TLS, TLS_DTLS_HANDSHAKE_STATUS, &status, &len);
 	if (!err) {
 		if (len > 0) {
@@ -435,10 +441,12 @@ int dtls_print_connection_id(int sock, bool verbose)
 	} else {
 		LOG_ERR("Error retrieving handshake status: %d", errno);
 	}
+#endif
 
 	len = sizeof(status);
 	err = getsockopt(sock, SOL_TLS, TLS_DTLS_CID_STATUS, &status, &len);
 	if (!err) {
+		dtls_connected = true;
 		if (len > 0) {
 			switch (status) {
 			case TLS_DTLS_CID_STATUS_DISABLED:
@@ -467,6 +475,7 @@ int dtls_print_connection_id(int sock, bool verbose)
 	len = sizeof(status);
 	err = getsockopt(sock, SOL_TLS, TLS_DTLS_CID, &status, &len);
 	if (!err) {
+		dtls_connected = true;
 		if (len > 0) {
 			LOG_INF("DTLS CID: %d", status);
 		} else {

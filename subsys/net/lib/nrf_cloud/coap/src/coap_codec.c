@@ -363,7 +363,6 @@ int coap_codec_decode_ground_fix_resp(struct nrf_cloud_location_result *result,
 	if (fmt == COAP_CONTENT_FORMAT_APP_CBOR) {
 		struct ground_fix_resp res;
 		size_t out_len;
-		int type;
 
 		err = cbor_decode_ground_fix_resp(buf, len, &res, &out_len);
 		if (out_len != len) {
@@ -374,16 +373,18 @@ int coap_codec_decode_ground_fix_resp(struct nrf_cloud_location_result *result,
 			return err;
 		}
 
-		type = res._ground_fix_resp_fulfilledWith._methods_choice;
-		if (type == _methods_MCELL_tstr) {
+		const char *with = res._ground_fix_resp_fulfilledWith.value;
+		int len = res._ground_fix_resp_fulfilledWith.len;
+
+		if (strncmp(with, NRF_CLOUD_LOCATION_TYPE_VAL_MCELL, len) == 0) {
 			result->type = LOCATION_TYPE_MULTI_CELL;
-		} else if (type == _methods_SCELL_tstr) {
+		} else if (strncmp(with, NRF_CLOUD_LOCATION_TYPE_VAL_SCELL, len) == 0) {
 			result->type = LOCATION_TYPE_SINGLE_CELL;
-		} else if (type == _methods_WIFI_tstr) {
+		} else if (strncmp(with, NRF_CLOUD_LOCATION_TYPE_VAL_WIFI, len) == 0) {
 			result->type = LOCATION_TYPE_WIFI;
 		} else {
 			result->type = LOCATION_TYPE__INVALID;
-			LOG_WRN("Unhandled location type: %d", type);
+			LOG_WRN("Unhandled location type: %*s", len, with);
 		}
 
 		result->lat = res._ground_fix_resp_lat;

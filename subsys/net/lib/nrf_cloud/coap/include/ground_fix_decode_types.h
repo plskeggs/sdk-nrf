@@ -22,16 +22,7 @@
  */
 #define DEFAULT_MAX_QTY 10
 
-struct methods_ {
-	enum {
-		_methods_MCELL_tstr,
-		_methods_SCELL_tstr,
-		_methods_WIFI_tstr,
-	} _methods_choice;
-};
-
 struct ground_fix_resp {
-	struct methods_ _ground_fix_resp_fulfilledWith;
 	double _ground_fix_resp_lat;
 	double _ground_fix_resp_lon;
 	union {
@@ -42,6 +33,7 @@ struct ground_fix_resp {
 		_ground_fix_resp_uncertainty_int,
 		_ground_fix_resp_uncertainty_float,
 	} _ground_fix_resp_uncertainty_choice;
+	struct zcbor_string _ground_fix_resp_fulfilledWith;
 };
 
 
