@@ -18,11 +18,7 @@
 #error "The type file was generated with a different default_max_qty than this file"
 #endif
 
-
-int cbor_encode_pgps_req(
-		uint8_t *payload, size_t payload_len,
-		const struct pgps_req *input,
-		size_t *payload_len_out);
-
+int cbor_encode_pgps_req(uint8_t *payload, size_t payload_len, const struct pgps_req *input,
+			 size_t *payload_len_out);
 
 #endif /* PGPS_ENCODE_H__ */

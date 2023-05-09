@@ -18,11 +18,7 @@
 #error "The type file was generated with a different default_max_qty than this file"
 #endif
 
-
-int cbor_decode_ground_fix_resp(
-		const uint8_t *payload, size_t payload_len,
-		struct ground_fix_resp *result,
-		size_t *payload_len_out);
-
+int cbor_decode_ground_fix_resp(const uint8_t *payload, size_t payload_len,
+				struct ground_fix_resp *result, size_t *payload_len_out);
 
 #endif /* GROUND_FIX_DECODE_H__ */

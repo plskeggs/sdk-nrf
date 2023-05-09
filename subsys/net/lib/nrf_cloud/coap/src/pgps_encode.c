@@ -17,20 +17,22 @@
 
 static bool encode_pgps_req(zcbor_state_t *state, const struct pgps_req *input);
 
-
-static bool encode_pgps_req(
-		zcbor_state_t *state, const struct pgps_req *input)
+static bool encode_pgps_req(zcbor_state_t *state, const struct pgps_req *input)
 {
 	zcbor_print("%s\r\n", __func__);
 
-	bool tmp_result = (((zcbor_map_start_encode(state, 4) && (((((zcbor_uint32_put(state, (1))))
-	&& (zcbor_uint32_encode(state, (&(*input)._pgps_req_predictionCount))))
-	&& (((zcbor_uint32_put(state, (2))))
-	&& (zcbor_uint32_encode(state, (&(*input)._pgps_req_predictionIntervalMinutes))))
-	&& (((zcbor_uint32_put(state, (3))))
-	&& (zcbor_uint32_encode(state, (&(*input)._pgps_req_startGPSDay))))
-	&& (((zcbor_uint32_put(state, (4))))
-	&& (zcbor_uint32_encode(state, (&(*input)._pgps_req_startGPSTimeOfDaySeconds))))) || (zcbor_list_map_end_force_encode(state), false)) && zcbor_map_end_encode(state, 4))));
+	bool tmp_result = (((
+		zcbor_map_start_encode(state, 4) &&
+		(((((zcbor_uint32_put(state, (1)))) &&
+		   (zcbor_uint32_encode(state, (&(*input)._pgps_req_predictionCount)))) &&
+		  (((zcbor_uint32_put(state, (2)))) &&
+		   (zcbor_uint32_encode(state, (&(*input)._pgps_req_predictionIntervalMinutes)))) &&
+		  (((zcbor_uint32_put(state, (3)))) &&
+		   (zcbor_uint32_encode(state, (&(*input)._pgps_req_startGPSDay)))) &&
+		  (((zcbor_uint32_put(state, (4)))) &&
+		   (zcbor_uint32_encode(state, (&(*input)._pgps_req_startGPSTimeOfDaySeconds))))) ||
+		 (zcbor_list_map_end_force_encode(state), false)) &&
+		zcbor_map_end_encode(state, 4))));
 
 	if (!tmp_result)
 		zcbor_trace();
@@ -38,12 +40,8 @@ static bool encode_pgps_req(
 	return tmp_result;
 }
 
-
-
-int cbor_encode_pgps_req(
-		uint8_t *payload, size_t payload_len,
-		const struct pgps_req *input,
-		size_t *payload_len_out)
+int cbor_encode_pgps_req(uint8_t *payload, size_t payload_len, const struct pgps_req *input,
+			 size_t *payload_len_out)
 {
 	zcbor_state_t states[3];
 
@@ -52,8 +50,7 @@ int cbor_encode_pgps_req(
 	bool ret = encode_pgps_req(states, input);
 
 	if (ret && (payload_len_out != NULL)) {
-		*payload_len_out = MIN(payload_len,
-				(size_t)states[0].payload - (size_t)payload);
+		*payload_len_out = MIN(payload_len, (size_t)states[0].payload - (size_t)payload);
 	}
 
 	if (!ret) {

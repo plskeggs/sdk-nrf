@@ -17,16 +17,17 @@
 
 static bool encode_pgps_resp(zcbor_state_t *state, const struct pgps_resp *input);
 
-
-static bool encode_pgps_resp(
-		zcbor_state_t *state, const struct pgps_resp *input)
+static bool encode_pgps_resp(zcbor_state_t *state, const struct pgps_resp *input)
 {
 	zcbor_print("%s\r\n", __func__);
 
-	bool tmp_result = (((zcbor_map_start_encode(state, 2) && (((((zcbor_uint32_put(state, (1))))
-	&& (zcbor_tstr_encode(state, (&(*input)._pgps_resp_host))))
-	&& (((zcbor_uint32_put(state, (2))))
-	&& (zcbor_tstr_encode(state, (&(*input)._pgps_resp_path))))) || (zcbor_list_map_end_force_encode(state), false)) && zcbor_map_end_encode(state, 2))));
+	bool tmp_result = (((zcbor_map_start_encode(state, 2) &&
+			     (((((zcbor_uint32_put(state, (1)))) &&
+				(zcbor_tstr_encode(state, (&(*input)._pgps_resp_host)))) &&
+			       (((zcbor_uint32_put(state, (2)))) &&
+				(zcbor_tstr_encode(state, (&(*input)._pgps_resp_path))))) ||
+			      (zcbor_list_map_end_force_encode(state), false)) &&
+			     zcbor_map_end_encode(state, 2))));
 
 	if (!tmp_result)
 		zcbor_trace();
@@ -34,12 +35,8 @@ static bool encode_pgps_resp(
 	return tmp_result;
 }
 
-
-
-int cbor_encode_pgps_resp(
-		uint8_t *payload, size_t payload_len,
-		const struct pgps_resp *input,
-		size_t *payload_len_out)
+int cbor_encode_pgps_resp(uint8_t *payload, size_t payload_len, const struct pgps_resp *input,
+			  size_t *payload_len_out)
 {
 	zcbor_state_t states[3];
 
@@ -48,8 +45,7 @@ int cbor_encode_pgps_resp(
 	bool ret = encode_pgps_resp(states, input);
 
 	if (ret && (payload_len_out != NULL)) {
-		*payload_len_out = MIN(payload_len,
-				(size_t)states[0].payload - (size_t)payload);
+		*payload_len_out = MIN(payload_len, (size_t)states[0].payload - (size_t)payload);
 	}
 
 	if (!ret) {

@@ -9,6 +9,9 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/net/coap.h>
+#if defined(CONFIG_COAP_ASYNC_CLIENT)
+#include <zephyr/net/coap_client.h>
+#endif
 #include <zephyr/net/socket.h>
 #include <modem/lte_lc.h>
 #include <zephyr/random/rand32.h>
@@ -40,6 +43,8 @@ static struct sockaddr_storage server;
 
 static int sock;
 static struct pollfd fds;
+static bool initialized;
+static bool authorized;
 
 static struct connection_info
 {
@@ -100,6 +105,14 @@ static uint16_t next_token;
 
 static K_SEM_DEFINE(ready_sem, 0, 1);
 static K_SEM_DEFINE(con_ack_sem, 0, 1);
+static int client_handle_response(uint8_t *buf, int received);
+static int client_receive(int timeout);
+static int client_wait_ack(int wait_ms);
+
+bool client_is_authorized(void)
+{
+	return authorized;
+}
 
 /**@brief Resolves the configured hostname. */
 static int server_resolve(void)
@@ -160,6 +173,7 @@ int client_init(void)
 {
 	int err;
 
+	authorized = false;
 	sys_dlist_init(&con_messages);
 
 	err = server_resolve();
@@ -210,6 +224,12 @@ int client_init(void)
 	/* Randomize token. */
 	next_token = sys_rand32_get();
 
+	initialized = true;
+	return err;
+}
+
+int client_connect(int wait_ms)
+{
 #if !defined(CONFIG_NRF_CLOUD_COAP_DTLS_PSK)
 	LOG_DBG("Generate JWT");
 #if !defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
@@ -238,8 +258,16 @@ int client_init(void)
 	err = client_post_send("auth/jwt", err ? NULL : ver_string,
 			       (uint8_t *)jwt, strlen(jwt),
 			       COAP_CONTENT_FORMAT_TEXT_PLAIN, true, NULL, NULL);
-
+	if (err) {
+		return err;
+	}
 	k_sem_give(&ready_sem);
+
+	err = client_wait_ack(wait_ms);
+	if (!err) {
+		LOG_INF("Authorized.");
+		authorized = true;
+	}
 #endif
 	return err;
 }
@@ -262,7 +290,7 @@ int client_provision(bool force)
  * Returns -EAGAIN if timeout occured and there is no data.
  * Returns other, negative error code in case of poll error.
  */
-int client_wait_data(int timeout)
+static int client_wait_data(int timeout)
 {
 	int ret = poll(&fds, 1, timeout);
 
@@ -293,7 +321,7 @@ int client_wait_data(int timeout)
 	return 0;
 }
 
-int client_wait_ack(int wait_ms)
+static int client_wait_ack(int wait_ms)
 {
 	int err;
 
@@ -305,7 +333,7 @@ int client_wait_ack(int wait_ms)
 	return err;
 }
 
-int client_receive(int timeout)
+static int client_receive(int timeout)
 {
 	int err;
 	int received;
@@ -472,7 +500,7 @@ static int find_response(uint8_t *token, uint16_t token_len, uint16_t message_id
 }
 
 /**@brief Handles responses from the remote CoAP server. */
-int client_handle_response(uint8_t *buf, int received)
+static int client_handle_response(uint8_t *buf, int received)
 {
 	int err;
 	struct coap_packet reply;

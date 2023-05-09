@@ -22,12 +22,11 @@
  */
 #define DEFAULT_MAX_QTY 10
 
-struct pgps_req {
-	uint32_t _pgps_req_predictionCount;
-	uint32_t _pgps_req_predictionIntervalMinutes;
-	uint32_t _pgps_req_startGPSDay;
-	uint32_t _pgps_req_startGPSTimeOfDaySeconds;
+struct pgps_req {
+	uint32_t _pgps_req_predictionCount;
+	uint32_t _pgps_req_predictionIntervalMinutes;
+	uint32_t _pgps_req_startGPSDay;
+	uint32_t _pgps_req_startGPSTimeOfDaySeconds;
 };
-
 
 #endif /* PGPS_ENCODE_TYPES_H__ */

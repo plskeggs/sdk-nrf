@@ -18,11 +18,7 @@
 #error "The type file was generated with a different default_max_qty than this file"
 #endif
 
-
-int cbor_encode_message_out(
-		uint8_t *payload, size_t payload_len,
-		const struct message_out *input,
-		size_t *payload_len_out);
-
+int cbor_encode_message_out(uint8_t *payload, size_t payload_len, const struct message_out *input,
+			    size_t *payload_len_out);
 
 #endif /* MSG_ENCODE_H__ */

@@ -23,16 +23,11 @@ int client_get_sock(void);
 
 int client_init(void);
 
+int client_connect(int wait_ms);
+
+bool client_is_authorized(void);
+
 int client_provision(bool force);
-
-int client_wait_data(int timeout);
-
-int client_wait_ack(int wait_ms);
-
-int client_receive(int timeout);
-
-/**@brief Handles responses from the remote CoAP server. */
-int client_handle_response(uint8_t *buf, int received);
 
 /**@brief Send CoAP GET request. */
 int client_get_send(const char *resource, const char *query,

@@ -69,7 +69,7 @@ static char device_id[NRF_CLOUD_CLIENT_ID_MAX_LEN];
 /* Type of data to be sent in the cellular positioning request */
 enum nrf_cloud_location_type active_cell_pos_type = LOCATION_TYPE_SINGLE_CELL;
 
-static bool authorized = false;
+static bool authorized;
 
 /* Search type used for neighbor cell measurements; modem FW version depenedent */
 static enum lte_lc_neighbor_search_type search_type =
@@ -380,12 +380,9 @@ static void modem_configure(void)
 	check_modem_fw_version();
 }
 
+#if defined(DELAY_INTERPACKET_PERIOD) || (APP_COAP_SEND_INTERVAL_MS >= APP_COAP_CONNECTION_CHECK_MS)
 static void check_connection(void)
 {
-#if !defined(DELAY_INTERPACKET_PERIOD) && (APP_COAP_SEND_INTERVAL_MS < APP_COAP_CONNECTION_CHECK_MS)
-	return;
-#endif
-
 	static int64_t next_keep_serial_alive_time;
 	char scratch_buf[256];
 	int err;
@@ -400,6 +397,7 @@ static void check_connection(void)
 		}
 	}
 }
+#endif
 
 int init(void)
 {
@@ -438,6 +436,15 @@ int init(void)
 	if (err) {
 		LOG_ERR("Failed to initialize CoAP client: %d", err);
 		return err;
+	}
+
+	err = client_connect(APP_COAP_JWT_ACK_WAIT_MS);
+	if (err) {
+		LOG_ERR("Failed to connect and get authorized: %d", err);
+	}
+	authorized = client_is_authorized();
+	if (authorized) {
+		get_cell_info();
 	}
 
 	err = nrf_cloud_coap_init(device_id);
@@ -626,7 +633,7 @@ int do_next_test(void)
 }
 
 
-void main(void)
+int main(void)
 {
 	int64_t next_msg_time;
 	int delta_ms = APP_COAP_SEND_INTERVAL_MS;
@@ -656,9 +663,20 @@ void main(void)
 					LOG_ERR("Error going online: %d", err);
 				} else {
 					k_sem_take(&lte_ready, K_FOREVER);
-					if (client_init() != 0) {
+					err = client_init();
+					if (err) {
 						LOG_ERR("Failed to initialize CoAP client");
-						return;
+						break;
+					}
+					err = client_connect(APP_COAP_JWT_ACK_WAIT_MS);
+					if (err) {
+						LOG_ERR("Failed to connect and get authorized: %d",
+							err);
+						break;
+					}
+					authorized = client_is_authorized();
+					if (authorized) {
+						get_cell_info();
 					}
 				}
 			}
@@ -690,20 +708,13 @@ void main(void)
 			if (++i > APP_COAP_INTERVAL_LIMIT) {
 				i = APP_COAP_INTERVAL_LIMIT;
 			}
+			check_connection();
 #endif
 #if defined(CONFIG_COAP_DTLS) || defined(CONFIG_NRF_CLOUD_COAP_DTLS)
 			dtls_print_connection_id(client_get_sock(), false);
 #endif
 		}
-
-		if (!err && !authorized) {
-			err = client_wait_ack(APP_COAP_JWT_ACK_WAIT_MS);
-			if (!err) {
-				LOG_INF("Authorization received");
-				authorized = true;
-				get_cell_info();
-			}
-		}
 	}
 	client_close();
+	return err;
 }

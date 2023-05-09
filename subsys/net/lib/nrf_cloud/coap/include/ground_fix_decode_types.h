@@ -22,19 +22,18 @@
  */
 #define DEFAULT_MAX_QTY 10
 
-struct ground_fix_resp {
-	double _ground_fix_resp_lat;
-	double _ground_fix_resp_lon;
-	union {
-		int32_t _ground_fix_resp_uncertainty_int;
-		double _ground_fix_resp_uncertainty_float;
-	};
-	enum {
-		_ground_fix_resp_uncertainty_int,
-		_ground_fix_resp_uncertainty_float,
-	} _ground_fix_resp_uncertainty_choice;
-	struct zcbor_string _ground_fix_resp_fulfilledWith;
+struct ground_fix_resp {
+	double _ground_fix_resp_lat;
+	double _ground_fix_resp_lon;
+	union {
+		int32_t _ground_fix_resp_uncertainty_int;
+		double _ground_fix_resp_uncertainty_float;
+	};
+	enum {
+		_ground_fix_resp_uncertainty_int,
+		_ground_fix_resp_uncertainty_float,
+	} _ground_fix_resp_uncertainty_choice;
+	struct zcbor_string _ground_fix_resp_fulfilledWith;
 };
-
 
 #endif /* GROUND_FIX_DECODE_TYPES_H__ */

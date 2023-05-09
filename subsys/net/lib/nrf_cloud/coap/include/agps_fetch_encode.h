@@ -18,11 +18,7 @@
 #error "The type file was generated with a different default_max_qty than this file"
 #endif
 
-
-int cbor_encode_agps(
-		uint8_t *payload, size_t payload_len,
-		const struct agps *input,
-		size_t *payload_len_out);
-
+int cbor_encode_agps(uint8_t *payload, size_t payload_len, const struct agps *input,
+		     size_t *payload_len_out);
 
 #endif /* AGPS_FETCH_ENCODE_H__ */

@@ -22,10 +22,9 @@
  */
 #define DEFAULT_MAX_QTY 10
 
-struct pgps_resp {
-	struct zcbor_string _pgps_resp_host;
-	struct zcbor_string _pgps_resp_path;
+struct pgps_resp {
+	struct zcbor_string _pgps_resp_host;
+	struct zcbor_string _pgps_resp_path;
 };
-
 
 #endif /* PGPS_DECODE_TYPES_H__ */
