@@ -238,6 +238,8 @@ enum nrf_cloud_sensor {
 	NRF_CLOUD_LTE_LINK_RSRP,
 	/** Log messages generated on the device. */
 	NRF_CLOUD_LOG,
+	/** Log messages generated on the device in dictionary (binary) format. */
+	NRF_CLOUD_DICTIONARY_LOG,
 	/** The descriptive DEVICE data indicating its status. */
 	NRF_CLOUD_DEVICE_INFO,
 	/** The light sensor on the device. */
@@ -440,7 +442,9 @@ struct nrf_cloud_svc_info_ui {
 	/** RSRP */
 	uint8_t rsrp:1;
 	/** Logs */
-	uint8_t logs:1;
+	uint8_t log:1;
+	/** Dictionary (binary) Logs */
+	uint8_t dictionary_log:1;
 
 	/* Items without UI support on nRF Cloud */
 	/** Air Quality */
