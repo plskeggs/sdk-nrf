@@ -321,6 +321,16 @@ void nrf_cloud_pgps_request_reset(void);
  */
 int nrf_cloud_pgps_process(const char *buf, size_t buf_len);
 
+/** @brief Processes binary P-GPS data received from nRF Cloud over MQTT or REST.
+ *
+ * @param file_location Pointer to structure holding the hostname and filename.
+ *
+ * @retval 0 A-GPS data successfully processed.
+ * @retval -EFAULT An nRF Cloud P-GPS error code was processed.
+ * @return A negative value indicates an error.
+ */
+int nrf_cloud_pgps_update(struct nrf_cloud_pgps_result *file_location);
+
 /** @brief Injects binary P-GPS data to the modem. If request is NULL,
  * it is assumed that only ephemerides assistance should be injected.
  *

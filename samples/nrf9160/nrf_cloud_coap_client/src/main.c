@@ -44,7 +44,7 @@ LOG_MODULE_REGISTER(nrf_cloud_coap_client, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVE
 //#define COAP_POC
 
 /* Uncomment to incrementally increase time between coap packets */
-#define DELAY_INTERPACKET_PERIOD
+/* #define DELAY_INTERPACKET_PERIOD */
 
 /* Open and close socket every cycle */
 /* #define OPEN_AND_SHUT */
@@ -502,32 +502,6 @@ int do_next_test(void)
 
 	switch (cur_test) {
 	case 1:
-		LOG_INF("******** %d. Sending temperature", cur_test);
-		err = nrf_cloud_coap_send_sensor(NRF_CLOUD_JSON_APPID_VAL_TEMP, temp);
-		if (err) {
-			LOG_ERR("Error sending sensor data: %d", err);
-			break;
-		}
-		temp += 0.1;
-		break;
-	case 2:
-		LOG_INF("******** %d. Getting pending FOTA job execution", cur_test);
-		err = nrf_cloud_coap_get_current_fota_job(&job);
-		if (err) {
-			LOG_ERR("Failed to request pending FOTA job: %d", err);
-		} else {
-			LOG_INF("******** %d. Updating FOTA job status", cur_test);
-			/* process the job */
-			err = nrf_cloud_coap_fota_job_update(job.id, NRF_CLOUD_FOTA_REJECTED,
-						"Connection to rest of NCS FOTA not yet enabled.");
-			if (err) {
-				LOG_ERR("Unable to reject job: %d", err);
-			} else {
-				LOG_WRN("Rejected job because FOTA not hooked up yet.");
-			}
-		}
-		break;
-	case 3:
 		LOG_INF("******** %d. Getting A-GPS data", cur_test);
 		memset(&agps_request, 0, sizeof(agps_request));
 		memset(&agps_req, 0, sizeof(agps_req));
@@ -546,41 +520,7 @@ int do_next_test(void)
 			/* Process the data once it arrives... */
 		}
 		break;
-	case 4:
-		LOG_INF("******** %d. Getting P-GPS data", cur_test);
-		memset(&pgps_request, 0, sizeof(pgps_request));
-		memset(&pgps_res, 0, sizeof(pgps_res));
-		pgps_req.gps_day = 0;
-		pgps_req.gps_time_of_day = 0;
-		pgps_req.prediction_count = 4;
-		pgps_req.prediction_period_min = 240;
-		pgps_request.pgps_req = &pgps_req;
-		pgps_res.host = host;
-		pgps_res.host_sz = sizeof(host);
-		pgps_res.path = path;
-		pgps_res.path_sz = sizeof(path);
-		err = nrf_cloud_coap_pgps(&pgps_request, &pgps_res);
-		if (err) {
-			LOG_ERR("Failed to request P-GPS: %d", err);
-		} else {
-			LOG_INF("P-GPS host:%s, path:%s", pgps_res.host, pgps_res.path);
-			err = nrf_cloud_pgps_process(payload, len);
-			if (err) {
-				nrf_cloud_pgps_request_reset();
-				LOG_ERR("P-GPS data processing failed, error: %d", err);
-				return;
-			}
-
-			LOG_DBG("P-GPS data processed");
-			err = nrf_cloud_pgps_notify_prediction();
-			if (err) {
-				LOG_ERR("GNSS: Failed to request current prediction, error: %d", err);
-			} else {
-				LOG_DBG("P-GPS prediction requested");
-			}
-		}
-		break;
-	case 5:
+	case 2:
 		LOG_INF("******** %d. Getting position", cur_test);
 		LOG_INF("Waiting for neighbor cells..");
 		err = k_sem_take(&cell_info_ready_sem, K_SECONDS(APP_WAIT_CELLS_S));
@@ -629,6 +569,66 @@ int do_next_test(void)
 			pvt.accuracy = result.unc;
 		}
 		request_cells = true;
+		break;
+	case 3:
+		LOG_INF("******** %d. Sending temperature", cur_test);
+		err = nrf_cloud_coap_send_sensor(NRF_CLOUD_JSON_APPID_VAL_TEMP, temp);
+		if (err) {
+			LOG_ERR("Error sending sensor data: %d", err);
+			break;
+		}
+		temp += 0.1;
+		break;
+	case 4:
+		LOG_INF("******** %d. Getting pending FOTA job execution", cur_test);
+		err = nrf_cloud_coap_get_current_fota_job(&job);
+		if (err) {
+			LOG_ERR("Failed to request pending FOTA job: %d", err);
+		} else {
+			LOG_INF("******** %d. Updating FOTA job status", cur_test);
+			/* process the job */
+			err = nrf_cloud_coap_fota_job_update(job.id, NRF_CLOUD_FOTA_REJECTED,
+						"Connection to rest of NCS FOTA not yet enabled.");
+			if (err) {
+				LOG_ERR("Unable to reject job: %d", err);
+			} else {
+				LOG_WRN("Rejected job because FOTA not hooked up yet.");
+			}
+		}
+		break;
+	case 5:
+		LOG_INF("******** %d. Getting P-GPS data", cur_test);
+		memset(&pgps_request, 0, sizeof(pgps_request));
+		memset(&pgps_res, 0, sizeof(pgps_res));
+		pgps_req.gps_day = 0;
+		pgps_req.gps_time_of_day = 0;
+		pgps_req.prediction_count = 4;
+		pgps_req.prediction_period_min = 240;
+		pgps_request.pgps_req = &pgps_req;
+		pgps_res.host = host;
+		pgps_res.host_sz = sizeof(host);
+		pgps_res.path = path;
+		pgps_res.path_sz = sizeof(path);
+		err = nrf_cloud_coap_pgps(&pgps_request, &pgps_res);
+		if (err) {
+			LOG_ERR("Failed to request P-GPS: %d", err);
+			break;
+		}
+		LOG_INF("P-GPS host:%s, path:%s", pgps_res.host, pgps_res.path);
+		err = nrf_cloud_pgps_update(&pgps_res);
+		if (err) {
+			nrf_cloud_pgps_request_reset();
+			LOG_ERR("P-GPS data processing failed, error: %d", err);
+			break;
+		}
+
+		LOG_DBG("P-GPS data processed");
+		err = nrf_cloud_pgps_notify_prediction();
+		if (err) {
+			LOG_ERR("GNSS: Failed to request current prediction, error: %d", err);
+		} else {
+			LOG_DBG("P-GPS prediction requested");
+		}
 		break;
 	case 6:
 		LOG_INF("******** %d. Sending GNSS PVT", cur_test);
