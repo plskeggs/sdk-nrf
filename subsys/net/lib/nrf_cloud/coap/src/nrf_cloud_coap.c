@@ -52,12 +52,31 @@ static int64_t get_ts(void)
 static K_SEM_DEFINE(agps_sem, 0, 1);
 static int agps_err;
 
+#if defined(CONFIG_COAP_ASYNC_CLIENT)
+void get_agps(uint8_t result_code,
+	      size_t offset, const uint8_t *payload, size_t len,
+	      bool last_block, void *user_data)
+{
+	LOG_INF("result_code:0x%X, offset:0x%X, len:0x%X, last_block:%d",
+		result_code, offset, len, last_block);
+	if (result_code != COAP_RESPONSE_CODE_CONTENT) {
+		agps_err = result_code;
+		return;
+	}
+	agps_err = nrf_cloud_agps_process(payload, len);
+	k_sem_give(&agps_sem);
+}
+#else
 static int get_agps(const void *buf, size_t len, enum coap_content_format fmt, void *user)
 {
 	agps_err = coap_codec_decode_agps_resp(user, buf, len, fmt);
+	if (!agps_err) {
+		agps_err = nrf_cloud_agps_process(payload, len);
+	}
 	k_sem_give(&agps_sem);
 	return agps_err;
 }
+#endif
 
 int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request,
 			struct nrf_cloud_rest_agps_result *result)
@@ -107,12 +126,28 @@ int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request,
 static K_SEM_DEFINE(pgps_sem, 0, 1);
 static int pgps_err;
 
+#if defined(CONFIG_COAP_ASYNC_CLIENT)
+void get_pgps(uint8_t result_code,
+	      size_t offset, const uint8_t *payload, size_t len,
+	      bool last_block, void *user_data)
+{
+	LOG_INF("result_code:0x%X, offset:0x%X, len:0x%X, last_block:%d",
+		result_code, offset, len, last_block);
+	if (result_code != COAP_RESPONSE_CODE_CONTENT) {
+		pgps_err = result_code;
+	} else {
+		pgps_err = coap_codec_decode_pgps_resp(user, buf, len, COAP_CONTENT_FORMAT_APP_JSON);
+	}
+	k_sem_give(&pgps_sem);
+}
+#else
 static int get_pgps(const void *buf, size_t len, enum coap_content_format fmt, void *user)
 {
-	pgps_err = coap_codec_decode_pgps_resp(user, buf, len, fmt);
 	k_sem_give(&pgps_sem);
-	return pgps_err;
+	pgps_err = 0;
+	return;
 }
+#endif
 
 int nrf_cloud_coap_pgps(struct nrf_cloud_rest_pgps_request const *const request,
 			struct nrf_cloud_pgps_result *result)
@@ -201,12 +236,29 @@ int nrf_cloud_coap_send_gnss_pvt(const struct nrf_cloud_gnss_pvt *pvt)
 static K_SEM_DEFINE(loc_sem, 0, 1);
 static int loc_err;
 
+#if defined(CONFIG_COAP_ASYNC_CLIENT)
+void get_location(uint8_t result_code,
+		  size_t offset, const uint8_t *payload, size_t len,
+		  bool last_block, void *user_data)
+{
+	LOG_INF("result_code:0x%X, offset:0x%X, len:0x%X, last_block:%d",
+		result_code, offset, len, last_block);
+	if (result_code != COAP_RESPONSE_CODE_CONTENT) {
+		loc_err = result_code;
+	} else {
+		loc_err = coap_codec_decode_ground_fix_resp(user, payload, len,
+							    COAP_CONTENT_FORMAT_APP_CBOR);
+	}
+	k_sem_give(&loc_sem);
+}
+#else
 static int get_location(const void *buf, size_t len, enum coap_content_format fmt, void *user)
 {
 	loc_err = coap_codec_decode_ground_fix_resp(user, buf, len, fmt);
 	k_sem_give(&loc_sem);
 	return loc_err;
 }
+#endif
 
 int nrf_cloud_coap_get_location(struct lte_lc_cells_info const *const cell_info,
 				struct wifi_scan_info const *const wifi_info,
@@ -249,6 +301,22 @@ int nrf_cloud_coap_get_location(struct lte_lc_cells_info const *const cell_info,
 static K_SEM_DEFINE(fota_sem, 0, 1);
 static int fota_err;
 
+#if defined(CONFIG_COAP_ASYNC_CLIENT)
+void get_fota(uint8_t result_code,
+	      size_t offset, const uint8_t *payload, size_t len,
+	      bool last_block, void *user_data)
+{
+	LOG_INF("result_code:0x%X, offset:0x%X, len:0x%X, last_block:%d",
+		result_code, offset, len, last_block);
+	if (result_code != COAP_RESPONSE_CODE_CONTENT) {
+		fota_err = result_code;
+	} else {
+		LOG_INF("Got FOTA response: %.*s", len, (const char *)payload);
+		fota_err = coap_codec_decode_fota_resp(user, payload, len, fmt);
+	}
+	k_sem_give(&fota_sem);
+}
+#else
 static int get_fota(const void *buf, size_t len, enum coap_content_format fmt, void *user)
 {
 	LOG_INF("Got FOTA response: %.*s", len, (const char *)buf);
@@ -256,6 +324,7 @@ static int get_fota(const void *buf, size_t len, enum coap_content_format fmt, v
 	k_sem_give(&fota_sem);
 	return fota_err;
 }
+#endif
 
 int nrf_cloud_coap_get_current_fota_job(struct nrf_cloud_fota_job_info *const job)
 {

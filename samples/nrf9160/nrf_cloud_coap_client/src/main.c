@@ -564,6 +564,20 @@ int do_next_test(void)
 			LOG_ERR("Failed to request P-GPS: %d", err);
 		} else {
 			LOG_INF("P-GPS host:%s, path:%s", pgps_res.host, pgps_res.path);
+			err = nrf_cloud_pgps_process(payload, len);
+			if (err) {
+				nrf_cloud_pgps_request_reset();
+				LOG_ERR("P-GPS data processing failed, error: %d", err);
+				return;
+			}
+
+			LOG_DBG("P-GPS data processed");
+			err = nrf_cloud_pgps_notify_prediction();
+			if (err) {
+				LOG_ERR("GNSS: Failed to request current prediction, error: %d", err);
+			} else {
+				LOG_DBG("P-GPS prediction requested");
+			}
 		}
 		break;
 	case 5:

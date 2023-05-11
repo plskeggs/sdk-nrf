@@ -54,8 +54,11 @@ static struct connection_info
 
 static uint8_t coap_buf[APP_COAP_MAX_MSG_LEN];
 
+#if !defined(CONFIG_COAP_ASYNC_CLIENT)
+
 static sys_dlist_t con_messages;
 static int num_con_messages;
+static uint16_t next_token;
 
 struct nrf_cloud_coap_message {
 	sys_dnode_t node;
@@ -81,6 +84,10 @@ static const char *coap_types[] = {
 	"CON", "NON", "ACK", "RST", NULL
 };
 
+static K_SEM_DEFINE(ready_sem, 0, 1);
+
+#endif
+
 struct content_type {
 	int type;
 	bool text;
@@ -101,9 +108,7 @@ static const struct content_type coap_content_types[] = {
 };
 
 static char jwt[700];
-static uint16_t next_token;
 
-static K_SEM_DEFINE(ready_sem, 0, 1);
 static K_SEM_DEFINE(con_ack_sem, 0, 1);
 static int client_handle_response(uint8_t *buf, int received);
 static int client_receive(int timeout);
@@ -174,8 +179,17 @@ int client_init(void)
 	int err;
 
 	authorized = false;
+#if !defined(CONFIG_COAP_ASYNC_CLIENT)
 	sys_dlist_init(&con_messages);
-
+	/* Randomize token. */
+	next_token = sys_rand32_get();
+#else
+	err = coap_client_init(&coap_client, NULL);
+	if (err) {
+		LOG_ERR("Failed to initialize coap client: %d", err);
+		return err;
+	}
+#endif
 	err = server_resolve();
 	if (err) {
 		LOG_ERR("Failed to resolve server name: %d", err);
@@ -221,12 +235,23 @@ int client_init(void)
 	fds.fd = sock;
 	fds.events = POLLIN;
 
-	/* Randomize token. */
-	next_token = sys_rand32_get();
-
 	initialized = true;
 	return err;
 }
+
+#if defined(CONFIG_COAP_ASYNC_CLIENT)
+void auth_cb(uint8_t result_code, size_t offset, const uint8_t *payload, size_t len,
+	     bool last_block, void *user_data)
+{
+	LOG_INF("result_code:0x%X", result_code);
+	k_sem_give(&con_ack_sem);
+}
+#else
+int auth_cb(const void *buf, size_t len, enum coap_content_format format, void *user)
+{
+	LOG_INF("received");
+}
+#endif
 
 int client_connect(int wait_ms)
 {
@@ -257,10 +282,11 @@ int client_connect(int wait_ms)
 	LOG_DBG("Send JWT");
 	err = client_post_send("auth/jwt", err ? NULL : ver_string,
 			       (uint8_t *)jwt, strlen(jwt),
-			       COAP_CONTENT_FORMAT_TEXT_PLAIN, true, NULL, NULL);
+			       COAP_CONTENT_FORMAT_TEXT_PLAIN, true, auth_cb, NULL);
 	if (err) {
 		return err;
 	}
+#if !defined(CONFIG_COAP_ASYNC_CLIENT)
 	k_sem_give(&ready_sem);
 
 	err = client_wait_ack(wait_ms);
@@ -285,6 +311,20 @@ int client_provision(bool force)
 	}
 	return err;
 }
+
+static int client_wait_ack(int wait_ms)
+{
+	int err;
+
+	LOG_DBG("Wait for ACK");
+	err = k_sem_take(&con_ack_sem, K_MSEC(wait_ms));
+	if (err) {
+		LOG_ERR("Error waiting for JWT ACK: %d", err);
+	}
+	return err;
+}
+
+#if !defined(CONFIG_COAP_ASYNC_CLIENT)
 
 /* Returns 0 if data is available.
  * Returns -EAGAIN if timeout occured and there is no data.
@@ -319,18 +359,6 @@ static int client_wait_data(int timeout)
 	}
 
 	return 0;
-}
-
-static int client_wait_ack(int wait_ms)
-{
-	int err;
-
-	LOG_DBG("Wait for ACK");
-	err = k_sem_take(&con_ack_sem, K_MSEC(wait_ms));
-	if (err) {
-		LOG_ERR("Error waiting for JWT ACK: %d", err);
-	}
-	return err;
 }
 
 static int client_receive(int timeout)
@@ -784,6 +812,45 @@ static int client_send(enum coap_method method, const char *resource, const char
 
 	return 0;
 }
+#else
+static int client_send(enum coap_method method, const char *resource, const char *query,
+		       uint8_t *buf, size_t buf_len,
+		       enum coap_content_format fmt_out,
+		       enum coap_content_format fmt_in,
+		       bool response_expected,
+		       bool reliable,
+		       coap_client_response_cb_t cb, void *user)
+{
+	int err;
+	struct coap_client coap_client;
+	char path[256];
+	struct coap_client_request request = {
+		.method = method,
+		.confirmable = reliable,
+		.path = path,
+		.fmt = fmt_out,
+		.cb = cb,
+		.payload = buf,
+		.len = buf_len
+	};
+
+	strncpy(path, resource, sizeof(path));
+	if (query) {
+		strncat(path, '?', sizeof(path));
+		strncat(path, query, sizeof(path));
+	}
+
+	while ((err = coap_client_req(&coap_client, sock, addr, &request, -1)) == -EAGAIN) {
+		LOG_INF("CoAP client busy");
+		k_sleep(K_MSEC(500));
+	}
+
+	if (err) {
+		LOG_ERR("Error sending CoAP request: %d", err);
+	}
+	return err;
+}
+#endif
 
 /**@brief Send CoAP GET request. */
 int client_get_send(const char *resource, const char *query,
