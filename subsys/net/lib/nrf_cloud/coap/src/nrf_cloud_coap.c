@@ -91,6 +91,8 @@ int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request,
 		LOG_ERR("Unable to encode A-GPS request: %d", err);
 		return err;
 	}
+
+#if defined(CONFIG_COAP_ASYNC_CLIENT)
 	if (query_string) {
 		err = client_get_send("loc/agps", (const char *)buffer,
 				      NULL, 0, COAP_CONTENT_FORMAT_APP_CBOR,
@@ -100,6 +102,17 @@ int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request,
 				      buffer, len, COAP_CONTENT_FORMAT_APP_CBOR,
 				      COAP_CONTENT_FORMAT_APP_CBOR, get_agps, result);
 	}
+#else
+	if (query_string) {
+		err = client_get_send("loc/agps", (const char *)buffer,
+				      NULL, 0, COAP_CONTENT_FORMAT_APP_CBOR,
+				      COAP_CONTENT_FORMAT_APP_CBOR, get_agps, result);
+	} else {
+		err = client_fetch_send("loc/agps", NULL,
+				      buffer, len, COAP_CONTENT_FORMAT_APP_CBOR,
+				      COAP_CONTENT_FORMAT_APP_CBOR, get_agps, result);
+	}
+#endif
 
 	if (err) {
 		LOG_ERR("Failed to send GET request: %d", err);
@@ -129,14 +142,14 @@ static int pgps_err;
 #if defined(CONFIG_COAP_ASYNC_CLIENT)
 void get_pgps(uint8_t result_code,
 	      size_t offset, const uint8_t *payload, size_t len,
-	      bool last_block, void *user_data)
+	      bool last_block, void *user)
 {
 	LOG_INF("result_code:0x%X, offset:0x%X, len:0x%X, last_block:%d",
 		result_code, offset, len, last_block);
 	if (result_code != COAP_RESPONSE_CODE_CONTENT) {
 		pgps_err = result_code;
 	} else {
-		pgps_err = coap_codec_decode_pgps_resp(user, buf, len, COAP_CONTENT_FORMAT_APP_JSON);
+		pgps_err = coap_codec_decode_pgps_resp(user, payload, len, COAP_CONTENT_FORMAT_APP_JSON);
 	}
 	k_sem_give(&pgps_sem);
 }
@@ -239,7 +252,7 @@ static int loc_err;
 #if defined(CONFIG_COAP_ASYNC_CLIENT)
 void get_location(uint8_t result_code,
 		  size_t offset, const uint8_t *payload, size_t len,
-		  bool last_block, void *user_data)
+		  bool last_block, void *user)
 {
 	LOG_INF("result_code:0x%X, offset:0x%X, len:0x%X, last_block:%d",
 		result_code, offset, len, last_block);
@@ -304,7 +317,7 @@ static int fota_err;
 #if defined(CONFIG_COAP_ASYNC_CLIENT)
 void get_fota(uint8_t result_code,
 	      size_t offset, const uint8_t *payload, size_t len,
-	      bool last_block, void *user_data)
+	      bool last_block, void *user)
 {
 	LOG_INF("result_code:0x%X, offset:0x%X, len:0x%X, last_block:%d",
 		result_code, offset, len, last_block);
@@ -312,7 +325,8 @@ void get_fota(uint8_t result_code,
 		fota_err = result_code;
 	} else {
 		LOG_INF("Got FOTA response: %.*s", len, (const char *)payload);
-		fota_err = coap_codec_decode_fota_resp(user, payload, len, fmt);
+		fota_err = coap_codec_decode_fota_resp(user, payload, len,
+						       COAP_CONTENT_FORMAT_APP_JSON);
 	}
 	k_sem_give(&fota_sem);
 }

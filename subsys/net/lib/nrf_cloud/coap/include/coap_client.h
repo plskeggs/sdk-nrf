@@ -16,8 +16,13 @@ enum nrf_cloud_coap_response
 	NRF_CLOUD_COAP_FOTA_JOB
 };
 
+#if !defined(CONFIG_COAP_ASYNC_CLIENT)
 typedef int (*coap_callback)(const void *buf, size_t len, enum coap_content_format format,
 			     void *user);
+#else
+#include <zephyr/net/coap_client.h>
+typedef coap_client_response_cb_t coap_callback;
+#endif
 
 int client_get_sock(void);
 

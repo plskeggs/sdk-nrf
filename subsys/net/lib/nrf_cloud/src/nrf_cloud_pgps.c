@@ -878,8 +878,8 @@ int nrf_cloud_pgps_update(struct nrf_cloud_pgps_result *file_location)
 	}
 
 	if (!accept_packets) {
-		LOG_ERR("Ignoring packet; P-GPS response already received.");
-		LOG_HEXDUMP_INF(buf, buf_len, "Unexpected packet");
+		LOG_ERR("Ignoring packet (%s, %s); P-GPS response already received.",
+			file_location->host, file_location->path);
 		return -EINVAL;
 	}
 

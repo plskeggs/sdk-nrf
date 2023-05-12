@@ -86,6 +86,8 @@ static const char *coap_types[] = {
 
 static K_SEM_DEFINE(ready_sem, 0, 1);
 
+#else
+static struct coap_client coap_client;
 #endif
 
 struct content_type {
@@ -255,6 +257,8 @@ int auth_cb(const void *buf, size_t len, enum coap_content_format format, void *
 
 int client_connect(int wait_ms)
 {
+	int err;
+
 #if !defined(CONFIG_NRF_CLOUD_COAP_DTLS_PSK)
 	LOG_DBG("Generate JWT");
 #if !defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
@@ -294,6 +298,7 @@ int client_connect(int wait_ms)
 		LOG_INF("Authorized.");
 		authorized = true;
 	}
+#endif
 #endif
 	return err;
 }
@@ -822,7 +827,6 @@ static int client_send(enum coap_method method, const char *resource, const char
 		       coap_client_response_cb_t cb, void *user)
 {
 	int err;
-	struct coap_client coap_client;
 	char path[256];
 	struct coap_client_request request = {
 		.method = method,
@@ -836,14 +840,16 @@ static int client_send(enum coap_method method, const char *resource, const char
 
 	strncpy(path, resource, sizeof(path));
 	if (query) {
-		strncat(path, '?', sizeof(path));
+		strncat(path, "?", sizeof(path));
 		strncat(path, query, sizeof(path));
 	}
 
-	while ((err = coap_client_req(&coap_client, sock, addr, &request, -1)) == -EAGAIN) {
+	while ((err = coap_client_req(&coap_client, sock, NULL, &request, -1)) == -EAGAIN) {
 		LOG_INF("CoAP client busy");
 		k_sleep(K_MSEC(500));
 	}
+
+	LOG_HEXDUMP_ERR(coap_client.request.data, coap_client.request.offset, "request");
 
 	if (err) {
 		LOG_ERR("Error sending CoAP request: %d", err);
