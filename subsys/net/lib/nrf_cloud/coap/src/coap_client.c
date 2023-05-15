@@ -111,10 +111,11 @@ static const struct content_type coap_content_types[] = {
 
 static char jwt[700];
 
-static K_SEM_DEFINE(con_ack_sem, 0, 1);
 static int client_handle_response(uint8_t *buf, int received);
 static int client_receive(int timeout);
+#if !defined(CONFIG_COAP_ASYNC_CLIENT)
 static int client_wait_ack(int wait_ms);
+#endif
 
 bool client_is_authorized(void)
 {
@@ -186,6 +187,7 @@ int client_init(void)
 	/* Randomize token. */
 	next_token = sys_rand32_get();
 #else
+	LOG_INF("Initializing async coap client");
 	err = coap_client_init(&coap_client, NULL);
 	if (err) {
 		LOG_ERR("Failed to initialize coap client: %d", err);
@@ -245,13 +247,17 @@ int client_init(void)
 void auth_cb(uint8_t result_code, size_t offset, const uint8_t *payload, size_t len,
 	     bool last_block, void *user_data)
 {
-	LOG_INF("result_code:0x%X", result_code);
-	k_sem_give(&con_ack_sem);
+	LOG_INF("Authorization result_code:%u.02u", result_code / 32, result_code & 0x1f);
+	authorized = true;
 }
 #else
+static K_SEM_DEFINE(con_ack_sem, 0, 1);
+
 int auth_cb(const void *buf, size_t len, enum coap_content_format format, void *user)
 {
-	LOG_INF("received");
+	LOG_INF("Authorization received");
+	authorized = true;
+	return 0;
 }
 #endif
 
@@ -294,12 +300,11 @@ int client_connect(int wait_ms)
 	k_sem_give(&ready_sem);
 
 	err = client_wait_ack(wait_ms);
-	if (!err) {
-		LOG_INF("Authorized.");
-		authorized = true;
+#endif
+#endif
+    if (authorized) {
+		LOG_INF("Authorized");
 	}
-#endif
-#endif
 	return err;
 }
 
@@ -317,6 +322,8 @@ int client_provision(bool force)
 	return err;
 }
 
+#if !defined(CONFIG_COAP_ASYNC_CLIENT)
+
 static int client_wait_ack(int wait_ms)
 {
 	int err;
@@ -328,8 +335,6 @@ static int client_wait_ack(int wait_ms)
 	}
 	return err;
 }
-
-#if !defined(CONFIG_COAP_ASYNC_CLIENT)
 
 /* Returns 0 if data is available.
  * Returns -EAGAIN if timeout occured and there is no data.
@@ -818,6 +823,28 @@ static int client_send(enum coap_method method, const char *resource, const char
 	return 0;
 }
 #else
+static K_SEM_DEFINE(cb_sem, 0, 1);
+
+struct user_cb {
+	coap_client_response_cb_t cb;
+	void *user_data;
+};
+
+void client_callback(uint8_t result_code, size_t offset, const uint8_t *payload, size_t len,
+					  bool last_block, void *user_data)
+{
+	struct user_cb *user_cb = (struct user_cb *)user_data;
+
+	if (user_cb && user_cb->cb) {
+		user_cb->cb(result_code, offset, payload, len, last_block, user_cb->user_data);
+	}
+	k_sem_give(&cb_sem);
+	LOG_DBG("rc:%u.%02u, ofs:%u, lb:%u", result_code / 32, result_code & 0x1f, offset, last_block);
+	if (payload && len) {
+		LOG_HEXDUMP_DBG(payload, len, "payload received");
+	}
+}
+
 static int client_send(enum coap_method method, const char *resource, const char *query,
 		       uint8_t *buf, size_t buf_len,
 		       enum coap_content_format fmt_out,
@@ -828,14 +855,19 @@ static int client_send(enum coap_method method, const char *resource, const char
 {
 	int err;
 	char path[256];
+	struct user_cb user_cb = {
+		.cb = cb,
+		.user_data = user
+	};
 	struct coap_client_request request = {
 		.method = method,
 		.confirmable = reliable,
 		.path = path,
 		.fmt = fmt_out,
-		.cb = cb,
+		.cb = client_callback,
 		.payload = buf,
-		.len = buf_len
+		.len = buf_len,
+		.user_data = &user_cb
 	};
 
 	strncpy(path, resource, sizeof(path));
@@ -849,10 +881,11 @@ static int client_send(enum coap_method method, const char *resource, const char
 		k_sleep(K_MSEC(500));
 	}
 
-	LOG_HEXDUMP_ERR(coap_client.request.data, coap_client.request.offset, "request");
-
-	if (err) {
+	if (err < 0) {
 		LOG_ERR("Error sending CoAP request: %d", err);
+	} else {
+		LOG_INF("Sent %d bytes", err);
+		err = k_sem_take(&cb_sem, K_FOREVER);
 	}
 	return err;
 }

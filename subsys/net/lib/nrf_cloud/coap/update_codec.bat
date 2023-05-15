@@ -3,6 +3,6 @@ zcbor -c cddl\nrf_cloud_coap_ground_fix.cddl --default-max-qty 10 code -d -t gro
 zcbor -c cddl\nrf_cloud_coap_device_msg.cddl --default-max-qty 10 code -e -t message_out --oc src\msg_encode.c --oh include\msg_encode.h --oht include\msg_encode_types.h
 zcbor -c cddl\nrf_cloud_coap_agps.cddl       --default-max-qty 10 code -e -t agps_req --oc src\agps_encode.c --oh include\agps_encode.h --oht include\agps_encode_types.h
 zcbor -c cddl\nrf_cloud_coap_pgps.cddl       --default-max-qty 10 code -e -t pgps_req --oc src\pgps_encode.c --oh include\pgps_encode.h --oht include\pgps_encode_types.h
-zcbor -c cddl\nrf_cloud_coap_pgps.cddl       --default-max-qty 10 code -e -t pgps_resp --oc src\pgps_decode.c --oh include\pgps_decode.h --oht include\pgps_decode_types.h
+zcbor -c cddl\nrf_cloud_coap_pgps.cddl       --default-max-qty 10 code -d -t pgps_resp --oc src\pgps_decode.c --oh include\pgps_decode.h --oht include\pgps_decode_types.h
 
 rem zcbor -c cddl/nrf_cloud_coap_ground_fix.cddl -c cddl/nrf_cloud_coap_device_msg.cddl -c cddl/nrf_cloud_coap_agps.cddl -c cddl/nrf_cloud_coap_pgps.cddl --default-max-qty 10 code -e -t ground_fix_req ground_fix_resp message_out agps_req pgps_req pgps_resp --oc src\coap_encode.c --oh include\coap_encode.h --oht include\coap_encode_types.h

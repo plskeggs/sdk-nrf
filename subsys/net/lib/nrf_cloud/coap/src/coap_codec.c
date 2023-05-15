@@ -506,7 +506,6 @@ int coap_codec_encode_agps(struct nrf_cloud_rest_agps_request const *const reque
 	int ret;
 
 	if (fmt == COAP_CONTENT_FORMAT_APP_CBOR) {
-#if 1
 		struct agps_req input;
 		struct agps_req_types_ *t = &input._agps_req_types;
 		size_t out_len;
@@ -555,27 +554,7 @@ int coap_codec_encode_agps(struct nrf_cloud_rest_agps_request const *const reque
 		} else {
 			*len = out_len;
 		}
-#else
-		struct agps input;
-		struct agps_type_ *t = input.__agps_type;
-		struct lte_lc_cell *c = &request->net_info->current_cell;
-		size_t out_len;
-
-		memset(&input, 0, sizeof(struct agps));
-
-		t->_agps_type_choice = _agps_type__eci;
-		t->_agps_type__eci._eci_val = c->id;
-		t++;
-
-		t->_agps_type_choice = _agps_type__mcc;
-		t->_agps_type__mcc._mcc_val = c->mcc;
-		t++;
-
-		t->_agps_type_choice = _agps_type__mnc;
-		t->_agps_type__mnc._mnc_val = c->mnc;
-		t++;
-
-#endif
+		*query_string = false;
 	} else {
 		char *url = (char *)buf;
 		char custom_types[NRF_CLOUD_AGPS__LAST * 2];

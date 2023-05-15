@@ -502,23 +502,13 @@ int do_next_test(void)
 
 	switch (cur_test) {
 	case 1:
-		LOG_INF("******** %d. Getting A-GPS data", cur_test);
-		memset(&agps_request, 0, sizeof(agps_request));
-		memset(&agps_req, 0, sizeof(agps_req));
-		agps_request.type = NRF_CLOUD_REST_AGPS_REQ_ASSISTANCE;
-		agps_request.net_info = &cell_info;
-		agps_request.agps_req = &agps_req;
-		agps_req.data_flags = 0x3f;
-		agps_req.sv_mask_alm = 0xffffffff;
-		agps_req.sv_mask_ephe = 0xffffffff;
-		agps_res.buf = agps_buf;
-		agps_res.buf_sz = sizeof(agps_buf);
-		err = nrf_cloud_coap_agps(&agps_request, &agps_res);
+		LOG_INF("******** %d. Sending temperature", cur_test);
+		err = nrf_cloud_coap_send_sensor(NRF_CLOUD_JSON_APPID_VAL_TEMP, temp);
 		if (err) {
-			LOG_ERR("Failed to request A-GPS: %d", err);
-		} else {
-			/* Process the data once it arrives... */
+			LOG_ERR("Error sending sensor data: %d", err);
+			break;
 		}
+		temp += 0.1;
 		break;
 	case 2:
 		LOG_INF("******** %d. Getting position", cur_test);
@@ -571,15 +561,6 @@ int do_next_test(void)
 		request_cells = true;
 		break;
 	case 3:
-		LOG_INF("******** %d. Sending temperature", cur_test);
-		err = nrf_cloud_coap_send_sensor(NRF_CLOUD_JSON_APPID_VAL_TEMP, temp);
-		if (err) {
-			LOG_ERR("Error sending sensor data: %d", err);
-			break;
-		}
-		temp += 0.1;
-		break;
-	case 4:
 		LOG_INF("******** %d. Getting pending FOTA job execution", cur_test);
 		err = nrf_cloud_coap_get_current_fota_job(&job);
 		if (err) {
@@ -596,7 +577,7 @@ int do_next_test(void)
 			}
 		}
 		break;
-	case 5:
+	case 4:
 		LOG_INF("******** %d. Getting P-GPS data", cur_test);
 		memset(&pgps_request, 0, sizeof(pgps_request));
 		memset(&pgps_res, 0, sizeof(pgps_res));
@@ -630,12 +611,31 @@ int do_next_test(void)
 			LOG_DBG("P-GPS prediction requested");
 		}
 		break;
-	case 6:
+	case 5:
 		LOG_INF("******** %d. Sending GNSS PVT", cur_test);
 		err = nrf_cloud_coap_send_gnss_pvt(&pvt);
 		if (err) {
 			LOG_ERR("Error sending GNSS PVT data: %d", err);
 			break;
+		}
+		break;
+	case 6:
+		LOG_INF("******** %d. Getting A-GPS data", cur_test);
+		memset(&agps_request, 0, sizeof(agps_request));
+		memset(&agps_req, 0, sizeof(agps_req));
+		agps_request.type = NRF_CLOUD_REST_AGPS_REQ_ASSISTANCE;
+		agps_request.net_info = &cell_info;
+		agps_request.agps_req = &agps_req;
+		agps_req.data_flags = 0x3f;
+		agps_req.sv_mask_alm = 0xffffffff;
+		agps_req.sv_mask_ephe = 0xffffffff;
+		agps_res.buf = agps_buf;
+		agps_res.buf_sz = sizeof(agps_buf);
+		err = nrf_cloud_coap_agps(&agps_request, &agps_res);
+		if (err) {
+			LOG_ERR("Failed to request A-GPS: %d", err);
+		} else {
+			/* Process the data once it arrives... */
 		}
 		break;
 	}
@@ -727,6 +727,11 @@ int main(void)
 #if defined(CONFIG_COAP_DTLS) || defined(CONFIG_NRF_CLOUD_COAP_DTLS)
 			dtls_print_connection_id(client_get_sock(), false);
 #endif
+		} else if (!authorized) {
+			authorized = client_is_authorized();
+			if (authorized) {
+				get_cell_info();
+			}
 		}
 	}
 	client_close();
