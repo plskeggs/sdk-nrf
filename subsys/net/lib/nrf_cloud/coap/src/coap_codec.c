@@ -755,11 +755,25 @@ clean_up:
 int coap_codec_decode_pgps_resp(struct nrf_cloud_pgps_result *result,
 				const uint8_t *buf, size_t len, enum coap_content_format fmt)
 {
-	if (fmt != COAP_CONTENT_FORMAT_APP_JSON) {
-		LOG_ERR("Invalid format for P-GPS: %d", fmt);
-		return -ENOTSUP;
+	if (fmt == COAP_CONTENT_FORMAT_APP_JSON) {
+		return nrf_cloud_pgps_response_decode((const char *)buf, result);
 	}
-	return nrf_cloud_pgps_response_decode((const char *)buf, result);
+	if (fmt == COAP_CONTENT_FORMAT_APP_CBOR) {
+		int err;
+		struct pgps_resp resp;
+		size_t resp_len;
+
+		err = cbor_decode_pgps_resp(buf, len, &resp, &resp_len);
+		if (!err) {
+			strncpy(result->host, resp._pgps_resp_host.value, result->host_sz);
+			result->host_sz = strlen(result->host);
+			strncpy(result->path, resp._pgps_resp_path.value, result->host_sz);
+			result->path_sz = strlen(result->path);
+		}
+		return err;
+	}
+	LOG_ERR("Invalid format for P-GPS: %d", fmt);
+	return -ENOTSUP;
 }
 #endif /* CONFIG_NRF_CLOUD_PGPS */
 

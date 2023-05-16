@@ -247,7 +247,7 @@ int client_init(void)
 void auth_cb(uint8_t result_code, size_t offset, const uint8_t *payload, size_t len,
 	     bool last_block, void *user_data)
 {
-	LOG_INF("Authorization result_code:%u.02u", result_code / 32, result_code & 0x1f);
+	LOG_INF("Authorization result_code:%u.%02u", result_code / 32, result_code & 0x1f);
 	authorized = true;
 }
 #else
@@ -835,7 +835,9 @@ void client_callback(uint8_t result_code, size_t offset, const uint8_t *payload,
 {
 	struct user_cb *user_cb = (struct user_cb *)user_data;
 
-	if (user_cb && user_cb->cb) {
+    LOG_DBG("Got callback");
+	if ((user_cb != NULL) && (user_cb->cb != NULL)) {
+		LOG_DBG("Calling user's callback %p", user_cb->cb);
 		user_cb->cb(result_code, offset, payload, len, last_block, user_cb->user_data);
 	}
 	k_sem_give(&cb_sem);
@@ -885,7 +887,9 @@ static int client_send(enum coap_method method, const char *resource, const char
 		LOG_ERR("Error sending CoAP request: %d", err);
 	} else {
 		LOG_INF("Sent %d bytes", err);
+	    LOG_HEXDUMP_DBG(coap_client.send_buf, err, "Sent");
 		err = k_sem_take(&cb_sem, K_FOREVER);
+		LOG_INF("Received sem");
 	}
 	return err;
 }

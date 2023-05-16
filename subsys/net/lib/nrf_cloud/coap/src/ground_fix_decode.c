@@ -8,7 +8,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
-#define ZCBOR_VERBOSE
 #include "zcbor_decode.h"
 #include "ground_fix_decode.h"
 

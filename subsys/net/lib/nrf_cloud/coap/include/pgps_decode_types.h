@@ -11,7 +11,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
-#include "zcbor_encode.h"
+#include "zcbor_decode.h"
 
 /** Which value for --default-max-qty this file was created with.
  *
