@@ -147,8 +147,8 @@ static K_SEM_DEFINE(pgps_sem, 0, 1);
 
 static int get_pgps(const void *buf, size_t len, enum coap_content_format fmt, void *user)
 {
+	pgps_err = coap_codec_decode_pgps_resp(user, buf, len, fmt);
 	k_sem_give(&pgps_sem);
-	pgps_err = 0;
 	return 0;
 }
 #endif
@@ -157,7 +157,7 @@ int nrf_cloud_coap_pgps(struct nrf_cloud_rest_pgps_request const *const request,
 			struct nrf_cloud_pgps_result *result)
 {
 	size_t len = sizeof(buffer);
-	bool query_string;
+	bool query_string = false;
 	int err;
 
 	err = coap_codec_encode_pgps(request, buffer, &len, &query_string,
@@ -169,11 +169,11 @@ int nrf_cloud_coap_pgps(struct nrf_cloud_rest_pgps_request const *const request,
 	if (query_string) {
 		err = client_get_send("loc/pgps", (const char *)buffer,
 				      NULL, 0, COAP_CONTENT_FORMAT_APP_CBOR,
-				      COAP_CONTENT_FORMAT_APP_JSON, get_pgps, result);
+				      COAP_CONTENT_FORMAT_APP_CBOR, get_pgps, result);
 	} else {
 		err = client_get_send("loc/pgps", NULL,
 				      buffer, len, COAP_CONTENT_FORMAT_APP_CBOR,
-				      COAP_CONTENT_FORMAT_APP_JSON, get_pgps, result);
+				      COAP_CONTENT_FORMAT_APP_CBOR, get_pgps, result);
 	}
 
 	if (err) {
