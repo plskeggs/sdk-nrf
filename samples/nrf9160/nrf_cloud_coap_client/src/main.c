@@ -595,7 +595,9 @@ int do_next_test(void)
 			LOG_ERR("Failed to request P-GPS: %d", err);
 			break;
 		}
-		LOG_INF("P-GPS host:%s, path:%s", pgps_res.host, pgps_res.path);
+		LOG_INF("P-GPS host:%*s, path:%*s",
+			pgps_res.host_sz, pgps_res.host,
+			pgps_res.path_sz, pgps_res.path);
 		err = nrf_cloud_pgps_update(&pgps_res);
 		if (err) {
 			nrf_cloud_pgps_request_reset();
