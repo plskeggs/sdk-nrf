@@ -866,6 +866,7 @@ static int client_send(enum coap_method method, const char *resource, const char
 		.confirmable = reliable,
 		.path = path,
 		.fmt = fmt_out,
+		.accpt = fmt_in,
 		.cb = client_callback,
 		.payload = buf,
 		.len = buf_len,
