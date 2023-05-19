@@ -361,7 +361,7 @@ int dtls_init(int sock)
 		LOG_ERR("Error enabling connection ID: %d", errno);
 	}
 
-	int timeout = TLS_DTLS_HANDSHAKE_TIMEO_31S;
+	int timeout = TLS_DTLS_HANDSHAKE_TIMEO_123S;
 
 	LOG_INF("  Setting handshake timeout:");
 	err = setsockopt(sock, SOL_TLS, TLS_DTLS_HANDSHAKE_TIMEO, &timeout, sizeof(timeout));
