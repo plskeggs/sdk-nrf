@@ -49,23 +49,42 @@ static int64_t get_ts(void)
 
 #if defined(CONFIG_NRF_CLOUD_AGPS)
 static int agps_err;
+#define AGPS_WAIT_MS 60000
+static K_SEM_DEFINE(agps_sem, 0, 1);
 
 #if defined(CONFIG_COAP_ASYNC_CLIENT)
 void get_agps(uint8_t result_code,
 	      size_t offset, const uint8_t *payload, size_t len,
 	      bool last_block, void *user_data)
 {
+	struct nrf_cloud_rest_agps_result *result = user_data;
+
+	if (!result) {
+		LOG_ERR("Cannot process result");
+		agps_err = -EINVAL;
+		k_sem_give(&agps_sem);
+		return;
+	}
 	LOG_INF("result_code: %d.%02d, offset:0x%X, len:0x%X, last_block:%d",
 		result_code / 32u, result_code & 0x1f, offset, len, last_block);
 	if (result_code != COAP_RESPONSE_CODE_CONTENT) {
 		agps_err = result_code;
+		k_sem_give(&agps_sem);
 		return;
 	}
-	agps_err = nrf_cloud_agps_process(payload, len);
+	if (((offset + len) <= result->buf_sz) && result->buf && payload) {
+		memcpy(&result->buf[offset], payload, len);
+	} else {
+		agps_err = -EOVERFLOW;
+		k_sem_give(&agps_sem);
+		return;
+	}
+	if (last_block) {
+		agps_err = 0;
+		k_sem_give(&agps_sem);
+	}
 }
 #else
-#define AGPS_WAIT_MS 20000
-static K_SEM_DEFINE(agps_sem, 0, 1);
 
 static int get_agps(const void *buf, size_t len, enum coap_content_format fmt, void *user)
 {
@@ -107,10 +126,8 @@ int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request,
 		return err;
 	}
 
-#if !defined(CONFIG_COAP_ASYNC_CLIENT)
 	LOG_INF("Waiting for response...");
 	err = k_sem_take(&agps_sem, K_MSEC(AGPS_WAIT_MS));
-#endif
 
 	if (!err && !agps_err) {
 		LOG_INF("Got A-GPS data");

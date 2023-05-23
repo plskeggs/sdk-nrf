@@ -177,6 +177,7 @@ static void button_handler(uint32_t button_states, uint32_t has_changed)
 
 static bool offer_update_creds(void)
 {
+#if UPDATE_CREDS
 	int ret;
 	bool update_creds = false;
 
@@ -198,6 +199,9 @@ static bool offer_update_creds(void)
 	}
 
 	return update_creds;
+#else
+	return false;
+#endif
 }
 
 #if defined(CONFIG_NRF_MODEM_LIB)
@@ -500,6 +504,7 @@ int do_next_test(void)
 	char host[64];
 	char path[128];
 
+	LOG_INF("\n***********************************");
 	switch (cur_test) {
 	case 1:
 		LOG_INF("******** %d. Sending temperature", cur_test);
@@ -586,6 +591,8 @@ int do_next_test(void)
 		pgps_req.prediction_count = 4;
 		pgps_req.prediction_period_min = 240;
 		pgps_request.pgps_req = &pgps_req;
+		memset(host, 0, sizeof(host));
+		memset(path, 0, sizeof(path));
 		pgps_res.host = host;
 		pgps_res.host_sz = sizeof(host);
 		pgps_res.path = path;
@@ -595,9 +602,8 @@ int do_next_test(void)
 			LOG_ERR("Failed to request P-GPS: %d", err);
 			break;
 		}
-		LOG_INF("P-GPS host:%*s, path:%*s",
-			pgps_res.host_sz, pgps_res.host,
-			pgps_res.path_sz, pgps_res.path);
+		LOG_INF("P-GPS host:%s, host_sz:%u, path:%s, path_sz:%u",
+			pgps_res.host, pgps_res.host_sz, pgps_res.path, pgps_res.path_sz);
 		err = nrf_cloud_pgps_update(&pgps_res);
 		if (err) {
 			nrf_cloud_pgps_request_reset();
@@ -647,7 +653,6 @@ int do_next_test(void)
 	}
 	return err;
 }
-
 
 int main(void)
 {

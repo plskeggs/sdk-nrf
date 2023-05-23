@@ -1635,6 +1635,7 @@ static void end_transfer_handler(int transfer_result)
 
 int nrf_cloud_pgps_init(struct nrf_cloud_pgps_init_param *param)
 {
+	__ASSERT(param != NULL, "param must be provided");
 	int err = 0;
 	struct nrf_cloud_pgps_event evt = {
 		.type = PGPS_EVT_INIT,
@@ -1657,7 +1658,6 @@ int nrf_cloud_pgps_init(struct nrf_cloud_pgps_init_param *param)
 	param->storage_size = PM_MCUBOOT_SECONDARY_SIZE;
 #endif
 
-	__ASSERT(param != NULL, "param must be provided");
 	__ASSERT((param->storage_size >= (NUM_BLOCKS * BLOCK_SIZE)),
 		 "insufficient storage provided; need at least %u bytes",
 		 (NUM_BLOCKS * BLOCK_SIZE));

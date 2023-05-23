@@ -52,10 +52,9 @@ static struct connection_info
 	uint8_t d4_addr[4];
 } connection_info;
 
-static uint8_t coap_buf[APP_COAP_MAX_MSG_LEN];
-
 #if !defined(CONFIG_COAP_ASYNC_CLIENT)
 
+static uint8_t coap_buf[APP_COAP_MAX_MSG_LEN];
 static sys_dlist_t con_messages;
 static int num_con_messages;
 static uint16_t next_token;
@@ -90,6 +89,9 @@ static K_SEM_DEFINE(ready_sem, 0, 1);
 static struct coap_client coap_client;
 #endif
 
+static char jwt[700];
+
+#if !defined(CONFIG_COAP_ASYNC_CLIENT)
 struct content_type {
 	int type;
 	bool text;
@@ -109,11 +111,8 @@ static const struct content_type coap_content_types[] = {
 	{0, false, NULL}
 };
 
-static char jwt[700];
-
-static int client_handle_response(uint8_t *buf, int received);
 static int client_receive(int timeout);
-#if !defined(CONFIG_COAP_ASYNC_CLIENT)
+static int client_handle_response(uint8_t *buf, int received);
 static int client_wait_ack(int wait_ms);
 #endif
 
@@ -835,15 +834,17 @@ void client_callback(uint8_t result_code, size_t offset, const uint8_t *payload,
 {
 	struct user_cb *user_cb = (struct user_cb *)user_data;
 
-	LOG_DBG("Got callback");
+	LOG_DBG("Got callback: rc:%u.%02u, ofs:%u, lb:%u", result_code / 32, result_code & 0x1f, offset, last_block);
+	if (payload && len) {
+		LOG_HEXDUMP_DBG(payload, MIN(len, 32), "payload received");
+	}
 	if ((user_cb != NULL) && (user_cb->cb != NULL)) {
 		LOG_DBG("Calling user's callback %p", user_cb->cb);
 		user_cb->cb(result_code, offset, payload, len, last_block, user_cb->user_data);
 	}
-	k_sem_give(&cb_sem);
-	LOG_DBG("rc:%u.%02u, ofs:%u, lb:%u", result_code / 32, result_code & 0x1f, offset, last_block);
-	if (payload && len) {
-		LOG_HEXDUMP_DBG(payload, len, "payload received");
+	if (last_block || (result_code >= COAP_RESPONSE_CODE_BAD_REQUEST)) {
+		LOG_DBG("Giving sem");
+		k_sem_give(&cb_sem);
 	}
 }
 
