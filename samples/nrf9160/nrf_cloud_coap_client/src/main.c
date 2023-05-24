@@ -643,7 +643,12 @@ int do_next_test(void)
 		if (err) {
 			LOG_ERR("Failed to request A-GPS: %d", err);
 		} else {
-			/* Process the data once it arrives... */
+			err = nrf_cloud_agps_process(agps_res.buf, agps_res.buf_sz);
+			if (err) {
+				LOG_ERR("A-GPS data processing failed, error: %d", err);
+			}  else {
+				LOG_INF("A-GPS data processed");
+			}
 		}
 		break;
 	}

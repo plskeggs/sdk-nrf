@@ -114,11 +114,11 @@ int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request,
 	if (query_string) {
 		err = client_get_send("loc/agps", (const char *)buffer,
 				      NULL, 0, COAP_CONTENT_FORMAT_APP_CBOR,
-				      COAP_CONTENT_FORMAT_APP_OCTET_STREAM, get_agps, result);
+				      COAP_CONTENT_FORMAT_APP_CBOR, get_agps, result);
 	} else {
 		err = client_fetch_send("loc/agps", NULL,
 				      buffer, len, COAP_CONTENT_FORMAT_APP_CBOR,
-				      COAP_CONTENT_FORMAT_APP_OCTET_STREAM, get_agps, result);
+				      COAP_CONTENT_FORMAT_APP_CBOR, get_agps, result);
 	}
 
 	if (err) {

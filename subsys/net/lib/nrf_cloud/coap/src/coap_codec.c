@@ -766,9 +766,15 @@ int coap_codec_decode_pgps_resp(struct nrf_cloud_pgps_result *result,
 		err = cbor_decode_pgps_resp(buf, len, &resp, &resp_len);
 		if (!err) {
 			strncpy(result->host, resp._pgps_resp_host.value, result->host_sz);
-			result->host_sz = strlen(result->host);
-			strncpy(result->path, resp._pgps_resp_path.value, result->host_sz);
-			result->path_sz = strlen(result->path);
+			if (result->host_sz > resp._pgps_resp_host.len) {
+				result->host[resp._pgps_resp_host.len] = '\0';
+			}
+			result->host_sz = resp._pgps_resp_host.len;
+			strncpy(result->path, resp._pgps_resp_path.value, result->path_sz);
+			if (result->path_sz > resp._pgps_resp_path.len) {
+				result->path[resp._pgps_resp_path.len] = '\0';
+			}
+			result->path_sz = resp._pgps_resp_path.len;
 		}
 		return err;
 	}

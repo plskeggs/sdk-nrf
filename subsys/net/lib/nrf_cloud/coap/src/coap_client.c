@@ -836,7 +836,7 @@ void client_callback(uint8_t result_code, size_t offset, const uint8_t *payload,
 
 	LOG_DBG("Got callback: rc:%u.%02u, ofs:%u, lb:%u", result_code / 32, result_code & 0x1f, offset, last_block);
 	if (payload && len) {
-		LOG_HEXDUMP_DBG(payload, MIN(len, 32), "payload received");
+		LOG_HEXDUMP_DBG(payload, MIN(len, 96), "payload received");
 	}
 	if ((user_cb != NULL) && (user_cb->cb != NULL)) {
 		LOG_DBG("Calling user's callback %p", user_cb->cb);
