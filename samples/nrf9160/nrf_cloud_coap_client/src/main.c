@@ -249,10 +249,10 @@ static void lte_handler(const struct lte_lc_evt *const evt)
 	case LTE_LC_EVT_NW_REG_STATUS:
 		if ((evt->nw_reg_status == LTE_LC_NW_REG_REGISTERED_HOME) ||
 		    (evt->nw_reg_status == LTE_LC_NW_REG_REGISTERED_ROAMING)) {
-			LOG_INF("Connected to LTE network");
+			LOG_DBG("Connected to LTE network");
 			k_sem_give(&lte_ready);
 		} else {
-			LOG_INF("reg status %d", evt->nw_reg_status);
+			LOG_DBG("reg status %d", evt->nw_reg_status);
 		}
 		break;
 
@@ -262,16 +262,16 @@ static void lte_handler(const struct lte_lc_evt *const evt)
 		}
 
 		/* Get new info when cell ID changes */
-		LOG_INF("Cell info changed");
+		LOG_DBG("Cell info changed");
 		request_cells = true;
 		get_cell_info();
 		break;
 	case LTE_LC_EVT_RRC_UPDATE:
 		cur_rrc_mode = evt->rrc_mode;
 		if (cur_rrc_mode == LTE_LC_RRC_MODE_IDLE) {
-			LOG_INF("RRC mode: idle");
+			LOG_DBG("RRC mode: idle");
 		} else {
-			LOG_INF("RRC mode: connected");
+			LOG_DBG("RRC mode: connected");
 		}
 		if (request_cells && (cur_rrc_mode == LTE_LC_RRC_MODE_IDLE)) {
 			get_cell_info();
@@ -296,7 +296,7 @@ static void lte_handler(const struct lte_lc_evt *const evt)
 			memcpy(neighbor_cells,
 			       evt->cells_info.neighbor_cells,
 			       sizeof(neighbor_cells[0]) * cell_info.ncells_count);
-			LOG_INF("Received measurements for %u neighbor cells",
+			LOG_DBG("Received measurements for %u neighbor cells",
 				cell_info.ncells_count);
 		} else {
 			LOG_DBG("No neighbor cells were measured");
@@ -308,7 +308,7 @@ static void lte_handler(const struct lte_lc_evt *const evt)
 			memcpy(gci_cells,
 			       evt->cells_info.gci_cells,
 			       sizeof(gci_cells[0]) * cell_info.gci_cells_count);
-			LOG_INF("Received measurements for %u GCI cells",
+			LOG_DBG("Received measurements for %u GCI cells",
 				cell_info.gci_cells_count);
 		} else if (search_type == LTE_LC_NEIGHBOR_SEARCH_TYPE_GCI_EXTENDED_COMPLETE) {
 			LOG_DBG("No GCI cells were measured");
@@ -346,13 +346,13 @@ static void modem_configure(void)
 	 */
 	LOG_INF("Waiting for carrier registration...");
 	k_sem_take(&carrier_registered, K_FOREVER);
-	LOG_INF("Registered!");
+	LOG_INF("Registered");
 #else /* defined(CONFIG_LWM2M_CARRIER) */
 	LOG_INF("LTE Link Connecting ...");
 	err = lte_lc_init_and_connect();
 	__ASSERT(err == 0, "LTE link could not be established.");
 	k_sem_take(&lte_ready, K_FOREVER);
-	LOG_INF("LTE Link Connected!");
+	LOG_INF("LTE Link Connected");
 	err = lte_lc_psm_req(true);
 	if (err) {
 		LOG_ERR("Unable to enter PSM mode: %d", err);
@@ -569,7 +569,8 @@ int do_next_test(void)
 		LOG_INF("******** %d. Getting pending FOTA job execution", cur_test);
 		err = nrf_cloud_coap_get_current_fota_job(&job);
 		if (err) {
-			LOG_ERR("Failed to request pending FOTA job: %d", err);
+			LOG_ERR("Failed to request pending FOTA job: %u.%02u",
+				err / 32, err & 0x1f);
 		} else {
 			LOG_INF("******** %d. Updating FOTA job status", cur_test);
 			/* process the job */

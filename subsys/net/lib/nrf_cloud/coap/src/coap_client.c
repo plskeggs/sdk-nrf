@@ -231,7 +231,7 @@ int client_init(void)
 		LOG_ERR("Connect failed : %d", -errno);
 		return -errno;
 	} else {
-		LOG_INF("Connect succeeded.");
+		LOG_DBG("Connect succeeded.");
 	}
 
 	/* Initialize FDS, for poll. */
@@ -246,7 +246,7 @@ int client_init(void)
 void auth_cb(uint8_t result_code, size_t offset, const uint8_t *payload, size_t len,
 	     bool last_block, void *user_data)
 {
-	LOG_INF("Authorization result_code:%u.%02u", result_code / 32, result_code & 0x1f);
+	LOG_INF("Authorization result_code: %u.%02u", result_code / 32, result_code & 0x1f);
 	authorized = true;
 }
 #else
@@ -288,7 +288,7 @@ int client_connect(int wait_ms)
 	} else {
 		LOG_ERR("Unable to obtain the modem firmware version: %d", err);
 	}
-	LOG_DBG("Send JWT");
+	LOG_INF("Request authorization with JWT");
 	err = client_post_send("auth/jwt", err ? NULL : ver_string,
 			       (uint8_t *)jwt, strlen(jwt),
 			       COAP_CONTENT_FORMAT_TEXT_PLAIN, true, auth_cb, NULL);
@@ -888,10 +888,10 @@ static int client_send(enum coap_method method, const char *resource, const char
 	if (err < 0) {
 		LOG_ERR("Error sending CoAP request: %d", err);
 	} else {
-		LOG_INF("Sent %d bytes", err);
+		LOG_DBG("Sent %d bytes", err);
 		LOG_HEXDUMP_DBG(coap_client.send_buf, err, "Sent");
 		err = k_sem_take(&cb_sem, K_FOREVER);
-		LOG_INF("Received sem");
+		LOG_DBG("Received sem");
 	}
 	return err;
 }

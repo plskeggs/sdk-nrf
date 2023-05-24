@@ -355,7 +355,7 @@ int dtls_init(int sock)
 #if defined(CONFIG_NRF_CLOUD_COAP_DTLS_CID)
 	int cid_option = TLS_DTLS_CID_SUPPORTED;
 
-	LOG_INF("  Enable connection id:");
+	LOG_INF("  Enable connection id");
 	err = setsockopt(sock, SOL_TLS, TLS_DTLS_CID, &cid_option, sizeof(cid_option));
 	if (err) {
 		LOG_ERR("Error enabling connection ID: %d", errno);
@@ -363,7 +363,7 @@ int dtls_init(int sock)
 
 	int timeout = TLS_DTLS_HANDSHAKE_TIMEO_123S;
 
-	LOG_INF("  Setting handshake timeout:");
+	LOG_INF("  Set handshake timeout %d", timeout);
 	err = setsockopt(sock, SOL_TLS, TLS_DTLS_HANDSHAKE_TIMEO, &timeout, sizeof(timeout));
 	if (err) {
 		LOG_ERR("Error setting handshake timeout: %d", errno);
@@ -373,7 +373,7 @@ int dtls_init(int sock)
 #elif defined(CONFIG_MBEDTLS_SSL_DTLS_CONNECTION_ID)
 	uint8_t dummy;
 
-	LOG_INF("  Enable connection id:");
+	LOG_INF("  Enable connection id");
 	err = setsockopt(sock, SOL_TLS, TLS_DTLS_CONNECTION_ID, &dummy, 0);
 	if (err) {
 		LOG_ERR("Error enabling connection ID: %d", errno);

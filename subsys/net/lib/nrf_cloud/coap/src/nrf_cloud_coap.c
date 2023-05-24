@@ -65,7 +65,7 @@ void get_agps(uint8_t result_code,
 		k_sem_give(&agps_sem);
 		return;
 	}
-	LOG_INF("result_code: %d.%02d, offset:0x%X, len:0x%X, last_block:%d",
+	LOG_DBG("result_code: %d.%02d, offset:0x%X, len:0x%X, last_block:%d",
 		result_code / 32u, result_code & 0x1f, offset, len, last_block);
 	if (result_code != COAP_RESPONSE_CODE_CONTENT) {
 		agps_err = result_code;
@@ -126,7 +126,7 @@ int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request,
 		return err;
 	}
 
-	LOG_INF("Waiting for response...");
+	LOG_DBG("Waiting for response...");
 	err = k_sem_take(&agps_sem, K_MSEC(AGPS_WAIT_MS));
 
 	if (!err && !agps_err) {
@@ -150,7 +150,7 @@ void get_pgps(uint8_t result_code,
 	      size_t offset, const uint8_t *payload, size_t len,
 	      bool last_block, void *user)
 {
-	LOG_INF("result_code: %d.%02d, offset:0x%X, len:0x%X, last_block:%d",
+	LOG_DBG("result_code: %d.%02d, offset:0x%X, len:0x%X, last_block:%d",
 		result_code / 32u, result_code & 0x1f, offset, len, last_block);
 	if (result_code != COAP_RESPONSE_CODE_CONTENT) {
 		pgps_err = result_code;
@@ -199,7 +199,7 @@ int nrf_cloud_coap_pgps(struct nrf_cloud_rest_pgps_request const *const request,
 	}
 
 #if !defined(CONFIG_COAP_ASYNC_CLIENT)
-	LOG_INF("Waiting for response...");
+	LOG_DBG("Waiting for response...");
 	err = k_sem_take(&pgps_sem, K_MSEC(PGPS_WAIT_MS));
 #endif
 
@@ -263,7 +263,7 @@ void get_location(uint8_t result_code,
 		  size_t offset, const uint8_t *payload, size_t len,
 		  bool last_block, void *user)
 {
-	LOG_INF("result_code: %d.%02d, offset:0x%X, len:0x%X, last_block:%d",
+	LOG_DBG("result_code: %d.%02d, offset:0x%X, len:0x%X, last_block:%d",
 		result_code / 32u, result_code & 0x1f, offset, len, last_block);
 	if (result_code != COAP_RESPONSE_CODE_CONTENT) {
 		loc_err = result_code;
@@ -306,7 +306,7 @@ int nrf_cloud_coap_get_location(struct lte_lc_cells_info const *const cell_info,
 	}
 
 #if !defined(CONFIG_COAP_ASYNC_CLIENT)
-	LOG_INF("Waiting for response...");
+	LOG_DBG("Waiting for response...");
 	err = k_sem_take(&loc_sem, K_MSEC(PGPS_WAIT_MS));
 #endif
 
@@ -330,7 +330,7 @@ void get_fota(uint8_t result_code,
 	      size_t offset, const uint8_t *payload, size_t len,
 	      bool last_block, void *user)
 {
-	LOG_INF("result_code: %d.%02d, offset:0x%X, len:0x%X, last_block:%d",
+	LOG_DBG("result_code: %d.%02d, offset:0x%X, len:0x%X, last_block:%d",
 		result_code / 32u, result_code & 0x1f, offset, len, last_block);
 	if (result_code != COAP_RESPONSE_CODE_CONTENT) {
 		fota_err = result_code;
@@ -366,7 +366,7 @@ int nrf_cloud_coap_get_current_fota_job(struct nrf_cloud_fota_job_info *const jo
 	}
 
 #if !defined(CONFIG_COAP_ASYNC_CLIENT)
-	LOG_INF("Waiting for response...");
+	LOG_DBG("Waiting for response...");
 	err = k_sem_take(&fota_sem, K_MSEC(FOTA_WAIT_MS));
 #endif
 
