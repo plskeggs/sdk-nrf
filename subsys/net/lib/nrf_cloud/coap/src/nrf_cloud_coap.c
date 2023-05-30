@@ -49,10 +49,8 @@ static int64_t get_ts(void)
 
 #if defined(CONFIG_NRF_CLOUD_AGPS)
 static int agps_err;
-#define AGPS_WAIT_MS 60000
-static K_SEM_DEFINE(agps_sem, 0, 1);
 
-void get_agps(uint8_t result_code,
+void get_agps(int16_t result_code,
 	      size_t offset, const uint8_t *payload, size_t len,
 	      bool last_block, void *user_data)
 {
@@ -61,14 +59,12 @@ void get_agps(uint8_t result_code,
 	if (!result) {
 		LOG_ERR("Cannot process result");
 		agps_err = -EINVAL;
-		k_sem_give(&agps_sem);
 		return;
 	}
 	LOG_DBG("result_code: %d.%02d, offset:0x%X, len:0x%X, last_block:%d",
 		result_code / 32u, result_code & 0x1f, offset, len, last_block);
 	if (result_code != COAP_RESPONSE_CODE_CONTENT) {
 		agps_err = result_code;
-		k_sem_give(&agps_sem);
 		return;
 	}
 	if (((offset + len) <= result->buf_sz) && result->buf && payload) {
@@ -76,12 +72,10 @@ void get_agps(uint8_t result_code,
 		result->agps_sz += len;
 	} else {
 		agps_err = -EOVERFLOW;
-		k_sem_give(&agps_sem);
 		return;
 	}
 	if (last_block) {
 		agps_err = 0;
-		k_sem_give(&agps_sem);
 	}
 }
 
@@ -110,14 +104,6 @@ int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request,
 				      COAP_CONTENT_FORMAT_APP_CBOR, get_agps, result);
 	}
 
-	if (err) {
-		LOG_ERR("Failed to send GET request: %d", err);
-		return err;
-	}
-
-	LOG_DBG("Waiting for response...");
-	err = k_sem_take(&agps_sem, K_MSEC(AGPS_WAIT_MS));
-
 	if (!err && !agps_err) {
 		LOG_INF("Got A-GPS data");
 	} else if (err == -EAGAIN) {
@@ -133,10 +119,8 @@ int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request,
 
 #if defined(CONFIG_NRF_CLOUD_PGPS)
 static int pgps_err;
-static K_SEM_DEFINE(pgps_sem, 0, 1);
-#define PGPS_WAIT_MS 20000
 
-void get_pgps(uint8_t result_code,
+void get_pgps(int16_t result_code,
 	      size_t offset, const uint8_t *payload, size_t len,
 	      bool last_block, void *user)
 {
@@ -147,7 +131,6 @@ void get_pgps(uint8_t result_code,
 	} else {
 		pgps_err = coap_codec_decode_pgps_resp(user, payload, len, COAP_CONTENT_FORMAT_APP_CBOR);
 	}
-	k_sem_give(&pgps_sem);
 }
 
 int nrf_cloud_coap_pgps(struct nrf_cloud_rest_pgps_request const *const request,
@@ -172,14 +155,6 @@ int nrf_cloud_coap_pgps(struct nrf_cloud_rest_pgps_request const *const request,
 				      buffer, len, COAP_CONTENT_FORMAT_APP_CBOR,
 				      COAP_CONTENT_FORMAT_APP_CBOR, get_pgps, result);
 	}
-
-	if (err) {
-		LOG_ERR("Failed to send GET request: %d", err);
-		return err;
-	}
-
-	LOG_DBG("Waiting for response...");
-	err = k_sem_take(&pgps_sem, K_MSEC(PGPS_WAIT_MS));
 
 	if (!err && !pgps_err) {
 		LOG_INF("Got P-GPS data");
@@ -235,10 +210,8 @@ int nrf_cloud_coap_send_gnss_pvt(const struct nrf_cloud_gnss_pvt *pvt)
 }
 
 static int loc_err;
-#define LOC_WAIT_MS 20000
-static K_SEM_DEFINE(loc_sem, 0, 1);
 
-void get_location(uint8_t result_code,
+void get_location(int16_t result_code,
 		  size_t offset, const uint8_t *payload, size_t len,
 		  bool last_block, void *user)
 {
@@ -250,7 +223,6 @@ void get_location(uint8_t result_code,
 		loc_err = coap_codec_decode_ground_fix_resp(user, payload, len,
 							    COAP_CONTENT_FORMAT_APP_CBOR);
 	}
-	k_sem_give(&loc_sem);
 }
 
 int nrf_cloud_coap_get_location(struct lte_lc_cells_info const *const cell_info,
@@ -269,13 +241,6 @@ int nrf_cloud_coap_get_location(struct lte_lc_cells_info const *const cell_info,
 	err = client_fetch_send("loc/ground-fix", NULL, buffer, len,
 				COAP_CONTENT_FORMAT_APP_CBOR,
 				COAP_CONTENT_FORMAT_APP_CBOR, get_location, result);
-	if (err) {
-		LOG_ERR("Failed to send POST request: %d", err);
-		return err;
-	}
-
-	LOG_DBG("Waiting for response...");
-	err = k_sem_take(&loc_sem, K_MSEC(LOC_WAIT_MS));
 
 	if (!err && !loc_err) {
 		LOG_INF("Location: %d, %.12g, %.12g, %d", result->type,
@@ -291,10 +256,8 @@ int nrf_cloud_coap_get_location(struct lte_lc_cells_info const *const cell_info,
 }
 
 static int fota_err;
-#define FOTA_WAIT_MS 20000
-static K_SEM_DEFINE(fota_sem, 0, 1);
 
-void get_fota(uint8_t result_code,
+void get_fota(int16_t result_code,
 	      size_t offset, const uint8_t *payload, size_t len,
 	      bool last_block, void *user)
 {
@@ -307,7 +270,6 @@ void get_fota(uint8_t result_code,
 		fota_err = coap_codec_decode_fota_resp(user, payload, len,
 						       COAP_CONTENT_FORMAT_APP_JSON);
 	}
-	k_sem_give(&fota_sem);
 }
 
 int nrf_cloud_coap_get_current_fota_job(struct nrf_cloud_fota_job_info *const job)
@@ -317,13 +279,6 @@ int nrf_cloud_coap_get_current_fota_job(struct nrf_cloud_fota_job_info *const jo
 	err = client_get_send("fota/exec/current", NULL, NULL, 0,
 			      COAP_CONTENT_FORMAT_APP_CBOR,
 			      COAP_CONTENT_FORMAT_APP_JSON, get_fota, job);
-	if (err) {
-		LOG_ERR("Failed to send GET request: %d", err);
-		return err;
-	}
-
-	LOG_DBG("Waiting for response...");
-	err = k_sem_take(&fota_sem, K_MSEC(FOTA_WAIT_MS));
 
 	if (!err && !fota_err) {
 		LOG_INF("FOTA job received; type:%d, id:%s, host:%s, path:%s, size:%d",

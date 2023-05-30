@@ -176,7 +176,7 @@ int client_init(void)
 
 static K_SEM_DEFINE(con_ack_sem, 0, 1);
 
-void auth_cb(uint8_t result_code, size_t offset, const uint8_t *payload, size_t len,
+void auth_cb(int16_t result_code, size_t offset, const uint8_t *payload, size_t len,
 	     bool last_block, void *user_data)
 {
 	LOG_INF("Authorization result_code: %u.%02u", result_code / 32, result_code & 0x1f);
@@ -253,7 +253,7 @@ struct user_cb {
 	void *user_data;
 };
 
-void client_callback(uint8_t result_code, size_t offset, const uint8_t *payload, size_t len,
+void client_callback(int16_t result_code, size_t offset, const uint8_t *payload, size_t len,
 					  bool last_block, void *user_data)
 {
 	struct user_cb *user_cb = (struct user_cb *)user_data;
@@ -286,17 +286,29 @@ static int client_send(enum coap_method method, const char *resource, const char
 		.cb = cb,
 		.user_data = user
 	};
+	struct coap_client_option options[1] = {{
+		.code = COAP_OPTION_ACCEPT,
+		.len = 1,
+		.value[0] = fmt_in
+	}};
 	struct coap_client_request request = {
 		.method = method,
 		.confirmable = reliable,
 		.path = path,
 		.fmt = fmt_out,
-		.accpt = fmt_in,
-		.cb = client_callback,
 		.payload = buf,
 		.len = buf_len,
+		.cb = client_callback,
 		.user_data = &user_cb
 	};
+
+	if (response_expected) {
+		request.options = options;
+		request.num_options = ARRAY_SIZE(options);
+	} else {
+		request.options = NULL;
+		request.num_options = 0;
+	}
 
 	strncpy(path, resource, sizeof(path));
 	if (query) {
@@ -325,7 +337,7 @@ int client_get_send(const char *resource, const char *query,
 		    uint8_t *buf, size_t len,
 		    enum coap_content_format fmt_out,
 		    enum coap_content_format fmt_in,
-		    coap_callback cb, void *user)
+		    coap_client_response_cb_t cb, void *user)
 {
 	return client_send(COAP_METHOD_GET, resource, query,
 			   buf, len, fmt_out, fmt_in, true, false, cb, user);
@@ -335,7 +347,7 @@ int client_get_send(const char *resource, const char *query,
 int client_post_send(const char *resource, const char *query,
 		    uint8_t *buf, size_t len,
 		    enum coap_content_format fmt, bool reliable,
-		    coap_callback cb, void *user)
+		    coap_client_response_cb_t cb, void *user)
 {
 	return client_send(COAP_METHOD_POST, resource, query,
 			   buf, len, fmt, fmt, false, reliable, cb, user);
@@ -345,7 +357,7 @@ int client_post_send(const char *resource, const char *query,
 int client_put_send(const char *resource, const char *query,
 		    uint8_t *buf, size_t len,
 		    enum coap_content_format fmt,
-		    coap_callback cb, void *user)
+		    coap_client_response_cb_t cb, void *user)
 {
 	return client_send(COAP_METHOD_PUT, resource, query,
 			   buf, len, fmt, fmt, false, false, cb, user);
@@ -355,7 +367,7 @@ int client_put_send(const char *resource, const char *query,
 int client_delete_send(const char *resource, const char *query,
 		       uint8_t *buf, size_t len,
 		       enum coap_content_format fmt,
-		       coap_callback cb, void *user)
+		       coap_client_response_cb_t cb, void *user)
 {
 	return client_send(COAP_METHOD_DELETE, resource, query,
 			   buf, len, fmt, fmt, false, true, cb, user);
@@ -366,7 +378,7 @@ int client_fetch_send(const char *resource, const char *query,
 		      uint8_t *buf, size_t len,
 		      enum coap_content_format fmt_out,
 		      enum coap_content_format fmt_in,
-		      coap_callback cb, void *user)
+		      coap_client_response_cb_t cb, void *user)
 {
 	return client_send(COAP_METHOD_FETCH, resource, query,
 			   buf, len, fmt_out, fmt_in, true, true, cb, user);
@@ -376,7 +388,7 @@ int client_fetch_send(const char *resource, const char *query,
 int client_patch_send(const char *resource, const char *query,
 		      uint8_t *buf, size_t len,
 		      enum coap_content_format fmt,
-		      coap_callback cb, void *user)
+		      coap_client_response_cb_t cb, void *user)
 {
 	return client_send(COAP_METHOD_PATCH, resource, query,
 			   buf, len, fmt, fmt, false, true, cb, user);

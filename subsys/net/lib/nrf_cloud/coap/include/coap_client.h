@@ -17,7 +17,6 @@ enum nrf_cloud_coap_response
 };
 
 #include <zephyr/net/coap_client.h>
-typedef coap_client_response_cb_t coap_callback;
 
 int client_get_sock(void);
 
@@ -34,38 +33,38 @@ int client_get_send(const char *resource, const char *query,
 		    uint8_t *buf, size_t len,
 		    enum coap_content_format fmt_out,
 		    enum coap_content_format fmt_in,
-		    coap_callback cb, void *user);
+		    coap_client_response_cb_t cb, void *user);
 
 /**@brief Send CoAP POST request. */
 int client_post_send(const char *resource, const char *query,
 		    uint8_t *buf, size_t len,
 		    enum coap_content_format fmt, bool reliable,
-		    coap_callback cb, void *user);
+		    coap_client_response_cb_t cb, void *user);
 
 /**@brief Send CoAP PUT request. */
 int client_put_send(const char *resource, const char *query,
 		    uint8_t *buf, size_t len,
 		    enum coap_content_format fmt,
-		    coap_callback cb, void *user);
+		    coap_client_response_cb_t cb, void *user);
 
 /**@brief Send CoAP DELETE request. */
 int client_delete_send(const char *resource, const char *query,
 		       uint8_t *buf, size_t len,
 		       enum coap_content_format fmt,
-		       coap_callback cb, void *user);
+		       coap_client_response_cb_t cb, void *user);
 
 /**@brief Send CoAP FETCH request. */
 int client_fetch_send(const char *resource, const char *query,
 		      uint8_t *buf, size_t len,
 		      enum coap_content_format fmt_out,
 		      enum coap_content_format fmt_in,
-		      coap_callback cb, void *user);
+		      coap_client_response_cb_t cb, void *user);
 
 /**@brief Send CoAP PATCH request. */
 int client_patch_send(const char *resource, const char *query,
   		    uint8_t *buf, size_t len,
   		    enum coap_content_format fmt,
-		    coap_callback cb, void *user);
+		    coap_client_response_cb_t cb, void *user);
 
 int client_close(void);
 

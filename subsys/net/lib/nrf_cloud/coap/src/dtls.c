@@ -386,7 +386,7 @@ int dtls_init(int sock)
 		REQUIRED = 2,
 	};
 
-	int verify = OPTIONAL;
+	int verify = REQUIRED;
 
 	LOG_INF("  Peer verify: %d", verify);
 	err = setsockopt(sock, SOL_TLS, TLS_PEER_VERIFY, &verify, sizeof(verify));
