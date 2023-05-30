@@ -110,6 +110,7 @@ static K_SEM_DEFINE(wifi_scan_sem, 0, 1);
 #endif
 
 static void get_cell_info(void);
+static int do_pgps(struct gps_pgps_request *pgps_req);
 
 static bool ver_check(int32_t reqd_maj, int32_t reqd_min, int32_t reqd_rev,
 		      int32_t maj, int32_t min, int32_t rev)
@@ -324,6 +325,30 @@ static void lte_handler(const struct lte_lc_evt *const evt)
 	}
 }
 
+void pgps_handler(struct nrf_cloud_pgps_event *event)
+{
+	switch (event->type) {
+	case PGPS_EVT_INIT:
+		LOG_INF("PGPS_EVT_INIT");
+		break;
+	case PGPS_EVT_UNAVAILABLE:
+		LOG_INF("PGPS_EVT_UNAVAILABLE");
+		break;
+	case PGPS_EVT_LOADING:
+		LOG_INF("PGPS_EVT_LOADING");
+		break;
+	case PGPS_EVT_AVAILABLE:
+		LOG_INF("PGPS_EVT_AVAILABLE");
+		break;
+	case PGPS_EVT_READY:
+		LOG_INF("PGPS_EVT_READY");
+		break;
+	case PGPS_EVT_REQUEST:
+		LOG_INF("PGPS_EVT_REQUEST");
+		do_pgps(event->request);
+		break;
+	}
+}
 
 /**@brief Configures modem to provide LTE link. Blocks until link is
  * successfully established.
@@ -455,6 +480,18 @@ int init(void)
 	if (err) {
 		LOG_ERR("Failed to initialize nRF Cloud CoAP library: %d", err);
 	}
+
+	struct nrf_cloud_pgps_init_param param = {
+		.event_handler = pgps_handler,
+		.storage_base = 0,
+		.storage_size = 0
+	};
+
+	err = nrf_cloud_pgps_init(&param);
+	if (err) {
+		LOG_ERR("Failed to initialize P-GPS: %d", err);
+	}
+
 	return err;
 }
 
@@ -485,7 +522,53 @@ static void get_cell_info(void)
 	}
 }
 
-int do_next_test(void)
+static int do_pgps(struct gps_pgps_request *pgps_req)
+{
+	int err;
+	struct nrf_cloud_rest_pgps_request pgps_request;
+	struct nrf_cloud_pgps_result pgps_res;
+	char host[64];
+	char path[128];
+
+	LOG_INF("******** Getting P-GPS data");
+	memset(&pgps_request, 0, sizeof(pgps_request));
+	memset(&pgps_res, 0, sizeof(pgps_res));
+	//pgps_req.gps_day = 0;
+	//pgps_req.gps_time_of_day = 0;
+	//pgps_req.prediction_count = 4;
+	//pgps_req.prediction_period_min = 240;
+	pgps_request.pgps_req = pgps_req;
+	memset(host, 0, sizeof(host));
+	memset(path, 0, sizeof(path));
+	pgps_res.host = host;
+	pgps_res.host_sz = sizeof(host);
+	pgps_res.path = path;
+	pgps_res.path_sz = sizeof(path);
+	err = nrf_cloud_coap_pgps(&pgps_request, &pgps_res);
+	if (err) {
+		LOG_ERR("Failed to request P-GPS: %d", err);
+		return err;
+	}
+	LOG_INF("P-GPS host:%s, host_sz:%u, path:%s, path_sz:%u",
+		pgps_res.host, pgps_res.host_sz, pgps_res.path, pgps_res.path_sz);
+	err = nrf_cloud_pgps_update(&pgps_res);
+	if (err) {
+		nrf_cloud_pgps_request_reset();
+		LOG_ERR("P-GPS data processing failed, error: %d", err);
+		return err;
+	}
+
+	LOG_DBG("P-GPS data processed");
+	err = nrf_cloud_pgps_notify_prediction();
+	if (err) {
+		LOG_ERR("GNSS: Failed to request current prediction, error: %d", err);
+	} else {
+		LOG_DBG("P-GPS prediction requested");
+	}
+	return err;
+}
+
+static int do_next_test(void)
 {
 	static double temp = 21.5;
 	static int cur_test = 1;
@@ -497,12 +580,7 @@ int do_next_test(void)
 	struct nrf_cloud_rest_agps_request agps_request;
 	struct nrf_modem_gnss_agps_data_frame agps_req;
 	struct nrf_cloud_rest_agps_result agps_res;
-	struct nrf_cloud_rest_pgps_request pgps_request;
-	struct gps_pgps_request pgps_req;
-	struct nrf_cloud_pgps_result pgps_res;
 	struct wifi_scan_info *wifi_info = NULL;
-	char host[64];
-	char path[128];
 
 	LOG_INF("\n***********************************");
 	switch (cur_test) {
@@ -584,41 +662,6 @@ int do_next_test(void)
 		}
 		break;
 	case 4:
-		LOG_INF("******** %d. Getting P-GPS data", cur_test);
-		memset(&pgps_request, 0, sizeof(pgps_request));
-		memset(&pgps_res, 0, sizeof(pgps_res));
-		pgps_req.gps_day = 0;
-		pgps_req.gps_time_of_day = 0;
-		pgps_req.prediction_count = 4;
-		pgps_req.prediction_period_min = 240;
-		pgps_request.pgps_req = &pgps_req;
-		memset(host, 0, sizeof(host));
-		memset(path, 0, sizeof(path));
-		pgps_res.host = host;
-		pgps_res.host_sz = sizeof(host);
-		pgps_res.path = path;
-		pgps_res.path_sz = sizeof(path);
-		err = nrf_cloud_coap_pgps(&pgps_request, &pgps_res);
-		if (err) {
-			LOG_ERR("Failed to request P-GPS: %d", err);
-			break;
-		}
-		LOG_INF("P-GPS host:%s, host_sz:%u, path:%s, path_sz:%u",
-			pgps_res.host, pgps_res.host_sz, pgps_res.path, pgps_res.path_sz);
-		err = nrf_cloud_pgps_update(&pgps_res);
-		if (err) {
-			nrf_cloud_pgps_request_reset();
-			LOG_ERR("P-GPS data processing failed, error: %d", err);
-			break;
-		}
-
-		LOG_DBG("P-GPS data processed");
-		err = nrf_cloud_pgps_notify_prediction();
-		if (err) {
-			LOG_ERR("GNSS: Failed to request current prediction, error: %d", err);
-		} else {
-			LOG_DBG("P-GPS prediction requested");
-		}
 		break;
 	case 5:
 		LOG_INF("******** %d. Sending GNSS PVT", cur_test);
