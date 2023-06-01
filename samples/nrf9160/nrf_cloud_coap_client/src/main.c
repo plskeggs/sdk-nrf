@@ -568,6 +568,14 @@ static int do_pgps(struct gps_pgps_request *pgps_req)
 	return err;
 }
 
+static int update_shadow(void)
+{
+	int nrf_cloud_coap_shadow_device_status_update(const struct nrf_cloud_device_status
+						       *const dev_status);
+	int nrf_cloud_coap_shadow_service_info_update(const struct nrf_cloud_svc_info * const svc_inf);
+
+}
+
 static int do_next_test(void)
 {
 	static double temp = 21.5;
@@ -581,6 +589,7 @@ static int do_next_test(void)
 	struct nrf_modem_gnss_agps_data_frame agps_req;
 	struct nrf_cloud_rest_agps_result agps_res;
 	struct wifi_scan_info *wifi_info = NULL;
+	char buf[512];
 
 	LOG_INF("\n***********************************");
 	switch (cur_test) {
@@ -662,8 +671,6 @@ static int do_next_test(void)
 		}
 		break;
 	case 4:
-		break;
-	case 5:
 		LOG_INF("******** %d. Sending GNSS PVT", cur_test);
 		err = nrf_cloud_coap_send_gnss_pvt(&pvt);
 		if (err) {
@@ -671,7 +678,7 @@ static int do_next_test(void)
 			break;
 		}
 		break;
-	case 6:
+	case 5:
 		LOG_INF("******** %d. Getting A-GPS data", cur_test);
 		memset(&agps_request, 0, sizeof(agps_request));
 		memset(&agps_req, 0, sizeof(agps_req));
@@ -694,6 +701,16 @@ static int do_next_test(void)
 			}  else {
 				LOG_INF("A-GPS data processed");
 			}
+		}
+		break;
+	case 6:
+		LOG_INF("******** %d. Getting shadow delta", cur_test);
+		buf[0] = '\0';
+		err = nrf_cloud_coap_shadow_delta_get(buf, sizeof(buf) - 1);
+		if (err) {
+			LOG_ERR("Failed to request shadow delta: %s", err);
+		} else {
+			LOG_INF("Delta: %s", buf);
 		}
 		break;
 	}
