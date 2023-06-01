@@ -31,4 +31,10 @@ int nrf_cloud_coap_get_current_fota_job(struct nrf_cloud_fota_job_info *const jo
 int nrf_cloud_coap_fota_job_update(const char *const job_id,
 	const enum nrf_cloud_fota_status status, const char * const details);
 
+int nrf_cloud_coap_shadow_delta_get(char *buf, size_t buf_len);
+int nrf_cloud_coap_shadow_state_update(const char * const shadow_json);
+int nrf_cloud_coap_shadow_device_status_update(const struct nrf_cloud_device_status
+					       *const dev_status);
+int nrf_cloud_coap_shadow_service_info_update(const struct nrf_cloud_svc_info * const svc_inf);
+
 #endif /* NRF_CLOUD_COAP_H_ */

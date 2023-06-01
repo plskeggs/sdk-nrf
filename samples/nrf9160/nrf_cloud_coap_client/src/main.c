@@ -527,8 +527,8 @@ static int do_pgps(struct gps_pgps_request *pgps_req)
 	int err;
 	struct nrf_cloud_rest_pgps_request pgps_request;
 	struct nrf_cloud_pgps_result pgps_res;
-	char host[64];
-	char path[128];
+	static char host[64];
+	static char path[128];
 
 	LOG_INF("******** Getting P-GPS data");
 	memset(&pgps_request, 0, sizeof(pgps_request));

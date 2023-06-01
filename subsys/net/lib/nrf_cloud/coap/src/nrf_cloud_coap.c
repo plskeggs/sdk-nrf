@@ -50,9 +50,9 @@ static int64_t get_ts(void)
 #if defined(CONFIG_NRF_CLOUD_AGPS)
 static int agps_err;
 
-void get_agps(int16_t result_code,
-	      size_t offset, const uint8_t *payload, size_t len,
-	      bool last_block, void *user_data)
+static void get_agps(int16_t result_code,
+		     size_t offset, const uint8_t *payload, size_t len,
+		     bool last_block, void *user_data)
 {
 	struct nrf_cloud_rest_agps_result *result = user_data;
 
@@ -120,9 +120,9 @@ int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request,
 #if defined(CONFIG_NRF_CLOUD_PGPS)
 static int pgps_err;
 
-void get_pgps(int16_t result_code,
-	      size_t offset, const uint8_t *payload, size_t len,
-	      bool last_block, void *user)
+static void get_pgps(int16_t result_code,
+		     size_t offset, const uint8_t *payload, size_t len,
+		     bool last_block, void *user)
 {
 	LOG_DBG("result_code: %d.%02d, offset:0x%X, len:0x%X, last_block:%d",
 		result_code / 32u, result_code & 0x1f, offset, len, last_block);
@@ -211,9 +211,9 @@ int nrf_cloud_coap_send_gnss_pvt(const struct nrf_cloud_gnss_pvt *pvt)
 
 static int loc_err;
 
-void get_location(int16_t result_code,
-		  size_t offset, const uint8_t *payload, size_t len,
-		  bool last_block, void *user)
+static void get_location(int16_t result_code,
+			 size_t offset, const uint8_t *payload, size_t len,
+			 bool last_block, void *user)
 {
 	LOG_DBG("result_code: %d.%02d, offset:0x%X, len:0x%X, last_block:%d",
 		result_code / 32u, result_code & 0x1f, offset, len, last_block);
@@ -257,9 +257,9 @@ int nrf_cloud_coap_get_location(struct lte_lc_cells_info const *const cell_info,
 
 static int fota_err;
 
-void get_fota(int16_t result_code,
-	      size_t offset, const uint8_t *payload, size_t len,
-	      bool last_block, void *user)
+static void get_fota(int16_t result_code,
+		     size_t offset, const uint8_t *payload, size_t len,
+		     bool last_block, void *user)
 {
 	LOG_DBG("result_code: %d.%02d, offset:0x%X, len:0x%X, last_block:%d",
 		result_code / 32u, result_code & 0x1f, offset, len, last_block);
@@ -292,7 +292,6 @@ int nrf_cloud_coap_get_current_fota_job(struct nrf_cloud_fota_job_info *const jo
 	}
 	return err;
 }
-
 
 int nrf_cloud_coap_fota_job_update(const char *const job_id,
 	const enum nrf_cloud_fota_status status, const char * const details)
@@ -380,4 +379,86 @@ clean_up:
 
 	return ret;
 }
+
+struct get_shadow_data  {
+	char *buf;
+	size_t buf_len;
+} get_shadow_data;
+static int shadow_err;
+
+static void get_shadow(int16_t result_code,
+		       size_t offset, const uint8_t *payload, size_t len,
+		       bool last_block, void *user)
+{
+	struct get_shadow_data *data = (struct get_shadow_data *)user;
+
+	LOG_DBG("result_code: %d.%02d, offset:0x%X, len:0x%X, last_block:%d",
+		result_code / 32u, result_code & 0x1f, offset, len, last_block);
+	if (result_code != COAP_RESPONSE_CODE_CONTENT) {
+		shadow_err = result_code;
+	} else {
+		shadow_err = 0;
+		memcpy(data->buf, payload, MIN(data->buf_len, len));
+	}
+}
+
+int nrf_cloud_coap_shadow_delta_get(char *buf, size_t buf_len)
+{
+	__ASSERT_NO_MSG(buf != NULL);
+
+	get_shadow_data.buf = buf;
+	get_shadow_data.buf_len = buf_len;
+
+	return client_patch_send("state", NULL, NULL, 0,
+				COAP_CONTENT_FORMAT_APP_JSON, get_shadow, &get_shadow_data);
+}
+
+int nrf_cloud_coap_shadow_state_update(const char * const shadow_json)
+{
+	__ASSERT_NO_MSG(shadow_json != NULL);
+
+	return client_patch_send("state", NULL, (uint8_t *)shadow_json, strlen(shadow_json),
+				 COAP_CONTENT_FORMAT_APP_JSON, NULL, NULL);
+}
+
+int nrf_cloud_coap_shadow_device_status_update(const struct nrf_cloud_device_status
+					       *const dev_status)
+{
+	__ASSERT_NO_MSG(dev_status != NULL);
+
+	int ret;
+	struct nrf_cloud_data data_out;
+
+	(void)nrf_cloud_codec_init(NULL);
+
+	ret = nrf_cloud_shadow_dev_status_encode(dev_status, &data_out, false);
+	if (ret) {
+		LOG_ERR("Failed to encode device status, error: %d", ret);
+		return ret;
+	}
+
+	ret = nrf_cloud_coap_shadow_state_update(data_out.ptr);
+	if (ret) {
+		LOG_ERR("Failed to update device shadow, error: %d", ret);
+	}
+
+	nrf_cloud_device_status_free(&data_out);
+
+	return ret;
+}
+
+int nrf_cloud_coap_shadow_service_info_update(const struct nrf_cloud_svc_info * const svc_inf)
+{
+	if (svc_inf == NULL) {
+		return -EINVAL;
+	}
+
+	const struct nrf_cloud_device_status dev_status = {
+		.modem = NULL,
+		.svc = (struct nrf_cloud_svc_info *)svc_inf
+	};
+
+	return nrf_cloud_coap_shadow_device_status_update(&dev_status);
+}
+
 
