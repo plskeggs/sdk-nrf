@@ -1638,14 +1638,16 @@ int nrf_cloud_shadow_dev_status_encode(const struct nrf_cloud_device_status *con
 	cJSON *state_obj = NULL;
 	cJSON *reported_obj = NULL;
 	cJSON *root_obj = cJSON_CreateObject();
-
+#if 0
 	if (include_state) {
 		state_obj = cJSON_AddObjectToObjectCS(root_obj, NRF_CLOUD_JSON_KEY_STATE);
 		reported_obj = cJSON_AddObjectToObjectCS(state_obj, NRF_CLOUD_JSON_KEY_REP);
 	} else {
 		reported_obj = cJSON_AddObjectToObjectCS(root_obj, NRF_CLOUD_JSON_KEY_REP);
 	}
-
+#else
+	reported_obj = root_obj;
+#endif
 	cJSON *device_obj = cJSON_AddObjectToObjectCS(reported_obj, NRF_CLOUD_JSON_KEY_DEVICE);
 
 	if (device_obj == NULL) {

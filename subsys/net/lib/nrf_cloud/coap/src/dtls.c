@@ -72,6 +72,9 @@ static const unsigned char private_key[] = {
 #endif
 #endif
 
+static int dtls_save_session(int sock);
+static int dtls_load_session(int sock);
+
 #if defined(CONFIG_MODEM_INFO)
 static struct modem_param_info mdm_param;
 
@@ -369,6 +372,14 @@ int dtls_init(int sock)
 		LOG_ERR("Error setting handshake timeout: %d", errno);
 	}
 
+	for (int i = 0; i < 5; i++) {
+		err = dtls_load_session(sock);
+		if (!err) {
+			LOG_INF("  Loaded DTLS CID session");
+			break;
+		}
+		k_sleep(K_MSEC(500));
+	}
 
 #elif defined(CONFIG_MBEDTLS_SSL_DTLS_CONNECTION_ID)
 	uint8_t dummy;
@@ -398,16 +409,36 @@ int dtls_init(int sock)
 	return err;
 }
 
-int dtls_save_session(int sock)
+static int dtls_save_session(int sock)
 {
 #if defined(CONFIG_NRF_CLOUD_COAP_DTLS_CID)
+	int dummy = 0;
+	int err;
+
+	LOG_INF("  Save DTLS CID session");
+	err = setsockopt(sock, SOL_TLS, TLS_DTLS_CONN_SAVE, &dummy, sizeof(dummy));
+	if (err) {
+		LOG_ERR("Failed to save DTLS CID session, errno %d", errno);
+	}
+	return err;
+#else
 	return -ENOTSUP;
 #endif
 }
 
-int dtls_load_session(int sock)
+static int dtls_load_session(int sock)
 {
 #if defined(CONFIG_NRF_CLOUD_COAP_DTLS_CID)
+	int dummy = 0;
+	int err;
+
+	LOG_INF("  Load DTLS CID session");
+	err = setsockopt(sock, SOL_TLS, TLS_DTLS_CONN_LOAD, &dummy, sizeof(dummy));
+	if (err) {
+		LOG_ERR("Failed to load DTLS CID session, errno %d", errno);
+	}
+	return err;
+#else
 	return -ENOTSUP;
 #endif
 }
@@ -446,19 +477,22 @@ int dtls_print_connection_id(int sock, bool verbose)
 	len = sizeof(status);
 	err = getsockopt(sock, SOL_TLS, TLS_DTLS_CID_STATUS, &status, &len);
 	if (!err) {
-		dtls_connected = true;
 		if (len > 0) {
 			switch (status) {
 			case TLS_DTLS_CID_STATUS_DISABLED:
+				dtls_connected = false;
 				LOG_INF("No DTLS CID used");
 				break;
 			case TLS_DTLS_CID_STATUS_DOWNLINK:
+				dtls_connected = false;
 				LOG_INF("DTLS CID downlink");
 				break;
 			case TLS_DTLS_CID_STATUS_UPLINK:
+				dtls_connected = true;
 				LOG_INF("DTLS CID uplink");
 				break;
 			case TLS_DTLS_CID_STATUS_BIDIRECTIONAL:
+				dtls_connected = true;
 				LOG_INF("DTLS CID bidirectional");
 				break;
 			default:
@@ -475,7 +509,9 @@ int dtls_print_connection_id(int sock, bool verbose)
 	len = sizeof(status);
 	err = getsockopt(sock, SOL_TLS, TLS_DTLS_CID, &status, &len);
 	if (!err) {
-		dtls_connected = true;
+		if (status == TLS_DTLS_CID_DISABLED) {
+			dtls_connected = false;
+		}
 		if (len > 0) {
 			LOG_INF("DTLS CID: %d", status);
 		} else {
@@ -483,6 +519,16 @@ int dtls_print_connection_id(int sock, bool verbose)
 		}
 	} else {
 		LOG_ERR("Error retrieving DTLS CID: %d", errno);
+	}
+
+	if (dtls_connected) {
+		err = dtls_save_session(sock);
+		if (!err) {
+			err = dtls_load_session(sock);
+			if (!err) {
+				LOG_INF("Saved DTLS CID session");
+			}
+		}       
 	}
 
 #elif defined(CONFIG_MBEDTLS_SSL_DTLS_CONNECTION_ID)

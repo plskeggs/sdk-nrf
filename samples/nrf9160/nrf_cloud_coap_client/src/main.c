@@ -22,6 +22,7 @@
 #include <date_time.h>
 #include <net/nrf_cloud.h>
 #include <dk_buttons_and_leds.h>
+#include <version.h>
 //#include "nrf_cloud_codec.h"
 #include "scan_wifi.h"
 #include "nrf_cloud_coap.h"
@@ -111,6 +112,7 @@ static K_SEM_DEFINE(wifi_scan_sem, 0, 1);
 
 static void get_cell_info(void);
 static int do_pgps(struct gps_pgps_request *pgps_req);
+static int update_shadow(void);
 
 static bool ver_check(int32_t reqd_maj, int32_t reqd_min, int32_t reqd_rev,
 		      int32_t maj, int32_t min, int32_t rev)
@@ -405,6 +407,11 @@ static void modem_configure(void)
 		return;
 	}
 
+	err = modem_info_params_get(&mdm_param);
+	if (err) {
+		LOG_ERR("Modem info params reading failed, error: %d", err);
+	}
+
 	/* Check modem FW version */
 	check_modem_fw_version();
 }
@@ -453,6 +460,11 @@ int init(void)
 		return err;
 	}
 
+	err = nrf_cloud_coap_init(device_id);
+	if (err) {
+		LOG_ERR("Failed to initialize nRF Cloud CoAP library: %d", err);
+	}
+
 #if defined(CONFIG_WIFI)
 	err = scan_wifi_init();
 	if (err) {
@@ -470,15 +482,22 @@ int init(void)
 	err = client_connect(APP_COAP_JWT_ACK_WAIT_MS);
 	if (err) {
 		LOG_ERR("Failed to connect and get authorized: %d", err);
+		return err;
 	}
 	authorized = client_is_authorized();
 	if (authorized) {
 		get_cell_info();
+	} else {
+		LOG_ERR("Device is not authorized to use nRF Cloud CoAP services");
+		return -EACCES;
 	}
 
-	err = nrf_cloud_coap_init(device_id);
+	err = update_shadow();
 	if (err) {
-		LOG_ERR("Failed to initialize nRF Cloud CoAP library: %d", err);
+		LOG_ERR("Error updating shadow");
+		return err;
+	} else {
+		LOG_INF("Shadow updated");
 	}
 
 	struct nrf_cloud_pgps_init_param param = {
@@ -570,10 +589,34 @@ static int do_pgps(struct gps_pgps_request *pgps_req)
 
 static int update_shadow(void)
 {
-	int nrf_cloud_coap_shadow_device_status_update(const struct nrf_cloud_device_status
-						       *const dev_status);
-	int nrf_cloud_coap_shadow_service_info_update(const struct nrf_cloud_svc_info * const svc_inf);
+	/* Enable FOTA for bootloader, modem and application */
+	struct nrf_cloud_svc_info_fota fota = {
+		.modem = 1,
+		.application = 1
+	};
+	struct nrf_cloud_svc_info_ui ui_info = {
+		.gnss = true,
+		.temperature = true
+	};
+	struct nrf_cloud_svc_info service_info = {
+		.fota = &fota,
+		.ui = &ui_info
+	};
+	struct nrf_cloud_modem_info modem_info = {
+		.device = NRF_CLOUD_INFO_SET,
+		.network = NRF_CLOUD_INFO_SET,
+		.sim = IS_ENABLED(CONFIG_MODEM_INFO_ADD_SIM) ? NRF_CLOUD_INFO_SET : 0,
+		/* Use the modem info already obtained */
+		.mpi = &mdm_param,
+		/* Include the application version */
+		.application_version = STRINGIFY(BUILD_VERSION)
+	};
+	struct nrf_cloud_device_status device_status = {
+		.modem = &modem_info,
+		.svc = &service_info
+	};
 
+	return nrf_cloud_coap_shadow_device_status_update(&device_status);
 }
 
 static int do_next_test(void)
@@ -708,7 +751,7 @@ static int do_next_test(void)
 		buf[0] = '\0';
 		err = nrf_cloud_coap_shadow_delta_get(buf, sizeof(buf) - 1);
 		if (err) {
-			LOG_ERR("Failed to request shadow delta: %s", err);
+			LOG_ERR("Failed to request shadow delta: %d", err);
 		} else {
 			LOG_INF("Delta: %s", buf);
 		}
