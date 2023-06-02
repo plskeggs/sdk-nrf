@@ -24,31 +24,21 @@
 #include <net/nrf_cloud_coap.h>
 #include <version.h>
 #include "scan_wifi.h"
-#include "nrf_cloud_coap_client.h"
-//#include "coap_codec.h"
-#include "dtls.h"
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(nrf_cloud_coap_client, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVEL);
 
 #define CREDS_REQ_WAIT_SEC 10
 #define APP_WAIT_CELLS_S 30
-
+#define BTN_NUM 1
 #define APP_COAP_JWT_ACK_WAIT_MS 120000
 #define APP_COAP_SEND_INTERVAL_MS 10000
 #define APP_COAP_CLOSE_THRESHOLD_MS 4000
 #define APP_COAP_CONNECTION_CHECK_MS 30000
 #define APP_COAP_INTERVAL_LIMIT 60
 
-//#define COAP_POC
-
 /* Uncomment to incrementally increase time between coap packets */
 /* #define DELAY_INTERPACKET_PERIOD */
-
-/* Open and close socket every cycle */
-/* #define OPEN_AND_SHUT */
-
-#define BTN_NUM 1
 
 /* Modem FW version required to properly run this sample */
 #define MFWV_MAJ_SAMPLE_REQ	1
@@ -91,6 +81,8 @@ static enum lte_lc_rrc_mode cur_rrc_mode = LTE_LC_RRC_MODE_IDLE;
 
 /* Flag to indicate that a neighbor cell measurement should be taken once RRC mode is idle */
 static bool request_cells = true;
+
+static bool pgps_active;
 
 static uint8_t agps_buf[4096];
 
@@ -302,9 +294,11 @@ void pgps_handler(struct nrf_cloud_pgps_event *event)
 		break;
 	case PGPS_EVT_READY:
 		LOG_INF("PGPS_EVT_READY");
+		pgps_active = false;
 		break;
 	case PGPS_EVT_REQUEST:
 		LOG_INF("PGPS_EVT_REQUEST");
+		pgps_active = true;
 		do_pgps(event->request);
 		break;
 	}
@@ -386,7 +380,7 @@ int init(void)
 		return err;
 	}
 
-	err = nrf_cloud_coap_init(device_id);
+	err = nrf_cloud_coap_client_id_set(device_id);
 	if (err) {
 		LOG_ERR("Failed to initialize nRF Cloud CoAP library: %d", err);
 	}
@@ -399,18 +393,18 @@ int init(void)
 	}
 #endif
 
-	err = nrf_cloud_coap_client_init();
+	err = nrf_cloud_coap_init();
 	if (err) {
 		LOG_ERR("Failed to initialize CoAP client: %d", err);
 		return err;
 	}
 
-	err = nrf_cloud_coap_client_connect(APP_COAP_JWT_ACK_WAIT_MS);
+	err = nrf_cloud_coap_connect(APP_COAP_JWT_ACK_WAIT_MS);
 	if (err) {
 		LOG_ERR("Failed to connect and get authorized: %d", err);
 		return err;
 	}
-	authorized = nrf_cloud_coap_client_is_authorized();
+	authorized = nrf_cloud_coap_is_authorized();
 	if (authorized) {
 		get_cell_info();
 	} else {
@@ -478,11 +472,10 @@ static int do_pgps(struct gps_pgps_request *pgps_req)
 	LOG_INF("******** Getting P-GPS data");
 	memset(&pgps_request, 0, sizeof(pgps_request));
 	memset(&pgps_res, 0, sizeof(pgps_res));
-	//pgps_req.gps_day = 0;
-	//pgps_req.gps_time_of_day = 0;
-	//pgps_req.prediction_count = 4;
-	//pgps_req.prediction_period_min = 240;
 	pgps_request.pgps_req = pgps_req;
+	LOG_INF("period_min:%u, pred_cnt:%u, gps_day:%u, gps_time:%u",
+		pgps_req->prediction_period_min, pgps_req->prediction_count,
+		pgps_req->gps_day, pgps_req->gps_time_of_day);
 	memset(host, 0, sizeof(host));
 	memset(path, 0, sizeof(path));
 	pgps_res.host = host;
@@ -710,7 +703,7 @@ int main(void)
 	next_msg_time = k_uptime_get() + delta_ms;
 
 	while (1) {
-		if (authorized && (k_uptime_get() >= next_msg_time)) {
+		if (authorized && !pgps_active && (k_uptime_get() >= next_msg_time)) {
 			if (reconnect) {
 				reconnect = false;
 				authorized = false;
@@ -720,18 +713,18 @@ int main(void)
 					LOG_ERR("Error going online: %d", err);
 				} else {
 					k_sem_take(&lte_ready, K_FOREVER);
-					err = nrf_cloud_coap_client_init();
+					err = nrf_cloud_coap_init();
 					if (err) {
 						LOG_ERR("Failed to initialize CoAP client");
 						break;
 					}
-					err = nrf_cloud_coap_client_connect(APP_COAP_JWT_ACK_WAIT_MS);
+					err = nrf_cloud_coap_connect(APP_COAP_JWT_ACK_WAIT_MS);
 					if (err) {
 						LOG_ERR("Failed to connect and get authorized: %d",
 							err);
 						break;
 					}
-					authorized = nrf_cloud_coap_client_is_authorized();
+					authorized = nrf_cloud_coap_is_authorized();
 					if (authorized) {
 						get_cell_info();
 					}
@@ -741,7 +734,7 @@ int main(void)
 			err = do_next_test();
 			if (err == -EAGAIN) {
 				reconnect = true;
-				err = nrf_cloud_coap_client_close();
+				err = nrf_cloud_coap_close();
 				if (err) {
 					LOG_ERR("Error closing socket: %d", err);
 				} else {
@@ -766,16 +759,14 @@ int main(void)
 				i = APP_COAP_INTERVAL_LIMIT;
 			}
 #endif
-#if defined(CONFIG_COAP_DTLS) || defined(CONFIG_NRF_CLOUD_COAP_DTLS)
-			dtls_print_connection_id(nrf_cloud_coap_client_get_sock(), false);
-#endif
 		} else if (!authorized) {
-			authorized = nrf_cloud_coap_client_is_authorized();
+			authorized = nrf_cloud_coap_is_authorized();
 			if (authorized) {
 				get_cell_info();
 			}
 		}
+		k_sleep(K_MSEC(100));
 	}
-	nrf_cloud_coap_client_close();
+	nrf_cloud_coap_close();
 	return err;
 }

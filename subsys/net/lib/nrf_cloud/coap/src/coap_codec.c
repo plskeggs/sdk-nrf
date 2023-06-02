@@ -26,7 +26,7 @@
 #include "pgps_decode.h"
 #include "msg_encode_types.h"
 #include "msg_encode.h"
-#include "nrf_cloud_coap_client.h"
+//#include "nrf_cloud_coap_client.h"
 #include "coap_codec.h"
 
 #include <zephyr/logging/log.h>
@@ -117,20 +117,20 @@ static int encode_message(const char *app_id, const char *str,
 	return err;
 }
 
-int coap_codec_encode_message(const char *app_id,
+int coap_codec_message_encode(const char *app_id,
 			      const char *str_val, double float_val, int int_val,
 			      int64_t ts, uint8_t *buf, size_t *len, enum coap_content_format fmt)
 {
 	return encode_message(app_id, str_val, NULL, float_val, int_val, ts, buf, len, fmt);
 }
 
-int coap_codec_encode_sensor(const char *app_id, double float_val,
+int coap_codec_sensor_encode(const char *app_id, double float_val,
 			     int64_t ts, uint8_t *buf, size_t *len, enum coap_content_format fmt)
 {
 	return encode_message(app_id, NULL, NULL, float_val, 0, ts, buf, len, fmt);
 }
 
-int coap_codec_encode_pvt(const char *app_id, const struct nrf_cloud_gnss_pvt *pvt,
+int coap_codec_pvt_encode(const char *app_id, const struct nrf_cloud_gnss_pvt *pvt,
 			  int64_t ts, uint8_t *buf, size_t *len, enum coap_content_format fmt)
 {
 	return encode_message(app_id, NULL, pvt, 0, 0, ts, buf, len, fmt);
@@ -279,7 +279,7 @@ static void copy_wifi_info(struct wifi_ob *wifi_encode,
 	}
 }
 
-int coap_codec_encode_ground_fix_req(struct lte_lc_cells_info const *const cell_info,
+int coap_codec_ground_fix_req_encode(struct lte_lc_cells_info const *const cell_info,
 				     struct wifi_scan_info const *const wifi_info,
 				     uint8_t *buf, size_t *len, enum coap_content_format fmt)
 {
@@ -352,7 +352,7 @@ cleanup:
 	return err;
 }
 
-int coap_codec_decode_ground_fix_resp(struct nrf_cloud_location_result *result,
+int coap_codec_ground_fix_resp_decode(struct nrf_cloud_location_result *result,
 				      const uint8_t *buf, size_t len, enum coap_content_format fmt)
 {
 	int err;
@@ -499,7 +499,7 @@ static int format_agps_custom_types_str(struct nrf_modem_gnss_agps_data_frame co
 	return pos ? 0 : -EBADF;
 }
 
-int coap_codec_encode_agps(struct nrf_cloud_rest_agps_request const *const request,
+int coap_codec_agps_encode(struct nrf_cloud_rest_agps_request const *const request,
 			   uint8_t *buf, size_t *len, bool *query_string,
 			   enum coap_content_format fmt)
 {
@@ -631,7 +631,7 @@ clean_up:
 	return ret;
 }
 
-int coap_codec_decode_agps_resp(struct nrf_cloud_rest_agps_result *result,
+int coap_codec_agps_resp_decode(struct nrf_cloud_rest_agps_result *result,
 				const uint8_t *buf, size_t len, enum coap_content_format fmt)
 {
 	if (fmt == COAP_CONTENT_FORMAT_APP_JSON) {
@@ -657,7 +657,7 @@ int coap_codec_decode_agps_resp(struct nrf_cloud_rest_agps_result *result,
 #endif /* CONFIG_NRF_CLOUD_AGPS */
 
 #if defined(CONFIG_NRF_CLOUD_PGPS)
-int coap_codec_encode_pgps(struct nrf_cloud_rest_pgps_request const *const request,
+int coap_codec_pgps_encode(struct nrf_cloud_rest_pgps_request const *const request,
 			   uint8_t *buf, size_t *len, bool *query_string,
 			   enum coap_content_format fmt)
 {
@@ -752,7 +752,7 @@ clean_up:
 	return ret;
 }
 
-int coap_codec_decode_pgps_resp(struct nrf_cloud_pgps_result *result,
+int coap_codec_pgps_resp_decode(struct nrf_cloud_pgps_result *result,
 				const uint8_t *buf, size_t len, enum coap_content_format fmt)
 {
 	if (fmt == COAP_CONTENT_FORMAT_APP_JSON) {
@@ -783,7 +783,7 @@ int coap_codec_decode_pgps_resp(struct nrf_cloud_pgps_result *result,
 }
 #endif /* CONFIG_NRF_CLOUD_PGPS */
 
-int coap_codec_decode_fota_resp(struct nrf_cloud_fota_job_info * job,
+int coap_codec_fota_resp_decode(struct nrf_cloud_fota_job_info * job,
 				const uint8_t *buf, size_t len, enum coap_content_format fmt)
 {
 	if (!job) {

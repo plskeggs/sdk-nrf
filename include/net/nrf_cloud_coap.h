@@ -10,9 +10,65 @@
 #include <net/nrf_cloud_rest.h>
 #include <net/nrf_cloud_agps.h>
 #include <net/nrf_cloud_pgps.h>
+#include <zephyr/net/coap_client.h>
 
-int nrf_cloud_coap_init(const char *device_id);
+/* Transport functions */
+/**@brief Initialize nRF Cloud CoAP library. */
+int nrf_cloud_coap_init(void);
 
+/**@brief Connect to nRF Cloud CoAP server. */
+int nrf_cloud_coap_connect(int wait_ms);
+
+/**@brief Get current CoAP network socket. */
+int nrf_cloud_coap_get_sock(void);
+
+/**@brief Check if device is authorized to use nRF Cloud CoAP. */
+bool nrf_cloud_coap_is_authorized(void);
+
+/**@brief Send CoAP GET request. */
+int nrf_cloud_coap_get_send(const char *resource, const char *query,
+			    uint8_t *buf, size_t len,
+			    enum coap_content_format fmt_out,
+			    enum coap_content_format fmt_in,
+			    coap_client_response_cb_t cb, void *user);
+
+/**@brief Send CoAP POST request. */
+int nrf_cloud_coap_post_send(const char *resource, const char *query,
+			     uint8_t *buf, size_t len,
+			     enum coap_content_format fmt, bool reliable,
+			     coap_client_response_cb_t cb, void *user);
+
+/**@brief Send CoAP PUT request. */
+int nrf_cloud_coap_put_send(const char *resource, const char *query,
+			    uint8_t *buf, size_t len,
+			    enum coap_content_format fmt,
+			    coap_client_response_cb_t cb, void *user);
+
+/**@brief Send CoAP DELETE request. */
+int nrf_cloud_coap_delete_send(const char *resource, const char *query,
+			       uint8_t *buf, size_t len,
+			       enum coap_content_format fmt,
+			       coap_client_response_cb_t cb, void *user);
+
+/**@brief Send CoAP FETCH request. */
+int nrf_cloud_coap_fetch_send(const char *resource, const char *query,
+			      uint8_t *buf, size_t len,
+			      enum coap_content_format fmt_out,
+			      enum coap_content_format fmt_in,
+			      coap_client_response_cb_t cb, void *user);
+
+/**@brief Send CoAP PATCH request. */
+int nrf_cloud_coap_patch_send(const char *resource, const char *query,
+			      uint8_t *buf, size_t len,
+			      enum coap_content_format fmt,
+			      coap_client_response_cb_t cb, void *user);
+
+/**@brief Close nRF Cloud CoAP connection */
+int nrf_cloud_coap_close(void);
+
+int nrf_cloud_coap_client_id_set(const char *device_id);
+
+/* nRF Cloud service functions */
 int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request,
 			struct nrf_cloud_rest_agps_result *result);
 

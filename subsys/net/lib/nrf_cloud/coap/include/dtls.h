@@ -8,8 +8,8 @@
 #define DTLS_H_
 
 int dtls_init(int sock);
-int dtls_print_connection_id(int sock, bool verbose);
-int dtls_save_session(int sock);
-int dtls_load_session(int sock);
+bool dtls_cid_is_active(int sock);
+int dtls_session_save(int sock);
+int dtls_session_load(int sock);
 
 #endif /* DTLS_H_ */
