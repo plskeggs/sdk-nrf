@@ -25,6 +25,8 @@
 #include <nrf_socket.h>
 #include <nrf_modem_at.h>
 
+#include "dtls.h"
+
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(dtls, CONFIG_NRF_CLOUD_COAP_LOG_LEVEL);
 
@@ -71,9 +73,6 @@ static const unsigned char private_key[] = {
 };
 #endif
 #endif
-
-static int dtls_save_session(int sock);
-static int dtls_load_session(int sock);
 
 #if defined(CONFIG_MODEM_INFO)
 static struct modem_param_info mdm_param;
@@ -372,13 +371,9 @@ int dtls_init(int sock)
 		LOG_ERR("Error setting handshake timeout: %d", errno);
 	}
 
-	for (int i = 0; i < 5; i++) {
-		err = dtls_load_session(sock);
-		if (!err) {
-			LOG_INF("  Loaded DTLS CID session");
-			break;
-		}
-		k_sleep(K_MSEC(500));
+	err = dtls_load_session(sock);
+	if (!err) {
+		LOG_INF("  Loaded DTLS CID session");
 	}
 
 #elif defined(CONFIG_MBEDTLS_SSL_DTLS_CONNECTION_ID)
@@ -409,7 +404,7 @@ int dtls_init(int sock)
 	return err;
 }
 
-static int dtls_save_session(int sock)
+int dtls_save_session(int sock)
 {
 #if defined(CONFIG_NRF_CLOUD_COAP_DTLS_CID)
 	int dummy = 0;
@@ -426,7 +421,7 @@ static int dtls_save_session(int sock)
 #endif
 }
 
-static int dtls_load_session(int sock)
+int dtls_load_session(int sock)
 {
 #if defined(CONFIG_NRF_CLOUD_COAP_DTLS_CID)
 	int dummy = 0;

@@ -609,7 +609,7 @@ static int update_shadow(void)
 		/* Use the modem info already obtained */
 		.mpi = &mdm_param,
 		/* Include the application version */
-		.application_version = STRINGIFY(BUILD_VERSION)
+		.application_version = CONFIG_NRF_CLOUD_COAP_CLIENT_SAMPLE_VERSION
 	};
 	struct nrf_cloud_device_status device_status = {
 		.modem = &modem_info,

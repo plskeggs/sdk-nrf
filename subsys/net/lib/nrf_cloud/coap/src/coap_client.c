@@ -166,6 +166,15 @@ int client_init(void)
 		LOG_DBG("Connect succeeded.");
 	}
 
+#if 0 // defined(CONFIG_NRF_CLOUD_COAP_DTLS_CID)
+	err = dtls_load_session(sock);
+	if (err) {
+		LOG_ERR("Error loading session: %d", errno);
+	} else {
+		LOG_INF("Session loaded.");
+	}
+#endif
+
 	/* Initialize FDS, for poll. */
 	fds.fd = sock;
 	fds.events = POLLIN;

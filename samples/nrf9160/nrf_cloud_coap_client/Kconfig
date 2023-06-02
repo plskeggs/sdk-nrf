@@ -6,6 +6,10 @@
 
 menu "nRF Cloud CoAP client sample"
 
+config NRF_CLOUD_COAP_CLIENT_SAMPLE_VERSION
+	string "The sample's version string"
+	default "1.0.0"
+
 module = NRF_CLOUD_COAP_CLIENT
 module-dep = LOG
 module-str = nRF Cloud CoAP Client Sample
