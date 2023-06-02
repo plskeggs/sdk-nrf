@@ -15,13 +15,6 @@
 #if defined(CONFIG_MODEM_INFO)
 #include <modem/modem_info.h>
 #endif
-#if defined(CONFIG_MBEDTLS)
-#include <mbedtls/ssl.h>
-#include <mbedtls/debug.h>
-#endif
-#if defined(CONFIG_TLS_CREDENTIALS)
-#include <zephyr/net/tls_credentials.h>
-#endif
 #include <nrf_socket.h>
 #include <nrf_modem_at.h>
 
@@ -30,49 +23,12 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(dtls, CONFIG_NRF_CLOUD_COAP_LOG_LEVEL);
 
-/* #define ALL_CERTS */
-
 static bool dtls_connected;
-
-#if defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
-/* Uncomment to limit cipher negotation to a list */
-//#define RESTRICT_CIPHERS
-/* Uncomment to display the cipherlist available */
-/* #define DUMP_CIPHERLIST */
-#endif
 
 static int sectag = CONFIG_NRF_CLOUD_COAP_SEC_TAG;
 
-#if defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
-static const unsigned char ca_certificate[] = {
-	#include "ca_cert.pem"
-};
-
-#if defined(ALL_CERTS)
-static const unsigned char client_certificate[] = {
-	#include "client_crt.pem"
-};
-
-static const unsigned char private_key[] = {
-	#include "client_prv.pem"
-};
-#endif
-
-#else
-static const unsigned char ca_certificate[] = {
-	#include "ca_cert.h"
-};
-
-#if defined(ALL_CERTS)
-static const unsigned char client_certificate[] = {
-	#include "client_cert.h"
-};
-
-static const unsigned char private_key[] = {
-	#include "private_key.h"
-};
-#endif
-#endif
+static bool mfw_2;
+static bool mfw_cid;
 
 #if defined(CONFIG_MODEM_INFO)
 static struct modem_param_info mdm_param;
@@ -100,19 +56,22 @@ static int get_modem_info(void)
 	LOG_INF("IMEI:                    %s", mdm_param.device.imei.value_string);
 	LOG_INF("Modem FW version:        %s", mdm_param.device.modem_fw.value_string);
 
-	return 0;
-}
+	uint32_t major;
+	uint32_t minor;
+	uint32_t rev;
 
-int get_device_id(char *buf, size_t len)
-{
-	int err;
-
-	err = get_modem_info();
-	if (err) {
-		return err;
+	if (sscanf(mdm_param.device.modem_fw.value_string, "mfw_nrf9160_%u.%u.%u",
+		   &major, &minor, &rev) != 3) {
+		LOG_WRN("Unable to parse modem FW version number");
+		return 0;
+	}
+	if (major >= 2) {
+		mfw_2 = true;
+	}
+	if ((major >= 1) && (minor >= 3) && (rev >= 5)) {
+		mfw_cid = true;
 	}
 
-	snprintf(buf, len, "nrf-%s", mdm_param.device.imei.value_string);
 	return 0;
 }
 
@@ -149,147 +108,6 @@ static int get_device_ip_address(uint8_t *d4_addr)
 #endif
 
 }
-
-#if defined(CONFIG_NRF_CLOUD_COAP_DTLS_PSK)
-
-int provision_psk(void)
-{
-	int ret;
-	static char identity[120];
-	uint16_t identity_len;
-	const char *psk;
-	uint16_t psk_len;
-
-	LOG_INF("Provisioning PSK to sectag %u", sectag);
-
-	/* get IMEI so we can construct the PSK identity */
-	ret = get_modem_info();
-	if (ret) {
-		return ret;
-	}
-
-	if (strlen(CONFIG_COAP_DTLS_PSK_IDENTITY)) {
-		strncpy(identity, CONFIG_COAP_DTLS_PSK_IDENTITY, sizeof(identity) - 1);
-	} else {
-		const char *identity_fmt = "n%s0123456789abcdef";
-
-		snprintf(identity, sizeof(identity), identity_fmt,
-			 mdm_param.device.imei.value_string);
-	}
-
-	if (strlen(CONFIG_COAP_DTLS_PSK_SECRET)) {
-		psk = CONFIG_COAP_DTLS_PSK_SECRET;
-	} else {
-		psk = "000102030405060708090a0b0c0d0e0f";
-	}
-
-	identity_len = strlen(identity);
-
-	LOG_DBG("psk identity: %s len %u", identity, identity_len);
-
-	psk_len = strlen(psk);
-	LOG_HEXDUMP_DBG(psk, psk_len, "psk");
-
-#if !defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
-	char psk_hex[65];
-
-	/* Convert PSK to a format accepted by the modem. */
-	psk_len = bin2hex(psk, psk_len, psk_hex, sizeof(psk_hex));
-	if (psk_len == 0) {
-		LOG_ERR("PSK is too large to convert (%d)", -EOVERFLOW);
-		return -EOVERFLOW;
-	}
-	LOG_HEXDUMP_INF(psk_hex, 64, "psk_hex");
-
-	lte_lc_offline();
-
-	ret = modem_key_mgmt_write(sectag, MODEM_KEY_MGMT_CRED_TYPE_PSK, psk_hex, psk_len);
-	if (ret < 0) {
-		LOG_ERR("Setting cred tag %d type %d failed (%d)", sectag,
-			(int)MODEM_KEY_MGMT_CRED_TYPE_PSK, ret);
-		goto exit;
-	}
-
-	ret = modem_key_mgmt_write(sectag, MODEM_KEY_MGMT_CRED_TYPE_IDENTITY, identity,
-				   identity_len);
-	if (ret < 0) {
-		LOG_ERR("Setting cred tag %d type %d failed (%d)", sectag,
-			(int)MODEM_KEY_MGMT_CRED_TYPE_IDENTITY, ret);
-	}
-exit:
-	lte_lc_connect();
-
-#else
-	ret = tls_credential_add(sectag, TLS_CREDENTIAL_PSK, psk, psk_len);
-	if (ret) {
-		LOG_ERR("Failed to set PSK: %d", ret);
-	}
-	ret = tls_credential_add(sectag, TLS_CREDENTIAL_PSK_ID, identity, identity_len);
-	if (ret) {
-		LOG_ERR("Failed to set PSK identity: %d", ret);
-	}
-#endif
-	return ret;
-}
-
-#else
-
-int provision_ca(void)
-{
-	int ret;
-
-	/* get IMEI so we can construct the PSK identity */
-	ret = get_modem_info();
-	if (ret) {
-		return ret;
-	}
-
-	LOG_INF("Updating CA cert");
-
-#if !defined(CONFIG_NET_SOCKETS_ENABLE_DTLS)
-	lte_lc_offline();
-
-	ret = modem_key_mgmt_write(sectag, MODEM_KEY_MGMT_CRED_TYPE_CA_CHAIN,
-				   ca_certificate, sizeof(ca_certificate) - 1);
-	if (ret < 0) {
-		LOG_ERR("Setting cred tag %d type %d failed (%d)", sectag,
-			(int)MODEM_KEY_MGMT_CRED_TYPE_CA_CHAIN, ret);
-	}
-
-	lte_lc_connect();
-
-#else
-	/* Load CA certificate */
-	ret = tls_credential_add(sectag, TLS_CREDENTIAL_CA_CERTIFICATE,
-				 ca_certificate, sizeof(ca_certificate));
-	if (ret < 0) {
-		LOG_ERR("Failed to register CA certificate: %d", ret);
-		goto exit;
-	}
-
-#if defined(ALL_CERTS)
-		/* Load server/client certificate */
-	ret = tls_credential_add(sectag,
-				TLS_CREDENTIAL_SERVER_CERTIFICATE,
-				client_certificate, sizeof(client_certificate));
-	if (ret < 0) {
-		LOG_ERR("Failed to register public cert: %d", ret);
-		goto exit;
-	}
-
-	/* Load private key */
-	ret = tls_credential_add(sectag, TLS_CREDENTIAL_PRIVATE_KEY,
-				private_key, sizeof(private_key));
-	if (ret < 0) {
-		LOG_ERR("Failed to register private key: %d", ret);
-		goto exit;
-	}
-#endif
-exit:
-#endif
-	return ret;
-}
-#endif
 
 int dtls_init(int sock)
 {
@@ -349,42 +167,34 @@ int dtls_init(int sock)
 		LOG_INF("New cipherlist:");
 		for (int i = 0; i < count; i++) {
 			LOG_INF("%d. 0x%04X = %s", i, (unsigned int)ciphers[i],
-			       mbedtls_ssl_get_ciphersuite_name(ciphers[i]));
+			       IS_ENABLED(CONFIG_MBEDTLS) ?
+				mbedtls_ssl_get_ciphersuite_name(ciphers[i]) : "");
 		}
 	}
 #endif
 
-#if defined(CONFIG_NRF_CLOUD_COAP_DTLS_CID)
-	int cid_option = TLS_DTLS_CID_SUPPORTED;
+	if (mfw_cid) {
+		int cid_option = TLS_DTLS_CID_SUPPORTED;
 
-	LOG_INF("  Enable connection id");
-	err = setsockopt(sock, SOL_TLS, TLS_DTLS_CID, &cid_option, sizeof(cid_option));
-	if (err) {
-		LOG_ERR("Error enabling connection ID: %d", errno);
+		LOG_INF("  Enable connection id");
+		err = setsockopt(sock, SOL_TLS, TLS_DTLS_CID, &cid_option, sizeof(cid_option));
+		if (err) {
+			LOG_ERR("Error enabling connection ID: %d", errno);
+		}
+
+		int timeout = TLS_DTLS_HANDSHAKE_TIMEO_123S;
+
+		LOG_INF("  Set handshake timeout %d", timeout);
+		err = setsockopt(sock, SOL_TLS, TLS_DTLS_HANDSHAKE_TIMEO, &timeout, sizeof(timeout));
+		if (err) {
+			LOG_ERR("Error setting handshake timeout: %d", errno);
+		}
+
+		err = dtls_load_session(sock);
+		if (!err) {
+			LOG_INF("  Loaded DTLS CID session");
+		}
 	}
-
-	int timeout = TLS_DTLS_HANDSHAKE_TIMEO_123S;
-
-	LOG_INF("  Set handshake timeout %d", timeout);
-	err = setsockopt(sock, SOL_TLS, TLS_DTLS_HANDSHAKE_TIMEO, &timeout, sizeof(timeout));
-	if (err) {
-		LOG_ERR("Error setting handshake timeout: %d", errno);
-	}
-
-	err = dtls_load_session(sock);
-	if (!err) {
-		LOG_INF("  Loaded DTLS CID session");
-	}
-
-#elif defined(CONFIG_MBEDTLS_SSL_DTLS_CONNECTION_ID)
-	uint8_t dummy;
-
-	LOG_INF("  Enable connection id");
-	err = setsockopt(sock, SOL_TLS, TLS_DTLS_CONNECTION_ID, &dummy, 0);
-	if (err) {
-		LOG_ERR("Error enabling connection ID: %d", errno);
-	}
-#endif
 
 	enum {
 		NONE = 0,
@@ -406,7 +216,6 @@ int dtls_init(int sock)
 
 int dtls_save_session(int sock)
 {
-#if defined(CONFIG_NRF_CLOUD_COAP_DTLS_CID)
 	int dummy = 0;
 	int err;
 
@@ -416,14 +225,10 @@ int dtls_save_session(int sock)
 		LOG_ERR("Failed to save DTLS CID session, errno %d", errno);
 	}
 	return err;
-#else
-	return -ENOTSUP;
-#endif
 }
 
 int dtls_load_session(int sock)
 {
-#if defined(CONFIG_NRF_CLOUD_COAP_DTLS_CID)
 	int dummy = 0;
 	int err;
 
@@ -433,9 +238,6 @@ int dtls_load_session(int sock)
 		LOG_ERR("Failed to load DTLS CID session, errno %d", errno);
 	}
 	return err;
-#else
-	return -ENOTSUP;
-#endif
 }
 
 int dtls_print_connection_id(int sock, bool verbose)
@@ -446,28 +248,27 @@ int dtls_print_connection_id(int sock, bool verbose)
 		return 0;
 	}
 
-#if defined(CONFIG_NRF_CLOUD_COAP_DTLS_CID)
 	int status = 0;
 	int len = sizeof(status);
 
-#if defined(MFW_2_0) /* TODO: determine proper way to identify mfw 2 */
-	err = getsockopt(sock, SOL_TLS, TLS_DTLS_HANDSHAKE_STATUS, &status, &len);
-	if (!err) {
-		if (len > 0) {
-			if (status == TLS_DTLS_HANDSHAKE_STATUS_FULL) {
-				LOG_INF("Full DTLS handshake performed");
-			} else if (status == TLS_DTLS_HANDSHAKE_STATUS_CACHED) {
-				LOG_INF("Cached DTLS handshake performed");
+	if (mfw_2) {
+		err = getsockopt(sock, SOL_TLS, TLS_DTLS_HANDSHAKE_STATUS, &status, &len);
+		if (!err) {
+			if (len > 0) {
+				if (status == TLS_DTLS_HANDSHAKE_STATUS_FULL) {
+					LOG_INF("Full DTLS handshake performed");
+				} else if (status == TLS_DTLS_HANDSHAKE_STATUS_CACHED) {
+					LOG_INF("Cached DTLS handshake performed");
+				} else {
+					LOG_WRN("Unknown DTLS handshake status: %d", status);
+				}
 			} else {
-				LOG_WRN("Unknown DTLS handshake status: %d", status);
+				LOG_WRN("No DTLS status provided");
 			}
 		} else {
-			LOG_WRN("No DTLS status provided");
+			LOG_ERR("Error retrieving handshake status: %d", errno);
 		}
-	} else {
-		LOG_ERR("Error retrieving handshake status: %d", errno);
 	}
-#endif
 
 	len = sizeof(status);
 	err = getsockopt(sock, SOL_TLS, TLS_DTLS_CID_STATUS, &status, &len);
@@ -526,56 +327,5 @@ int dtls_print_connection_id(int sock, bool verbose)
 		}       
 	}
 
-#elif defined(CONFIG_MBEDTLS_SSL_DTLS_CONNECTION_ID)
-	static struct tls_dtls_peer_cid last_cid;
-	struct tls_dtls_peer_cid cid;
-	int cid_len = 0;
-	int i;
-
-	cid_len = sizeof(cid);
-	memset(&cid, 0, cid_len);
-	err = getsockopt(sock, SOL_TLS, TLS_DTLS_PEER_CONNECTION_ID, &cid, &cid_len);
-	if (!err) {
-		if (last_cid.enabled != cid.enabled) {
-			LOG_WRN("CID ENABLE CHANGED");
-		}
-		if (last_cid.peer_cid_len != cid.peer_cid_len) {
-			LOG_WRN("CID LEN CHANGED from %d to %d", last_cid.peer_cid_len,
-			       cid.peer_cid_len);
-			if (cid.peer_cid_len) {
-				LOG_INF("DTLS CID IS  enabled:%d, len:%d ", cid.enabled,
-				       cid.peer_cid_len);
-				for (i = 0; i < cid.peer_cid_len; i++) {
-					LOG_DBG("0x%02x ", cid.peer_cid[i]);
-				}
-				LOG_INF("");
-			}
-		} else {
-			if (memcmp(last_cid.peer_cid, cid.peer_cid, cid.peer_cid_len) != 0) {
-				LOG_WRN("CID CHANGED!");
-
-				LOG_INF("DTLS CID WAS enabled:%d, len:%d ", last_cid.enabled,
-				       last_cid.peer_cid_len);
-				for (i = 0; i < last_cid.peer_cid_len; i++) {
-					LOG_DBG("0x%02x ", last_cid.peer_cid[i]);
-				}
-				LOG_INF("");
-			}
-			if (verbose) {
-				LOG_INF("DTLS CID IS  enabled:%d, len:%d ", cid.enabled,
-				       cid.peer_cid_len);
-				for (i = 0; i < cid.peer_cid_len; i++) {
-					LOG_DBG("0x%02x ", cid.peer_cid[i]);
-				}
-				LOG_INF("");
-			}
-		}
-		memcpy(&last_cid, &cid, sizeof(last_cid));
-	} else {
-		LOG_ERR("Unable to get connection ID: %d", -errno);
-	}
-#else
-	LOG_DBG("Skipping CID");
-#endif
 	return err;
 }

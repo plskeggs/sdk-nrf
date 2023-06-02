@@ -51,8 +51,7 @@ zephyr_compile_definitions_ifdef(
 zephyr_library_sources_ifdef(
 	CONFIG_NRF_CLOUD_COAP
 	coap/src/agps_encode.c
-	coap/src/app_jwt.c
-	coap/src/coap_client.c
+	coap/src/nrf_cloud_coap_client.c
 	coap/src/coap_codec.c
 	coap/src/dtls.c
 	coap/src/ground_fix_encode.c

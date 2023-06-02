@@ -26,7 +26,7 @@
 #include "pgps_decode.h"
 #include "msg_encode_types.h"
 #include "msg_encode.h"
-#include "coap_client.h"
+#include "nrf_cloud_coap_client.h"
 #include "coap_codec.h"
 
 #include <zephyr/logging/log.h>

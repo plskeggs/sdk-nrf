@@ -21,13 +21,11 @@
 #include <nrf_modem_at.h>
 #include <date_time.h>
 #include <net/nrf_cloud.h>
-#include <dk_buttons_and_leds.h>
+#include <net/nrf_cloud_coap.h>
 #include <version.h>
-//#include "nrf_cloud_codec.h"
 #include "scan_wifi.h"
-#include "nrf_cloud_coap.h"
-#include "coap_client.h"
-#include "coap_codec.h"
+#include "nrf_cloud_coap_client.h"
+//#include "coap_codec.h"
 #include "dtls.h"
 
 #include <zephyr/logging/log.h>
@@ -102,9 +100,6 @@ static K_SEM_DEFINE(cell_info_ready_sem, 0, 1);
 /* Mutex for cell info struct */
 static K_MUTEX_DEFINE(cell_info_mutex);
 
-/* Semaphore to indicate a button has been pressed */
-static K_SEM_DEFINE(button_press_sem, 0, 1);
-
 #if defined(CONFIG_WIFI)
 /* Semaphore to indicate Wi-Fi scanning is complete */
 static K_SEM_DEFINE(wifi_scan_sem, 0, 1);
@@ -168,43 +163,6 @@ static void check_modem_fw_version(void)
 	} else {
 		LOG_INF("Using LTE LC neighbor search type default");
 	}
-}
-
-static void button_handler(uint32_t button_states, uint32_t has_changed)
-{
-	if (has_changed & button_states & BIT(BTN_NUM - 1)) {
-		LOG_DBG("Button %d pressed", BTN_NUM);
-		k_sem_give(&button_press_sem);
-	}
-}
-
-static bool offer_update_creds(void)
-{
-#if UPDATE_CREDS
-	int ret;
-	bool update_creds = false;
-
-	k_sem_reset(&button_press_sem);
-
-	LOG_INF("---> Press button %d to update credentials in modem", BTN_NUM);
-	LOG_INF("     Waiting %d seconds...", CREDS_REQ_WAIT_SEC);
-
-	ret = k_sem_take(&button_press_sem, K_SECONDS(CREDS_REQ_WAIT_SEC));
-	if (ret == 0) {
-		update_creds = true;
-		LOG_INF("Credentials will be updated");
-	} else {
-		if (ret != -EAGAIN) {
-			LOG_ERR("k_sem_take error: %d", ret);
-		}
-
-		LOG_INF("Credentials will not be updated");
-	}
-
-	return update_creds;
-#else
-	return false;
-#endif
 }
 
 #if defined(CONFIG_NRF_MODEM_LIB)
@@ -416,45 +374,13 @@ static void modem_configure(void)
 	check_modem_fw_version();
 }
 
-#if defined(DELAY_INTERPACKET_PERIOD) || (APP_COAP_SEND_INTERVAL_MS >= APP_COAP_CONNECTION_CHECK_MS)
-static void check_connection(void)
-{
-	static int64_t next_keep_serial_alive_time;
-	char scratch_buf[256];
-	int err;
-
-	if (k_uptime_get() >= next_keep_serial_alive_time) {
-		next_keep_serial_alive_time = k_uptime_get() + APP_COAP_CONNECTION_CHECK_MS;
-		scratch_buf[0] = '\0';
-		err = nrf_modem_at_cmd(scratch_buf, sizeof(scratch_buf), "%s", "AT%XMONITOR");
-		LOG_INF("%s", scratch_buf);
-		if (err) {
-			LOG_ERR("Error on at cmd: %d", err);
-		}
-	}
-}
-#endif
-
 int init(void)
 {
 	int err;
 
-	/* Init the button */
-	err = dk_buttons_init(button_handler);
-	if (err) {
-		LOG_ERR("Failed to initialize button: error: %d", err);
-		return err;
-	}
-
-	err = client_provision(offer_update_creds());
-	if (err) {
-		LOG_ERR("Failed to provision credentials: %d", err);
-		return err;
-	}
-
 	modem_configure();
 
-	err = get_device_id(device_id, sizeof(device_id));
+	err = nrf_cloud_client_id_get(device_id, sizeof(device_id));
 	if (err) {
 		LOG_ERR("Error getting device id: %d", err);
 		return err;
@@ -473,18 +399,18 @@ int init(void)
 	}
 #endif
 
-	err = client_init();
+	err = nrf_cloud_coap_client_init();
 	if (err) {
 		LOG_ERR("Failed to initialize CoAP client: %d", err);
 		return err;
 	}
 
-	err = client_connect(APP_COAP_JWT_ACK_WAIT_MS);
+	err = nrf_cloud_coap_client_connect(APP_COAP_JWT_ACK_WAIT_MS);
 	if (err) {
 		LOG_ERR("Failed to connect and get authorized: %d", err);
 		return err;
 	}
-	authorized = client_is_authorized();
+	authorized = nrf_cloud_coap_client_is_authorized();
 	if (authorized) {
 		get_cell_info();
 	} else {
@@ -794,18 +720,18 @@ int main(void)
 					LOG_ERR("Error going online: %d", err);
 				} else {
 					k_sem_take(&lte_ready, K_FOREVER);
-					err = client_init();
+					err = nrf_cloud_coap_client_init();
 					if (err) {
 						LOG_ERR("Failed to initialize CoAP client");
 						break;
 					}
-					err = client_connect(APP_COAP_JWT_ACK_WAIT_MS);
+					err = nrf_cloud_coap_client_connect(APP_COAP_JWT_ACK_WAIT_MS);
 					if (err) {
 						LOG_ERR("Failed to connect and get authorized: %d",
 							err);
 						break;
 					}
-					authorized = client_is_authorized();
+					authorized = nrf_cloud_coap_client_is_authorized();
 					if (authorized) {
 						get_cell_info();
 					}
@@ -815,7 +741,7 @@ int main(void)
 			err = do_next_test();
 			if (err == -EAGAIN) {
 				reconnect = true;
-				err = client_close();
+				err = nrf_cloud_coap_client_close();
 				if (err) {
 					LOG_ERR("Error closing socket: %d", err);
 				} else {
@@ -839,18 +765,17 @@ int main(void)
 			if (++i > APP_COAP_INTERVAL_LIMIT) {
 				i = APP_COAP_INTERVAL_LIMIT;
 			}
-			check_connection();
 #endif
 #if defined(CONFIG_COAP_DTLS) || defined(CONFIG_NRF_CLOUD_COAP_DTLS)
-			dtls_print_connection_id(client_get_sock(), false);
+			dtls_print_connection_id(nrf_cloud_coap_client_get_sock(), false);
 #endif
 		} else if (!authorized) {
-			authorized = client_is_authorized();
+			authorized = nrf_cloud_coap_client_is_authorized();
 			if (authorized) {
 				get_cell_info();
 			}
 		}
 	}
-	client_close();
+	nrf_cloud_coap_client_close();
 	return err;
 }
