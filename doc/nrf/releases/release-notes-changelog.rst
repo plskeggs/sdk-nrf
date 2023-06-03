@@ -172,7 +172,9 @@ Bluetooth mesh samples
 nRF9160 samples
 ---------------
 
-|no_changes_yet_note|
+* Added:
+
+  * The :ref:`nrf_provisioning_sample` sample that demonstrates how to use the :ref:`lib_nrf_provisioning` service.
 
 Trusted Firmware-M (TF-M) samples
 ---------------------------------
@@ -264,7 +266,9 @@ Modem libraries
 Libraries for networking
 ------------------------
 
-|no_changes_yet_note|
+  * Added:
+
+  * The :ref:`lib_nrf_provisioning` library for device provisioning.
 
 Libraries for NFC
 -----------------
