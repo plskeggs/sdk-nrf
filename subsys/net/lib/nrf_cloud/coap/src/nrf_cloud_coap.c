@@ -28,6 +28,8 @@ static char topic[100];
 
 int nrf_cloud_coap_client_id_set(const char *device_id)
 {
+	__ASSERT_NO_MSG(device_id != NULL);
+
 	snprintf(topic, sizeof(topic) - 1, "d/%s/d2c", device_id);
 	return 0;
 }
@@ -81,11 +83,13 @@ static void get_agps(int16_t result_code,
 int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request,
 			struct nrf_cloud_rest_agps_result *result)
 {
+	__ASSERT_NO_MSG(request != NULL);
+	__ASSERT_NO_MSG(result != NULL);
+
 	size_t len = sizeof(buffer);
-	bool query_string;
 	int err;
 
-	err = coap_codec_agps_encode(request, buffer, &len, &query_string,
+	err = coap_codec_agps_encode(request, buffer, &len,
 				     COAP_CONTENT_FORMAT_APP_CBOR);
 	if (err) {
 		LOG_ERR("Unable to encode A-GPS request: %d", err);
@@ -93,18 +97,10 @@ int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request,
 	}
 
 	result->agps_sz = 0;
-	if (query_string) {
-		err = nrf_cloud_coap_get_send("loc/agps", (const char *)buffer,
-					      NULL, 0, COAP_CONTENT_FORMAT_APP_CBOR,
-					      COAP_CONTENT_FORMAT_APP_CBOR, get_agps,
-					      result);
-	} else {
-		err = nrf_cloud_coap_fetch_send("loc/agps", NULL,
-						buffer, len, COAP_CONTENT_FORMAT_APP_CBOR,
-						COAP_CONTENT_FORMAT_APP_CBOR, get_agps,
-						result);
-	}
-
+	err = nrf_cloud_coap_fetch_send("loc/agps", NULL,
+					buffer, len, COAP_CONTENT_FORMAT_APP_CBOR,
+					COAP_CONTENT_FORMAT_APP_CBOR, get_agps,
+					result);
 	if (!err && !agps_err) {
 		LOG_INF("Got A-GPS data");
 	} else if (err == -EAGAIN) {
@@ -138,28 +134,22 @@ static void get_pgps(int16_t result_code,
 int nrf_cloud_coap_pgps(struct nrf_cloud_rest_pgps_request const *const request,
 			struct nrf_cloud_pgps_result *result)
 {
+	__ASSERT_NO_MSG(request != NULL);
+	__ASSERT_NO_MSG(result != NULL);
 	size_t len = sizeof(buffer);
-	bool query_string = false;
 	int err;
 
-	err = coap_codec_pgps_encode(request, buffer, &len, &query_string,
+	err = coap_codec_pgps_encode(request, buffer, &len,
 				     COAP_CONTENT_FORMAT_APP_CBOR);
 	if (err) {
 		LOG_ERR("Unable to encode P-GPS request: %d", err);
 		return err;
 	}
-	if (query_string) {
-		err = nrf_cloud_coap_get_send("loc/pgps", (const char *)buffer,
-					      NULL, 0, COAP_CONTENT_FORMAT_APP_CBOR,
-					      COAP_CONTENT_FORMAT_APP_CBOR, get_pgps,
-					      result);
-	} else {
-		err = nrf_cloud_coap_get_send("loc/pgps", NULL,
-					      buffer, len, COAP_CONTENT_FORMAT_APP_CBOR,
-					      COAP_CONTENT_FORMAT_APP_CBOR, get_pgps,
-					      result);
-	}
 
+	err = nrf_cloud_coap_get_send("loc/pgps", NULL,
+				      buffer, len, COAP_CONTENT_FORMAT_APP_CBOR,
+				      COAP_CONTENT_FORMAT_APP_CBOR, get_pgps,
+				      result);
 	if (!err && !pgps_err) {
 		LOG_INF("Got P-GPS data");
 	} else if (err == -EAGAIN) {
@@ -175,6 +165,7 @@ int nrf_cloud_coap_pgps(struct nrf_cloud_rest_pgps_request const *const request,
 
 int nrf_cloud_coap_send_sensor(const char *app_id, double value)
 {
+	__ASSERT_NO_MSG(app_id != NULL);
 	int64_t ts = get_ts();
 	size_t len = sizeof(buffer);
 	int err;
@@ -195,6 +186,7 @@ int nrf_cloud_coap_send_sensor(const char *app_id, double value)
 
 int nrf_cloud_coap_send_gnss_pvt(const struct nrf_cloud_gnss_pvt *pvt)
 {
+	__ASSERT_NO_MSG(pvt != NULL);
 	int64_t ts = get_ts();
 	size_t len = sizeof(buffer);
 	int err;
@@ -233,6 +225,8 @@ int nrf_cloud_coap_get_location(struct lte_lc_cells_info const *const cell_info,
 				struct wifi_scan_info const *const wifi_info,
 				struct nrf_cloud_location_result *const result)
 {
+	__ASSERT_NO_MSG((cell_info != NULL) || (wifi_info != NULL));
+	__ASSERT_NO_MSG(result != NULL);
 	size_t len = sizeof(buffer);
 	int err;
 
@@ -278,6 +272,7 @@ static void get_fota(int16_t result_code,
 
 int nrf_cloud_coap_get_current_fota_job(struct nrf_cloud_fota_job_info *const job)
 {
+	__ASSERT_NO_MSG(job != NULL);
 	int err;
 
 	err = nrf_cloud_coap_get_send("fota/exec/current", NULL, NULL, 0,
@@ -303,6 +298,7 @@ int nrf_cloud_coap_fota_job_update(const char *const job_id,
 	__ASSERT_NO_MSG(device_id != NULL);
 	__ASSERT_NO_MSG(job_id != NULL);
 	__ASSERT_NO_MSG(status < JOB_STATUS_STRING_COUNT);
+
 #define API_FOTA_JOB_EXEC		"fota/exec"
 #define API_UPDATE_FOTA_URL_TEMPLATE	(API_FOTA_JOB_EXEC "/%s")
 #define API_UPDATE_FOTA_BODY_TEMPLATE	"{\"status\":\"%s\"}"
@@ -413,7 +409,7 @@ int nrf_cloud_coap_shadow_delta_get(char *buf, size_t buf_len)
 	get_shadow_data.buf = buf;
 	get_shadow_data.buf_len = buf_len;
 
-	return nrf_cloud_coap_patch_send("state", NULL, NULL, 0,
+	return nrf_cloud_coap_patch_send("state", NULL, "{}", 2,
 					 COAP_CONTENT_FORMAT_APP_JSON, get_shadow,
 					 &get_shadow_data);
 }

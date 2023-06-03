@@ -24,7 +24,7 @@
 #include "coap_codec.h"
 
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(nrfc_coap_client, CONFIG_NRF_CLOUD_COAP_LOG_LEVEL);
+LOG_MODULE_REGISTER(nrf_cloud_coap_transport, CONFIG_NRF_CLOUD_COAP_LOG_LEVEL);
 
 /* Uncomment to enable sending cell_pos parameters with GET as payload */
 //#define CELL_POS_PAYLOAD
@@ -252,6 +252,7 @@ static int client_send(enum coap_method method, const char *resource, const char
 		       bool reliable,
 		       coap_client_response_cb_t cb, void *user)
 {
+	__ASSERT_NO_MSG(resource != NULL);
 	int err;
 	char path[256];
 	struct user_cb user_cb = {

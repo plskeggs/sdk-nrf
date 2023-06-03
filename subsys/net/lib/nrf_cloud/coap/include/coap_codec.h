@@ -33,14 +33,14 @@ int coap_codec_ground_fix_resp_decode(struct nrf_cloud_location_result *result,
 				      const uint8_t *buf, size_t len, enum coap_content_format fmt);
 
 int coap_codec_agps_encode(struct nrf_cloud_rest_agps_request const *const request,
-			   uint8_t *buf, size_t *len, bool *query_string,
+			   uint8_t *buf, size_t *len,
 			   enum coap_content_format fm);
 
 int coap_codec_agps_resp_decode(struct nrf_cloud_rest_agps_result *result,
 				const uint8_t *buf, size_t len, enum coap_content_format fmt);
 
 int coap_codec_pgps_encode(struct nrf_cloud_rest_pgps_request const *const request,
-			   uint8_t *buf, size_t *len, bool *query_string,
+			   uint8_t *buf, size_t *len,
 			   enum coap_content_format fmt);
 
 int coap_codec_pgps_resp_decode(struct nrf_cloud_pgps_result *result,
