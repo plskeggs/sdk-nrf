@@ -67,8 +67,9 @@ static int get_modem_info(void)
 	}
 	if (major >= 2) {
 		mfw_2 = true;
-	}
-	if ((major >= 1) && (minor >= 3) && (rev >= 5)) {
+		mfw_cid = true;
+	} else if ((major >= 1) && (minor >= 3) && (rev >= 5)) {
+		mfw_2 = false;
 		mfw_cid = true;
 	}
 
@@ -194,13 +195,6 @@ int dtls_init(int sock)
 		if (err) {
 			LOG_ERR("Error setting handshake timeout: %d", errno);
 		}
-
-		err = dtls_session_load(sock);
-		if (!err) {
-			LOG_INF("  Loaded DTLS CID session");
-		} else {
-			LOG_INF("  No DTLS CID session loaded: %d", err);
-		}
 	}
 
 	enum {
@@ -219,6 +213,11 @@ int dtls_init(int sock)
 	}
 
 	return err;
+}
+
+bool dtls_cid_is_available(void)
+{
+	return mfw_cid;
 }
 
 int dtls_session_save(int sock)

@@ -10,6 +10,7 @@ menuconfig NRF_CLOUD_COAP
 	select COAP
 	select COAP_EXTENDED_OPTIONS_LEN
 	select COAP_CLIENT
+       select EXPERIMENTAL
 
 if NRF_CLOUD_COAP
 
@@ -30,24 +31,6 @@ config NRF_CLOUD_COAP_DTLS_CID
 	help
 	  If y, use CID socket options.
 
-config NRF_CLOUD_COAP_DTLS_PSK
-	bool "DTLS using Pre-Shared Keys"
-	help
-	  If y, use PSKs for security.  If n, use CA certificate + JWT.
-
-if NRF_CLOUD_COAP_DTLS_PSK
-
-config COAP_DTLS_PSK_IDENTITY
-	string "DTLS Preshared Key Identity"
-	default ""
-	# default "n3526561061234690123456789abcdef"
-
-config COAP_DTLS_PSK_SECRET
-	string "DTLS Preshared Key Secret"
-	default ""
-	# default "000102030405060708090a0b0c0d0e0f"
-
-endif
 endif
 
 config NRF_CLOUD_COAP_SEC_TAG
@@ -62,6 +45,10 @@ config NRF_CLOUD_COAP_SERVER_PORT
 	int "CoAP server port"
 	default 5684 if NRF_CLOUD_COAP_DTLS
 	default 5683
+
+config NRF_CLOUD_COAP_RESPONSE_TIMEOUT_MS
+	int "Number of ms to wait for a response from the CoAP server"
+       default 15000
 
 module = NRF_CLOUD_COAP
 module-str = nRF Cloud COAP

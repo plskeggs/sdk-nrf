@@ -24,15 +24,6 @@
 LOG_MODULE_REGISTER(nrf_cloud_coap, CONFIG_NRF_CLOUD_COAP_LOG_LEVEL);
 
 static uint8_t buffer[500];
-static char topic[100];
-
-int nrf_cloud_coap_client_id_set(const char *device_id)
-{
-	__ASSERT_NO_MSG(device_id != NULL);
-
-	snprintf(topic, sizeof(topic) - 1, "d/%s/d2c", device_id);
-	return 0;
-}
 
 static int64_t get_ts(void)
 {
@@ -51,9 +42,9 @@ static int64_t get_ts(void)
 #if defined(CONFIG_NRF_CLOUD_AGPS)
 static int agps_err;
 
-static void get_agps(int16_t result_code,
-		     size_t offset, const uint8_t *payload, size_t len,
-		     bool last_block, void *user_data)
+static void get_agps_callback(int16_t result_code,
+			      size_t offset, const uint8_t *payload, size_t len,
+			      bool last_block, void *user_data)
 {
 	struct nrf_cloud_rest_agps_result *result = user_data;
 
@@ -97,10 +88,10 @@ int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request,
 	}
 
 	result->agps_sz = 0;
-	err = nrf_cloud_coap_fetch_send("loc/agps", NULL,
-					buffer, len, COAP_CONTENT_FORMAT_APP_CBOR,
-					COAP_CONTENT_FORMAT_APP_CBOR, get_agps,
-					result);
+	err = nrf_cloud_coap_fetch("loc/agps", NULL,
+				   buffer, len, COAP_CONTENT_FORMAT_APP_CBOR,
+				   COAP_CONTENT_FORMAT_APP_CBOR, true, get_agps_callback,
+				   result);
 	if (!err && !agps_err) {
 		LOG_INF("Got A-GPS data");
 	} else if (err == -EAGAIN) {
@@ -117,9 +108,9 @@ int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request,
 #if defined(CONFIG_NRF_CLOUD_PGPS)
 static int pgps_err;
 
-static void get_pgps(int16_t result_code,
-		     size_t offset, const uint8_t *payload, size_t len,
-		     bool last_block, void *user)
+static void get_pgps_callback(int16_t result_code,
+			      size_t offset, const uint8_t *payload, size_t len,
+			      bool last_block, void *user)
 {
 	LOG_DBG("result_code: %d.%02d, offset:0x%X, len:0x%X, last_block:%d",
 		result_code / 32u, result_code & 0x1f, offset, len, last_block);
@@ -146,10 +137,10 @@ int nrf_cloud_coap_pgps(struct nrf_cloud_rest_pgps_request const *const request,
 		return err;
 	}
 
-	err = nrf_cloud_coap_get_send("loc/pgps", NULL,
-				      buffer, len, COAP_CONTENT_FORMAT_APP_CBOR,
-				      COAP_CONTENT_FORMAT_APP_CBOR, get_pgps,
-				      result);
+	err = nrf_cloud_coap_fetch("loc/pgps", NULL,
+				   buffer, len, COAP_CONTENT_FORMAT_APP_CBOR,
+				   COAP_CONTENT_FORMAT_APP_CBOR, true, get_pgps_callback,
+				   result);
 	if (!err && !pgps_err) {
 		LOG_INF("Got P-GPS data");
 	} else if (err == -EAGAIN) {
@@ -163,7 +154,7 @@ int nrf_cloud_coap_pgps(struct nrf_cloud_rest_pgps_request const *const request,
 }
 #endif /* CONFIG_NRF_CLOUD_PGPS */
 
-int nrf_cloud_coap_send_sensor(const char *app_id, double value)
+int nrf_cloud_coap_sensor_send(const char *app_id, double value)
 {
 	__ASSERT_NO_MSG(app_id != NULL);
 	int64_t ts = get_ts();
@@ -176,15 +167,15 @@ int nrf_cloud_coap_send_sensor(const char *app_id, double value)
 		LOG_ERR("Unable to encode sensor data: %d", err);
 		return err;
 	}
-	err = nrf_cloud_coap_post_send("msg/d2c", NULL, buffer, len,
-				       COAP_CONTENT_FORMAT_APP_CBOR, false, NULL, NULL);
+	err = nrf_cloud_coap_post("msg/d2c", NULL, buffer, len,
+				  COAP_CONTENT_FORMAT_APP_CBOR, false, NULL, NULL);
 	if (err) {
 		LOG_ERR("Failed to send POST request: %d", err);
 	}
 	return err;
 }
 
-int nrf_cloud_coap_send_gnss_pvt(const struct nrf_cloud_gnss_pvt *pvt)
+int nrf_cloud_coap_gnss_pvt_send(const struct nrf_cloud_gnss_pvt *pvt)
 {
 	__ASSERT_NO_MSG(pvt != NULL);
 	int64_t ts = get_ts();
@@ -197,8 +188,8 @@ int nrf_cloud_coap_send_gnss_pvt(const struct nrf_cloud_gnss_pvt *pvt)
 		LOG_ERR("Unable to encode GNSS PVT data: %d", err);
 		return err;
 	}
-	err = nrf_cloud_coap_post_send("msg/d2c", NULL, buffer, len,
-				       COAP_CONTENT_FORMAT_APP_CBOR, false, NULL, NULL);
+	err = nrf_cloud_coap_post("msg/d2c", NULL, buffer, len,
+				  COAP_CONTENT_FORMAT_APP_CBOR, false, NULL, NULL);
 	if (err) {
 		LOG_ERR("Failed to send POST request: %d", err);
 	}
@@ -207,7 +198,7 @@ int nrf_cloud_coap_send_gnss_pvt(const struct nrf_cloud_gnss_pvt *pvt)
 
 static int loc_err;
 
-static void get_location(int16_t result_code,
+static void get_location_callback(int16_t result_code,
 			 size_t offset, const uint8_t *payload, size_t len,
 			 bool last_block, void *user)
 {
@@ -221,7 +212,7 @@ static void get_location(int16_t result_code,
 	}
 }
 
-int nrf_cloud_coap_get_location(struct lte_lc_cells_info const *const cell_info,
+int nrf_cloud_coap_location_get(struct lte_lc_cells_info const *const cell_info,
 				struct wifi_scan_info const *const wifi_info,
 				struct nrf_cloud_location_result *const result)
 {
@@ -236,9 +227,10 @@ int nrf_cloud_coap_get_location(struct lte_lc_cells_info const *const cell_info,
 		LOG_ERR("Unable to encode cell pos data: %d", err);
 		return err;
 	}
-	err = nrf_cloud_coap_fetch_send("loc/ground-fix", NULL, buffer, len,
-					COAP_CONTENT_FORMAT_APP_CBOR,
-					COAP_CONTENT_FORMAT_APP_CBOR, get_location, result);
+	err = nrf_cloud_coap_fetch("loc/ground-fix", NULL, buffer, len,
+				   COAP_CONTENT_FORMAT_APP_CBOR,
+				   COAP_CONTENT_FORMAT_APP_CBOR, true,
+				   get_location_callback, result);
 
 	if (!err && !loc_err) {
 		LOG_INF("Location: %d, %.12g, %.12g, %d", result->type,
@@ -255,7 +247,7 @@ int nrf_cloud_coap_get_location(struct lte_lc_cells_info const *const cell_info,
 
 static int fota_err;
 
-static void get_fota(int16_t result_code,
+static void get_fota_callback(int16_t result_code,
 		     size_t offset, const uint8_t *payload, size_t len,
 		     bool last_block, void *user)
 {
@@ -270,14 +262,14 @@ static void get_fota(int16_t result_code,
 	}
 }
 
-int nrf_cloud_coap_get_current_fota_job(struct nrf_cloud_fota_job_info *const job)
+int nrf_cloud_coap_current_fota_job_get(struct nrf_cloud_fota_job_info *const job)
 {
 	__ASSERT_NO_MSG(job != NULL);
 	int err;
 
-	err = nrf_cloud_coap_get_send("fota/exec/current", NULL, NULL, 0,
-				      COAP_CONTENT_FORMAT_APP_CBOR,
-				      COAP_CONTENT_FORMAT_APP_JSON, get_fota, job);
+	err = nrf_cloud_coap_get("fota/exec/current", NULL, NULL, 0,
+				 COAP_CONTENT_FORMAT_APP_CBOR,
+				 COAP_CONTENT_FORMAT_APP_JSON, true, get_fota_callback, job);
 
 	if (!err && !fota_err) {
 		LOG_INF("FOTA job received; type:%d, id:%s, host:%s, path:%s, size:%d",
@@ -295,7 +287,6 @@ int nrf_cloud_coap_get_current_fota_job(struct nrf_cloud_fota_job_info *const jo
 int nrf_cloud_coap_fota_job_update(const char *const job_id,
 	const enum nrf_cloud_fota_status status, const char * const details)
 {
-	__ASSERT_NO_MSG(device_id != NULL);
 	__ASSERT_NO_MSG(job_id != NULL);
 	__ASSERT_NO_MSG(status < JOB_STATUS_STRING_COUNT);
 
@@ -366,8 +357,8 @@ int nrf_cloud_coap_fota_job_update(const char *const job_id,
 		goto clean_up;
 	}
 
-	ret = nrf_cloud_coap_patch_send(url, NULL, payload, ret,
-			      COAP_CONTENT_FORMAT_APP_JSON, NULL, NULL);
+	ret = nrf_cloud_coap_patch(url, NULL, payload, ret,
+				   COAP_CONTENT_FORMAT_APP_JSON, true, NULL, NULL);
 
 clean_up:
 	if (url) {
@@ -386,7 +377,7 @@ struct get_shadow_data  {
 } get_shadow_data;
 static int shadow_err;
 
-static void get_shadow(int16_t result_code,
+static void get_shadow_callback(int16_t result_code,
 		       size_t offset, const uint8_t *payload, size_t len,
 		       bool last_block, void *user)
 {
@@ -409,18 +400,18 @@ int nrf_cloud_coap_shadow_delta_get(char *buf, size_t buf_len)
 	get_shadow_data.buf = buf;
 	get_shadow_data.buf_len = buf_len;
 
-	return nrf_cloud_coap_patch_send("state", NULL, "{}", 2,
-					 COAP_CONTENT_FORMAT_APP_JSON, get_shadow,
-					 &get_shadow_data);
+	return nrf_cloud_coap_patch("state", NULL, "{}", 2,
+				    COAP_CONTENT_FORMAT_APP_JSON, true, get_shadow_callback,
+				    &get_shadow_data);
 }
 
 int nrf_cloud_coap_shadow_state_update(const char * const shadow_json)
 {
 	__ASSERT_NO_MSG(shadow_json != NULL);
 
-	return nrf_cloud_coap_patch_send("state", NULL, (uint8_t *)shadow_json,
-					 strlen(shadow_json),
-					 COAP_CONTENT_FORMAT_APP_JSON, NULL, NULL);
+	return nrf_cloud_coap_patch("state", NULL, (uint8_t *)shadow_json,
+				    strlen(shadow_json),
+				    COAP_CONTENT_FORMAT_APP_JSON, true, NULL, NULL);
 }
 
 int nrf_cloud_coap_shadow_device_status_update(const struct nrf_cloud_device_status

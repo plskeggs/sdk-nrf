@@ -40,7 +40,6 @@ static struct sockaddr_storage server;
 
 static int sock;
 static struct pollfd fds;
-static bool initialized;
 static bool authorized;
 
 static struct connection_info
@@ -107,23 +106,25 @@ static int server_resolve(void)
 	return 0;
 }
 
-int nrf_cloud_coap_get_sock(void)
-{
-	return sock;
-}
-
 /**@brief Initialize the CoAP client */
 int nrf_cloud_coap_init(void)
 {
+	static bool initialized;
 	int err;
 
 	authorized = false;
-	LOG_INF("Initializing async coap client");
-	err = coap_client_init(&coap_client, NULL);
-	if (err) {
-		LOG_ERR("Failed to initialize coap client: %d", err);
-		return err;
+
+	if (!initialized) {
+		/* Only initialize one time; not idempotent. */
+		LOG_INF("Initializing async coap client");
+		err = coap_client_init(&coap_client, NULL);
+		if (err) {
+			LOG_ERR("Failed to initialize coap client: %d", err);
+			return err;
+		}
+		initialized = true;
 	}
+
 	err = server_resolve();
 	if (err) {
 		LOG_ERR("Failed to resolve server name: %d", err);
@@ -143,6 +144,19 @@ int nrf_cloud_coap_init(void)
 		LOG_ERR("Failed to initialize the DTLS client: %d", err);
 		return err;
 	}
+
+	if (dtls_cid_is_available()) {
+		err = dtls_session_load(sock);
+		if (!err) {
+			LOG_INF("  Loaded DTLS CID session");
+			authorized = true;
+		} else {
+			LOG_INF("  No DTLS CID session loaded: %d", err);
+		}
+	} else {
+		LOG_INF("  DTLS CID is not available");
+	}
+
 	err = connect(sock, (struct sockaddr *)&server,
 		      sizeof(struct sockaddr_in));
 	if (err < 0) {
@@ -160,8 +174,6 @@ int nrf_cloud_coap_init(void)
 	return err;
 }
 
-static K_SEM_DEFINE(con_ack_sem, 0, 1);
-
 static void auth_cb(int16_t result_code, size_t offset, const uint8_t *payload, size_t len,
 		    bool last_block, void *user_data)
 {
@@ -169,14 +181,16 @@ static void auth_cb(int16_t result_code, size_t offset, const uint8_t *payload, 
 	if (result_code < COAP_RESPONSE_CODE_BAD_REQUEST) {
 		authorized = true;
 	}
-	k_sem_give(&con_ack_sem);
 }
 
-int nrf_cloud_coap_connect(int wait_ms)
+int nrf_cloud_coap_connect(void)
 {
 	int err;
-	
-	authorized = false;
+
+	if (authorized) {
+		LOG_INF("Already authorized");
+		return 0;
+	}
 
 	LOG_DBG("Generate JWT");
 	err = nrf_cloud_jwt_generate(NRF_CLOUD_JWT_VALID_TIME_S_MAX, jwt, sizeof(jwt));
@@ -193,15 +207,15 @@ int nrf_cloud_coap_connect(int wait_ms)
 	} else {
 		LOG_ERR("Unable to obtain the modem firmware version: %d", err);
 	}
+
 	LOG_INF("Request authorization with JWT");
-	err = nrf_cloud_coap_post_send("auth/jwt", err ? NULL : ver_string,
-				      (uint8_t *)jwt, strlen(jwt),
-				      COAP_CONTENT_FORMAT_TEXT_PLAIN, true, auth_cb, NULL);
+	err = nrf_cloud_coap_post("auth/jwt", err ? NULL : ver_string,
+				 (uint8_t *)jwt, strlen(jwt),
+				 COAP_CONTENT_FORMAT_TEXT_PLAIN, true, auth_cb, NULL);
 	if (err) {
 		return err;
 	}
 
-	err = k_sem_take(&con_ack_sem, K_MSEC(wait_ms));
 	if (authorized) {
 		LOG_INF("Authorized");
 
@@ -230,9 +244,14 @@ static void client_callback(int16_t result_code, size_t offset, const uint8_t *p
 {
 	struct user_cb *user_cb = (struct user_cb *)user_data;
 
-	LOG_DBG("Got callback: rc:%u.%02u, ofs:%u, lb:%u", result_code / 32, result_code & 0x1f, offset, last_block);
+	LOG_DBG("Got callback: rc:%u.%02u, ofs:%u, lb:%u",
+		result_code / 32, result_code & 0x1f, offset, last_block);
 	if (payload && len) {
 		LOG_HEXDUMP_DBG(payload, MIN(len, 96), "payload received");
+	}
+	if (result_code == COAP_RESPONSE_CODE_UNAUTHORIZED) {
+		LOG_ERR("Device not authorized.  Reconnection required.");
+		authorized = false; /* Lost authorization; need to reconnect. */
 	}
 	if ((user_cb != NULL) && (user_cb->cb != NULL)) {
 		LOG_DBG("Calling user's callback %p", user_cb->cb);
@@ -244,13 +263,14 @@ static void client_callback(int16_t result_code, size_t offset, const uint8_t *p
 	}
 }
 
-static int client_send(enum coap_method method, const char *resource, const char *query,
-		       uint8_t *buf, size_t buf_len,
-		       enum coap_content_format fmt_out,
-		       enum coap_content_format fmt_in,
-		       bool response_expected,
-		       bool reliable,
-		       coap_client_response_cb_t cb, void *user)
+static int client_transfer(enum coap_method method,
+			   const char *resource, const char *query,
+			   uint8_t *buf, size_t buf_len,
+			   enum coap_content_format fmt_out,
+			   enum coap_content_format fmt_in,
+			   bool response_expected,
+			   bool reliable,
+			   coap_client_response_cb_t cb, void *user)
 {
 	__ASSERT_NO_MSG(resource != NULL);
 	int err;
@@ -299,72 +319,66 @@ static int client_send(enum coap_method method, const char *resource, const char
 	} else {
 		LOG_DBG("Sent %d bytes", err);
 		LOG_HEXDUMP_DBG(coap_client.send_buf, err, "Sent");
-		err = k_sem_take(&cb_sem, K_FOREVER);
+		err = k_sem_take(&cb_sem, K_MSEC(CONFIG_NRF_CLOUD_COAP_RESPONSE_TIMEOUT_MS));
 		LOG_DBG("Received sem");
 	}
 	return err;
 }
 
-/**@brief Send CoAP GET request. */
-int nrf_cloud_coap_get_send(const char *resource, const char *query,
-		  uint8_t *buf, size_t len,
-		  enum coap_content_format fmt_out,
-		  enum coap_content_format fmt_in,
-		  coap_client_response_cb_t cb, void *user)
+int nrf_cloud_coap_get(const char *resource, const char *query,
+		       uint8_t *buf, size_t len,
+		       enum coap_content_format fmt_out,
+		       enum coap_content_format fmt_in, bool reliable,
+		       coap_client_response_cb_t cb, void *user)
 {
-	return client_send(COAP_METHOD_GET, resource, query,
-			   buf, len, fmt_out, fmt_in, true, false, cb, user);
+	return client_transfer(COAP_METHOD_GET, resource, query,
+			   buf, len, fmt_out, fmt_in, true, reliable, cb, user);
 }
 
-/**@brief Send CoAP POST request. */
-int nrf_cloud_coap_post_send(const char *resource, const char *query,
-		   uint8_t *buf, size_t len,
-		   enum coap_content_format fmt, bool reliable,
-		   coap_client_response_cb_t cb, void *user)
+int nrf_cloud_coap_post(const char *resource, const char *query,
+			uint8_t *buf, size_t len,
+			enum coap_content_format fmt, bool reliable,
+			coap_client_response_cb_t cb, void *user)
 {
-	return client_send(COAP_METHOD_POST, resource, query,
+	return client_transfer(COAP_METHOD_POST, resource, query,
 			   buf, len, fmt, fmt, false, reliable, cb, user);
 }
 
-/**@brief Send CoAP PUT request. */
-int nrf_cloud_coap_put_send(const char *resource, const char *query,
-		  uint8_t *buf, size_t len,
-		  enum coap_content_format fmt,
-		  coap_client_response_cb_t cb, void *user)
+int nrf_cloud_coap_put(const char *resource, const char *query,
+		       uint8_t *buf, size_t len,
+		       enum coap_content_format fmt, bool reliable,
+		       coap_client_response_cb_t cb, void *user)
 {
-	return client_send(COAP_METHOD_PUT, resource, query,
-			   buf, len, fmt, fmt, false, false, cb, user);
+	return client_transfer(COAP_METHOD_PUT, resource, query,
+			   buf, len, fmt, fmt, false, reliable, cb, user);
 }
 
-/**@brief Send CoAP DELETE request. */
-int nrf_cloud_coap_delete_send(const char *resource, const char *query,
-		     uint8_t *buf, size_t len,
-		     enum coap_content_format fmt,
-		     coap_client_response_cb_t cb, void *user)
+int nrf_cloud_coap_delete(const char *resource, const char *query,
+			  uint8_t *buf, size_t len,
+			  enum coap_content_format fmt, bool reliable,
+			  coap_client_response_cb_t cb, void *user)
 {
-	return client_send(COAP_METHOD_DELETE, resource, query,
-			   buf, len, fmt, fmt, false, true, cb, user);
+	return client_transfer(COAP_METHOD_DELETE, resource, query,
+			   buf, len, fmt, fmt, false, reliable, cb, user);
 }
 
-/**@brief Send CoAP FETCH request. */
-int nrf_cloud_coap_fetch_send(const char *resource, const char *query,
-		    uint8_t *buf, size_t len,
-		    enum coap_content_format fmt_out,
-		    enum coap_content_format fmt_in,
-		    coap_client_response_cb_t cb, void *user)
+int nrf_cloud_coap_fetch(const char *resource, const char *query,
+			 uint8_t *buf, size_t len,
+			 enum coap_content_format fmt_out,
+			 enum coap_content_format fmt_in, bool reliable,
+			 coap_client_response_cb_t cb, void *user)
 {
-	return client_send(COAP_METHOD_FETCH, resource, query,
-			   buf, len, fmt_out, fmt_in, true, true, cb, user);
+	return client_transfer(COAP_METHOD_FETCH, resource, query,
+			   buf, len, fmt_out, fmt_in, true, reliable, cb, user);
 }
 
-/**@brief Send CoAP PATCH request. */
-int nrf_cloud_coap_patch_send(const char *resource, const char *query,
-		    uint8_t *buf, size_t len,
-		    enum coap_content_format fmt,
-		    coap_client_response_cb_t cb, void *user)
+int nrf_cloud_coap_patch(const char *resource, const char *query,
+			 uint8_t *buf, size_t len,
+			 enum coap_content_format fmt, bool reliable,
+			 coap_client_response_cb_t cb, void *user)
 {
-	return client_send(COAP_METHOD_PATCH, resource, query,
-			   buf, len, fmt, fmt, false, true, cb, user);
+	return client_transfer(COAP_METHOD_PATCH, resource, query,
+			   buf, len, fmt, fmt, false, reliable, cb, user);
 }
 
 int nrf_cloud_coap_close(void)

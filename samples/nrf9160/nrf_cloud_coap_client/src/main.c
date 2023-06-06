@@ -31,10 +31,7 @@ LOG_MODULE_REGISTER(nrf_cloud_coap_client, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVE
 #define CREDS_REQ_WAIT_SEC 10
 #define APP_WAIT_CELLS_S 30
 #define BTN_NUM 1
-#define APP_COAP_JWT_ACK_WAIT_MS 120000
 #define APP_COAP_SEND_INTERVAL_MS 10000
-#define APP_COAP_CLOSE_THRESHOLD_MS 4000
-#define APP_COAP_CONNECTION_CHECK_MS 30000
 #define APP_COAP_INTERVAL_LIMIT 60
 
 /* Uncomment to incrementally increase time between coap packets */
@@ -52,8 +49,6 @@ LOG_MODULE_REGISTER(nrf_cloud_coap_client, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVE
 #define MFWV_MAJ_EXT_SRCH_GCI	1
 #define MFWV_MIN_EXT_SRCH_GCI	3
 #define MFWV_REV_EXT_SRCH_GCI	4
-
-static char device_id[NRF_CLOUD_CLIENT_ID_MAX_LEN];
 
 /* Type of data to be sent in the cellular positioning request */
 enum nrf_cloud_location_type active_cell_pos_type = LOCATION_TYPE_SINGLE_CELL;
@@ -374,17 +369,6 @@ int init(void)
 
 	modem_configure();
 
-	err = nrf_cloud_client_id_get(device_id, sizeof(device_id));
-	if (err) {
-		LOG_ERR("Error getting device id: %d", err);
-		return err;
-	}
-
-	err = nrf_cloud_coap_client_id_set(device_id);
-	if (err) {
-		LOG_ERR("Failed to initialize nRF Cloud CoAP library: %d", err);
-	}
-
 #if defined(CONFIG_WIFI)
 	err = scan_wifi_init();
 	if (err) {
@@ -399,7 +383,7 @@ int init(void)
 		return err;
 	}
 
-	err = nrf_cloud_coap_connect(APP_COAP_JWT_ACK_WAIT_MS);
+	err = nrf_cloud_coap_connect();
 	if (err) {
 		LOG_ERR("Failed to connect and get authorized: %d", err);
 		return err;
@@ -557,7 +541,7 @@ static int do_next_test(void)
 	switch (cur_test) {
 	case 1:
 		LOG_INF("******** %d. Sending temperature", cur_test);
-		err = nrf_cloud_coap_send_sensor(NRF_CLOUD_JSON_APPID_VAL_TEMP, temp);
+		err = nrf_cloud_coap_sensor_send(NRF_CLOUD_JSON_APPID_VAL_TEMP, temp);
 		if (err) {
 			LOG_ERR("Error sending sensor data: %d", err);
 			break;
@@ -601,7 +585,7 @@ static int do_next_test(void)
 			LOG_INF("Performing single-cell request");
 		}
 
-		err = nrf_cloud_coap_get_location(&cell_info, wifi_info, &result);
+		err = nrf_cloud_coap_location_get(&cell_info, wifi_info, &result);
 		(void)k_mutex_unlock(&cell_info_mutex);
 		if (err) {
 			LOG_ERR("Unable to get location: %d", err);
@@ -616,7 +600,7 @@ static int do_next_test(void)
 		break;
 	case 3:
 		LOG_INF("******** %d. Getting pending FOTA job execution", cur_test);
-		err = nrf_cloud_coap_get_current_fota_job(&job);
+		err = nrf_cloud_coap_current_fota_job_get(&job);
 		if (err) {
 			LOG_ERR("Failed to request pending FOTA job: %u.%02u",
 				err / 32, err & 0x1f);
@@ -634,7 +618,7 @@ static int do_next_test(void)
 		break;
 	case 4:
 		LOG_INF("******** %d. Sending GNSS PVT", cur_test);
-		err = nrf_cloud_coap_send_gnss_pvt(&pvt);
+		err = nrf_cloud_coap_gnss_pvt_send(&pvt);
 		if (err) {
 			LOG_ERR("Error sending GNSS PVT data: %d", err);
 			break;
@@ -718,7 +702,7 @@ int main(void)
 						LOG_ERR("Failed to initialize CoAP client");
 						break;
 					}
-					err = nrf_cloud_coap_connect(APP_COAP_JWT_ACK_WAIT_MS);
+					err = nrf_cloud_coap_connect();
 					if (err) {
 						LOG_ERR("Failed to connect and get authorized: %d",
 							err);
