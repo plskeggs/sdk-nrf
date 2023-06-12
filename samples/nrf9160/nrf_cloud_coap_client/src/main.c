@@ -31,7 +31,7 @@ LOG_MODULE_REGISTER(nrf_cloud_coap_client, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVE
 #define CREDS_REQ_WAIT_SEC 10
 #define APP_WAIT_CELLS_S 30
 #define BTN_NUM 1
-#define APP_COAP_SEND_INTERVAL_MS 10000
+#define APP_COAP_SEND_INTERVAL_MS 20000
 #define APP_COAP_INTERVAL_LIMIT 60
 
 /* Uncomment to incrementally increase time between coap packets */
@@ -528,6 +528,7 @@ static int do_next_test(void)
 	static int cur_test = 1;
 	static struct nrf_cloud_gnss_pvt pvt = {
 		.lat = 45.525616, .lon = -122.685978, .accuracy = 30};
+	static bool got_agps = false;
 	int err = 0;
 	struct nrf_cloud_location_result result;
 	struct nrf_cloud_fota_job_info job;
@@ -614,6 +615,8 @@ static int do_next_test(void)
 			} else {
 				LOG_WRN("Rejected job because FOTA not hooked up yet.");
 			}
+			LOG_INF("Freeing fota job");
+			nrf_cloud_coap_fota_job_free(&job);
 		}
 		break;
 	case 4:
@@ -625,6 +628,9 @@ static int do_next_test(void)
 		}
 		break;
 	case 5:
+		if (got_agps) {
+			break;
+		}
 		LOG_INF("******** %d. Getting A-GPS data", cur_test);
 		memset(&agps_request, 0, sizeof(agps_request));
 		memset(&agps_req, 0, sizeof(agps_req));
@@ -646,17 +652,24 @@ static int do_next_test(void)
 				LOG_ERR("A-GPS data processing failed, error: %d", err);
 			}  else {
 				LOG_INF("A-GPS data processed");
+				got_agps = true;
 			}
 		}
 		break;
 	case 6:
 		LOG_INF("******** %d. Getting shadow delta", cur_test);
 		buf[0] = '\0';
-		err = nrf_cloud_coap_shadow_delta_get(buf, sizeof(buf) - 1);
+		err = nrf_cloud_coap_shadow_get(buf, sizeof(buf) - 1, true);
 		if (err) {
 			LOG_ERR("Failed to request shadow delta: %d", err);
 		} else {
 			LOG_INF("Delta: %s", buf);
+			err = nrf_cloud_coap_shadow_state_update(buf);
+			if (err) {
+				LOG_ERR("Failed to acknowledge delta: %d", err);
+			} else {
+				LOG_INF("Delta acknowledged");
+			}
 		}
 		break;
 	}
