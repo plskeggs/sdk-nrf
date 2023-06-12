@@ -75,7 +75,9 @@ int nrf_cloud_coap_get(const char *resource, const char *query,
 
 /**@brief Perform CoAP POST request.
  *
- * The function will block until the response or an error have been returned.
+ * The function will block until the response or an error have been returned. Use this
+ * function to send custom JSON or CBOR messages to nRF Cloud through the
+ * https://api.nrfcloud.com/v1#tag/Messages/operation/SendDeviceMessage API.
  *
  * @param resource String containing the specific CoAP endpoint to access.
  * @param query Optional string containing REST-style query parameters.
@@ -266,6 +268,14 @@ int nrf_cloud_coap_location_get(struct lte_lc_cells_info const *const cell_info,
 int nrf_cloud_coap_current_fota_job_get(struct nrf_cloud_fota_job_info *const job);
 
 /**
+ * @brief Frees memory allocated by @ref nrf_cloud_coap_current_fota_job_get.
+ *
+ * @param[in,out] job Job info to be freed.
+ *
+ */
+void nrf_cloud_coap_fota_job_free(struct nrf_cloud_fota_job_info *const job);
+
+/**
  * @brief Updates the status of the specified nRF Cloud FOTA job.
  *
  * @param[in]     job_id Null-terminated FOTA job identifier.
@@ -283,11 +293,14 @@ int nrf_cloud_coap_fota_job_update(const char *const job_id,
  * @brief Queries the device's shadow delta.
  *
  * @param[in,out] buf Pointer to memory in which to receive the delta.
+ * @param[in] len Size of buffer.
+ * @param[in] delta True to request only changes in the shadow, if any; otherwise,
+ * all of desired part.
  *
  * @return 0 if the request succeeded, a positive value indicating a CoAP result code,
  * or a negative error number.
  */
-int nrf_cloud_coap_shadow_delta_get(char *buf, size_t buf_len);
+int nrf_cloud_coap_shadow_get(char *buf, size_t buf_len, bool delta);
 
 /**
  * @brief Updates the device's "state" in the shadow via the UpdateDeviceState endpoint.

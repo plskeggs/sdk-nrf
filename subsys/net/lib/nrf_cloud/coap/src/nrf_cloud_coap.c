@@ -284,6 +284,11 @@ int nrf_cloud_coap_current_fota_job_get(struct nrf_cloud_fota_job_info *const jo
 	return err;
 }
 
+void nrf_cloud_coap_fota_job_free(struct nrf_cloud_fota_job_info *const job)
+{
+	nrf_cloud_rest_fota_job_free(job);
+}
+
 int nrf_cloud_coap_fota_job_update(const char *const job_id,
 	const enum nrf_cloud_fota_status status, const char * const details)
 {
@@ -388,20 +393,23 @@ static void get_shadow_callback(int16_t result_code,
 	if (result_code != COAP_RESPONSE_CODE_CONTENT) {
 		shadow_err = result_code;
 	} else {
+		int cpy_len = MIN(data->buf_len - 1, len);
+
 		shadow_err = 0;
-		memcpy(data->buf, payload, MIN(data->buf_len, len));
+		memcpy(data->buf, payload, cpy_len);
+		data->buf[len] = '\0';
 	}
 }
 
-int nrf_cloud_coap_shadow_delta_get(char *buf, size_t buf_len)
+int nrf_cloud_coap_shadow_get(char *buf, size_t buf_len, bool delta)
 {
 	__ASSERT_NO_MSG(buf != NULL);
 
 	get_shadow_data.buf = buf;
 	get_shadow_data.buf_len = buf_len;
 
-	return nrf_cloud_coap_patch("state", NULL, "{}", 2,
-				    COAP_CONTENT_FORMAT_APP_JSON, true, get_shadow_callback,
+	return nrf_cloud_coap_get("state", delta ? NULL : "delta=false", NULL, 0,
+				    0, COAP_CONTENT_FORMAT_APP_JSON, true, get_shadow_callback,
 				    &get_shadow_data);
 }
 
