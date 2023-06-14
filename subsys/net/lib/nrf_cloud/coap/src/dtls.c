@@ -23,12 +23,10 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(dtls, CONFIG_NRF_CLOUD_COAP_LOG_LEVEL);
 
-static bool dtls_cid_active;
-
 static int sectag = CONFIG_NRF_CLOUD_COAP_SEC_TAG;
-
-static bool mfw_2;
-static bool mfw_cid;
+static bool dtls_cid_active;
+static bool mfw_ge_version_2;
+static bool mfw_has_cid;
 
 #if defined(CONFIG_MODEM_INFO)
 static struct modem_param_info mdm_param;
@@ -66,11 +64,11 @@ static int get_modem_info(void)
 		return 0;
 	}
 	if (major >= 2) {
-		mfw_2 = true;
-		mfw_cid = true;
+		mfw_ge_version_2 = true;
+		mfw_has_cid = true;
 	} else if ((major >= 1) && (minor >= 3) && (rev >= 5)) {
-		mfw_2 = false;
-		mfw_cid = true;
+		mfw_ge_version_2 = false;
+		mfw_has_cid = true;
 	}
 
 	return 0;
@@ -131,7 +129,8 @@ int dtls_init(int sock)
 
 	err = get_device_ip_address(d4_addr);
 	if (!err) {
-		LOG_INF("Client IP address: %u.%u.%u.%u", d4_addr[0], d4_addr[1], d4_addr[2], d4_addr[3]);
+		LOG_INF("Client IP address: %u.%u.%u.%u",
+			d4_addr[0], d4_addr[1], d4_addr[2], d4_addr[3]);
 	}
 
 	LOG_INF("Setting socket options:");
@@ -179,7 +178,7 @@ int dtls_init(int sock)
 	}
 #endif
 
-	if (mfw_cid) {
+	if (mfw_has_cid) {
 		int cid_option = TLS_DTLS_CID_SUPPORTED;
 
 		LOG_INF("  Enable connection id");
@@ -191,7 +190,8 @@ int dtls_init(int sock)
 		int timeout = TLS_DTLS_HANDSHAKE_TIMEO_123S;
 
 		LOG_INF("  Set handshake timeout %d", timeout);
-		err = setsockopt(sock, SOL_TLS, TLS_DTLS_HANDSHAKE_TIMEO, &timeout, sizeof(timeout));
+		err = setsockopt(sock, SOL_TLS, TLS_DTLS_HANDSHAKE_TIMEO,
+				 &timeout, sizeof(timeout));
 		if (err) {
 			LOG_ERR("Error setting handshake timeout: %d", errno);
 		}
@@ -217,7 +217,7 @@ int dtls_init(int sock)
 
 bool dtls_cid_is_available(void)
 {
-	return mfw_cid;
+	return mfw_has_cid;
 }
 
 int dtls_session_save(int sock)
@@ -257,7 +257,7 @@ bool dtls_cid_is_active(int sock)
 	int status = 0;
 	int len = sizeof(status);
 
-	if (mfw_2) {
+	if (mfw_ge_version_2) {
 		err = getsockopt(sock, SOL_TLS, TLS_DTLS_HANDSHAKE_STATUS, &status, &len);
 		if (!err) {
 			if (len > 0) {

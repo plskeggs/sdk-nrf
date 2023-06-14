@@ -199,8 +199,8 @@ int nrf_cloud_coap_close(void);
  *           - -ENOBUFS will be returned, and an error message printed, if there is not enough
  *             buffer space to store retrieved AGPS data.
  */
-int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request,
-			struct nrf_cloud_rest_agps_result *result);
+int nrf_cloud_coap_agps_data_get(struct nrf_cloud_rest_agps_request const *const request,
+				 struct nrf_cloud_rest_agps_result *result);
 
 /** @brief nRF Cloud Predicted GPS (P-GPS) data request.
  *
@@ -210,8 +210,8 @@ int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request,
  * @retval 0 If successful.
  *          Otherwise, a (negative) error code is returned.
  */
-int nrf_cloud_coap_pgps(struct nrf_cloud_rest_pgps_request const *const request,
-			struct nrf_cloud_pgps_result *result);
+int nrf_cloud_coap_pgps_data_get(struct nrf_cloud_rest_pgps_request const *const request,
+				 struct nrf_cloud_pgps_result *result);
 
 /** @brief Send a sensor value to nRF Cloud.
  *
@@ -236,22 +236,20 @@ int nrf_cloud_coap_sensor_send(const char *app_id, double value);
  * @retval 0 If successful.
  *          Otherwise, a (negative) error code is returned.
  */
-int nrf_cloud_coap_gnss_pvt_send(const struct nrf_cloud_gnss_pvt *pvt);
+int nrf_cloud_coap_location_send(const struct nrf_cloud_gnss_data * const gnss);
 
 /**
  * @brief nRF Cloud location request.
  *
- * At least one of cell_info or wifi_info must be provided.
+ * At least one of cell_info or wifi_info must be provided within the request.
  *
- * @param[in]     cell_info Optional LTE cells info
- * @param[in]     wifi_info Optional Wi-Fi scan results
+ * @param[in]     request Data to be provided in API call.
  * @param[in,out] result Location information.
  *
  * @return 0 if the request succeeded, a positive value indicating a CoAP result code,
  * or a negative error number.
  */
-int nrf_cloud_coap_location_get(struct lte_lc_cells_info const *const cell_info,
-				struct wifi_scan_info const *const wifi_info,
+int nrf_cloud_coap_location_get(struct nrf_cloud_rest_location_request const *const request,
 				struct nrf_cloud_location_result *const result);
 
 /**
@@ -265,7 +263,7 @@ int nrf_cloud_coap_location_get(struct lte_lc_cells_info const *const cell_info,
  * @return 0 if the request succeeded, a positive value indicating a CoAP result code,
  * or a negative error number.
  */
-int nrf_cloud_coap_current_fota_job_get(struct nrf_cloud_fota_job_info *const job);
+int nrf_cloud_coap_fota_job_get(struct nrf_cloud_fota_job_info *const job);
 
 /**
  * @brief Frees memory allocated by @ref nrf_cloud_coap_current_fota_job_get.

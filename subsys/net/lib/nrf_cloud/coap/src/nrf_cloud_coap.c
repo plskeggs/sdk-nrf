@@ -23,6 +23,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(nrf_cloud_coap, CONFIG_NRF_CLOUD_COAP_LOG_LEVEL);
 
+/* Buffer to encode requests into */
 static uint8_t buffer[500];
 
 static int64_t get_ts(void)
@@ -71,8 +72,8 @@ static void get_agps_callback(int16_t result_code,
 	}
 }
 
-int nrf_cloud_coap_agps(struct nrf_cloud_rest_agps_request const *const request,
-			struct nrf_cloud_rest_agps_result *result)
+int nrf_cloud_coap_agps_data_get(struct nrf_cloud_rest_agps_request const *const request,
+				 struct nrf_cloud_rest_agps_result *result)
 {
 	__ASSERT_NO_MSG(request != NULL);
 	__ASSERT_NO_MSG(result != NULL);
@@ -122,8 +123,8 @@ static void get_pgps_callback(int16_t result_code,
 	}
 }
 
-int nrf_cloud_coap_pgps(struct nrf_cloud_rest_pgps_request const *const request,
-			struct nrf_cloud_pgps_result *result)
+int nrf_cloud_coap_pgps_data_get(struct nrf_cloud_rest_pgps_request const *const request,
+				 struct nrf_cloud_pgps_result *result)
 {
 	__ASSERT_NO_MSG(request != NULL);
 	__ASSERT_NO_MSG(result != NULL);
@@ -175,14 +176,18 @@ int nrf_cloud_coap_sensor_send(const char *app_id, double value)
 	return err;
 }
 
-int nrf_cloud_coap_gnss_pvt_send(const struct nrf_cloud_gnss_pvt *pvt)
+int nrf_cloud_coap_location_send(const struct nrf_cloud_gnss_data *gnss)
 {
-	__ASSERT_NO_MSG(pvt != NULL);
+	__ASSERT_NO_MSG(gnss != NULL);
 	int64_t ts = get_ts();
 	size_t len = sizeof(buffer);
 	int err;
 
-	err = coap_codec_pvt_encode("GNSS", pvt, ts, buffer, &len,
+	if (gnss->type != NRF_CLOUD_GNSS_TYPE_PVT) {
+		LOG_ERR("Only PVT format is supported");
+		return -ENOTSUP;
+	}
+	err = coap_codec_pvt_encode("GNSS", &gnss->pvt, ts, buffer, &len,
 				    COAP_CONTENT_FORMAT_APP_CBOR);
 	if (err) {
 		LOG_ERR("Unable to encode GNSS PVT data: %d", err);
@@ -212,16 +217,16 @@ static void get_location_callback(int16_t result_code,
 	}
 }
 
-int nrf_cloud_coap_location_get(struct lte_lc_cells_info const *const cell_info,
-				struct wifi_scan_info const *const wifi_info,
+int nrf_cloud_coap_location_get(struct nrf_cloud_rest_location_request const *const request,
 				struct nrf_cloud_location_result *const result)
 {
-	__ASSERT_NO_MSG((cell_info != NULL) || (wifi_info != NULL));
+	__ASSERT_NO_MSG(request != NULL);
+	__ASSERT_NO_MSG((request->cell_info != NULL) || (request->wifi_info != NULL));
 	__ASSERT_NO_MSG(result != NULL);
 	size_t len = sizeof(buffer);
 	int err;
 
-	err = coap_codec_ground_fix_req_encode(cell_info, wifi_info, buffer, &len,
+	err = coap_codec_ground_fix_req_encode(request->cell_info, request->wifi_info, buffer, &len,
 					       COAP_CONTENT_FORMAT_APP_CBOR);
 	if (err) {
 		LOG_ERR("Unable to encode cell pos data: %d", err);
@@ -264,10 +269,12 @@ static void get_fota_callback(int16_t result_code,
 	}
 }
 
-int nrf_cloud_coap_current_fota_job_get(struct nrf_cloud_fota_job_info *const job)
+int nrf_cloud_coap_fota_job_get(struct nrf_cloud_fota_job_info *const job)
 {
 	__ASSERT_NO_MSG(job != NULL);
 	int err;
+
+	job->type = NRF_CLOUD_FOTA_TYPE__INVALID;
 
 	err = nrf_cloud_coap_get("fota/exec/current", NULL, NULL, 0,
 				 COAP_CONTENT_FORMAT_APP_CBOR,

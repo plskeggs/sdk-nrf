@@ -33,18 +33,6 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(coap_codec, CONFIG_NRF_CLOUD_COAP_LOG_LEVEL);
 
-#define AGPS_FILTERED			"filtered=true"
-#define AGPS_ELEVATION_MASK		"&mask=%u"
-#define AGPS_NET_INFO			"&mcc=%u&mnc=%u&tac=%u&eci=%u"
-#define AGPS_CUSTOM_TYPE		"&types=%s"
-#define AGPS_REQ_TYPE_STR_CUSTOM	"custom"
-#define AGPS_REQ_TYPE_STR_LOC		"rtLocation"
-#define AGPS_REQ_TYPE_STR_ASSIST	"rtAssistance"
-#define PGPS_REQ_PREDICT_CNT		"&" NRF_CLOUD_JSON_PGPS_PRED_COUNT "=%u"
-#define PGPS_REQ_PREDICT_INT_MIN	"&" NRF_CLOUD_JSON_PGPS_INT_MIN "=%u"
-#define PGPS_REQ_START_GPS_DAY		"&" NRF_CLOUD_JSON_PGPS_GPS_DAY "=%u"
-#define PGPS_REQ_START_GPS_TOD_S	"&" NRF_CLOUD_JSON_PGPS_GPS_TIME "=%u"
-
 static int encode_message(const char *app_id, const char *str,
 			  const struct nrf_cloud_gnss_pvt *pvt,
 			  double float_val, int int_val,

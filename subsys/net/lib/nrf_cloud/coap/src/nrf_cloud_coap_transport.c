@@ -34,7 +34,10 @@ LOG_MODULE_REGISTER(nrf_cloud_coap_transport, CONFIG_NRF_CLOUD_COAP_LOG_LEVEL);
 #define APP_COAP_RECEIVE_INTERVAL_MS 5000
 
 /** @TODO: figure out whether to make this a Kconfig value or place in a header */
-#define CDDL_VERSION 1
+#define CDDL_VERSION "1"
+#define MAX_COAP_PATH 256
+#define VER_STRING_FMT "mver=%s&cver=%s&dver=%s"
+#define BUILD_VERSION_STR STRINGIFY(BUILD_VERSION)
 
 static struct sockaddr_storage server;
 
@@ -197,13 +200,17 @@ int nrf_cloud_coap_connect(void)
 	if (err) {
 		LOG_ERR("Error generating JWT with modem: %d", err);
 	}
-	char ver_string[120] = {0};
-	char mfw_string[60];
+	char mfw_string[MODEM_INFO_FWVER_SIZE];
+	char ver_string[strlen(VER_STRING_FMT) +
+			MODEM_INFO_FWVER_SIZE +
+			strlen(BUILD_VERSION_STR) +
+			strlen(CDDL_VERSION)];
 
 	err = modem_info_get_fw_version(mfw_string, sizeof(mfw_string));
 	if (!err) {
-		snprintf(ver_string, sizeof(ver_string) - 1, "mver=%s&cver=%s&dver=%d",
-			 mfw_string, STRINGIFY(BUILD_VERSION), CDDL_VERSION);
+		snprintf(ver_string, sizeof(ver_string) - 1, VER_STRING_FMT,
+			 mfw_string, BUILD_VERSION_STR, CDDL_VERSION);
+		ver_string[sizeof(ver_string) - 1] = '\0';
 	} else {
 		LOG_ERR("Unable to obtain the modem firmware version: %d", err);
 	}
@@ -226,7 +233,7 @@ int nrf_cloud_coap_connect(void)
 				if (!err) {
 					LOG_INF("Saved DTLS CID session");
 				}
-			}       
+			}
 		}
 	}
 	return err;
@@ -274,7 +281,7 @@ static int client_transfer(enum coap_method method,
 {
 	__ASSERT_NO_MSG(resource != NULL);
 	int err;
-	char path[256];
+	char path[MAX_COAP_PATH + 1];
 	struct user_cb user_cb = {
 		.cb = cb,
 		.user_data = user
@@ -303,10 +310,11 @@ static int client_transfer(enum coap_method method,
 		request.num_options = 0;
 	}
 
-	strncpy(path, resource, sizeof(path));
+	strncpy(path, resource, MAX_COAP_PATH);
+	path[MAX_COAP_PATH] = '\0';
 	if (query) {
-		strncat(path, "?", sizeof(path));
-		strncat(path, query, sizeof(path));
+		strncat(path, "?", MAX_COAP_PATH);
+		strncat(path, query, MAX_COAP_PATH);
 	}
 
 	while ((err = coap_client_req(&coap_client, sock, NULL, &request, -1)) == -EAGAIN) {
@@ -317,8 +325,10 @@ static int client_transfer(enum coap_method method,
 	if (err < 0) {
 		LOG_ERR("Error sending CoAP request: %d", err);
 	} else {
-		LOG_DBG("Sent %d bytes", err);
-		LOG_HEXDUMP_DBG(coap_client.send_buf, err, "Sent");
+		LOG_DBG("Sent %d bytes", buf_len);
+		if (buf_len) {
+			LOG_HEXDUMP_DBG(coap_client.send_buf, buf_len, "Sent");
+		}
 		err = k_sem_take(&cb_sem, K_MSEC(CONFIG_NRF_CLOUD_COAP_RESPONSE_TIMEOUT_MS));
 		LOG_DBG("Received sem");
 	}

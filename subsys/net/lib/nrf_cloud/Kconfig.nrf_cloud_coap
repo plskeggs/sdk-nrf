@@ -10,7 +10,7 @@ menuconfig NRF_CLOUD_COAP
 	select COAP
 	select COAP_EXTENDED_OPTIONS_LEN
 	select COAP_CLIENT
-       select EXPERIMENTAL
+	select EXPERIMENTAL
 
 if NRF_CLOUD_COAP
 
@@ -48,7 +48,7 @@ config NRF_CLOUD_COAP_SERVER_PORT
 
 config NRF_CLOUD_COAP_RESPONSE_TIMEOUT_MS
 	int "Number of ms to wait for a response from the CoAP server"
-       default 15000
+	default 30000
 
 module = NRF_CLOUD_COAP
 module-str = nRF Cloud COAP

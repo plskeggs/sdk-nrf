@@ -12,7 +12,6 @@
 #include <net/nrf_cloud_rest.h>
 #include <net/nrf_cloud_location.h>
 #include <modem/lte_lc.h>
-//#include "nrf_cloud_coap_client.h"
 
 int coap_codec_message_encode(const char *app_id,
 			      const char *str_val, double float_val, int int_val,
