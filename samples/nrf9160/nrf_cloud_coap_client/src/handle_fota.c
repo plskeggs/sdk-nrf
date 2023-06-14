@@ -11,6 +11,7 @@
 #include <net/nrf_cloud.h>
 #include <zephyr/sys/reboot.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/logging/log_ctrl.h>
 #include <net/fota_download.h>
 #include <net/nrf_cloud_coap.h>
 #include "handle_fota.h"
@@ -273,7 +274,7 @@ static int check_for_job(void)
 	int err;
 
 	LOG_INF("Checking for FOTA job...");
-	err = nrf_cloud_coap_current_fota_job_get(&job);
+	err = nrf_cloud_coap_fota_job_get(&job);
 	if (err < 0) {
 		LOG_ERR("Failed to fetch FOTA job, error: %d", err);
 		return -ENOENT;
@@ -286,7 +287,7 @@ static int check_for_job(void)
 		return 1;
 	}
 
-	LOG_INF("FOTA Job: %s, type: %d\n", job.id, job.type);
+	LOG_INF("FOTA Job: %s, type: %d\n", job.id ? job.id : "<none>", job.type);
 	return 0;
 }
 
@@ -382,7 +383,6 @@ static void handle_download_succeeded_and_reboot(void)
 		LOG_WRN("Failed to set B1 slot flag, BOOT FOTA validation may be incorrect");
 	}
 
-	/* we do not have a close function for CoAP (void)nrf_cloud_coap_disconnect(); */
 	(void)lte_lc_deinit();
 
 #if defined(CONFIG_NRF_CLOUD_FOTA_FULL_MODEM_UPDATE)
@@ -418,15 +418,14 @@ static void cleanup(void)
 static void wait_after_job_update(void)
 {
 	/* Job operations can take up to 30s to be processed */
-	LOG_INF("Checking for next FOTA update in 30s...");
+	LOG_INF("Waiting 30 seconds for job update to be processed by nRF Cloud...");
 	cleanup();
 	k_sleep(K_SECONDS(30));
 }
 
 static void error_reboot(void)
 {
-	LOG_INF("Rebooting in 30s...");
-	//(void)nrf_cloud_coap_disconnect();
+	LOG_INF("Rebooting due to error in 30s...");
 	(void)lte_lc_deinit();
 	k_sleep(K_SECONDS(30));
 	sys_reboot(SYS_REBOOT_COLD);
@@ -437,40 +436,48 @@ int handle_fota_process(void)
 	int err;
 
 	/* If a FOTA job is in progress, handle it first */
+	LOG_DBG("validate_in_progress_job()?");
 	if (validate_in_progress_job()) {
+		LOG_DBG("update_job_status()");
 		err = update_job_status();
 		if (err) {
+			LOG_ERR("Error; must reboot: %d", err);
 			error_reboot();
 		}
-
 		wait_after_job_update();
 		return -ENOENT;
 	}
 
 	if (!nrf_cloud_coap_is_authorized()) {
+		LOG_WRN("Not authorized");
 		return -ENOENT;
 	}
 
 	/* Check for a new FOTA job */
+	LOG_DBG("check_for_job()");
 	err = check_for_job();
 	if (err < 0) {
+		LOG_ERR("Error checking for job: %d", err);
 		return err;
 	} else if (err > 0) {
 		/* No job. Wait for the configured duration or a button press */
+		LOG_DBG("cleanup()");
 		cleanup();
-		//(void)nrf_cloud_coap_disconnect();
 
-		LOG_INF("Retrying in %d minute(s)", CONFIG_COAP_FOTA_JOB_CHECK_RATE_MIN);
+#if defined(COAP_FOTA_USE_THREAD)
+		LOG_DBG("Retrying in %d minute(s)", CONFIG_COAP_FOTA_JOB_CHECK_RATE_MIN);
+#endif
 		return -ENOENT;
 	}
 
 	/* Start the FOTA download process and wait for completion (or timeout) */
+	LOG_DBG("start_download()");
 	err = start_download();
 	if (err) {
 		LOG_ERR("Failed to start FOTA download");
 		return err;
 	}
-
+	LOG_DBG("wait_for_download()");
 	err = wait_for_download();
 	if (err == -ETIMEDOUT) {
 		LOG_ERR("Timeout; FOTA download took longer than %d minutes",

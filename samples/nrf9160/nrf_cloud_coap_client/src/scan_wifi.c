@@ -11,14 +11,14 @@
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/net_event.h>
 #include <zephyr/net/wifi_mgmt.h>
-//#include <modem/location.h>
+/* #include <modem/location.h> */
 
 #include <net/wifi_location_common.h>
-//#include "location_core.h"
-//#include "location_utils.h"
-//#include "cloud_service/cloud_service.h"
+/* #include "location_core.h" */
+/* #include "location_utils.h" */
+/* #include "cloud_service/cloud_service.h" */
 
-LOG_MODULE_DECLARE(location, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVEL);
+LOG_MODULE_REGISTER(scan_wifi, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVEL);
 
 #define WIFI_SCANNING_RESULTS_MAX_CNT 10
 

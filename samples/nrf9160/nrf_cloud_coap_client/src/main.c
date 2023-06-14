@@ -480,7 +480,7 @@ static int do_pgps(struct gps_pgps_request *pgps_req)
 	pgps_res.host_sz = sizeof(host);
 	pgps_res.path = path;
 	pgps_res.path_sz = sizeof(path);
-	err = nrf_cloud_coap_pgps(&pgps_request, &pgps_res);
+	err = nrf_cloud_coap_pgps_data_get(&pgps_request, &pgps_res);
 	if (err) {
 		LOG_ERR("Failed to request P-GPS: %d", err);
 		return err;
@@ -540,8 +540,7 @@ static int do_next_test(void)
 {
 	static double temp = 21.5;
 	static int cur_test = 1;
-	static struct nrf_cloud_gnss_pvt pvt = {
-		.lat = 45.525616, .lon = -122.685978, .accuracy = 30};
+	static struct nrf_cloud_gnss_data gnss;
 	static bool got_agps = false;
 	static const char *location_types[] = {
 		"SINGLE_CELL",
@@ -549,12 +548,20 @@ static int do_next_test(void)
 		"WIFI"
 	};
 	int err = 0;
+	struct nrf_cloud_rest_location_request loc_request;
 	struct nrf_cloud_location_result result;
 	struct nrf_cloud_rest_agps_request agps_request;
 	struct nrf_modem_gnss_agps_data_frame agps_req;
 	struct nrf_cloud_rest_agps_result agps_res;
 	struct wifi_scan_info *wifi_info = NULL;
 	char buf[512];
+
+	if (!gnss.type) {
+		gnss.type = NRF_CLOUD_GNSS_TYPE_PVT;
+		gnss.pvt.lat = 45.525616;
+		gnss.pvt.lon = -122.685978;
+		gnss.pvt.accuracy = 30;
+	}
 
 	printk("\n***********************************************\n");
 	switch (cur_test) {
@@ -613,7 +620,9 @@ static int do_next_test(void)
 			LOG_INF("Performing single-cell request");
 		}
 
-		err = nrf_cloud_coap_location_get(&cell_info, wifi_info, &result);
+		loc_request.cell_info = &cell_info;
+		loc_request.wifi_info = wifi_info;
+		err = nrf_cloud_coap_location_get(&loc_request, &result);
 		(void)k_mutex_unlock(&cell_info_mutex);
 		if (err) {
 			LOG_ERR("Unable to get location: %d", err);
@@ -627,9 +636,9 @@ static int do_next_test(void)
 				type = "unknown";
 			}
 			/* Process the returned location once it arrives */
-			pvt.lat = result.lat;
-			pvt.lon = result.lon;
-			pvt.accuracy = result.unc;
+			gnss.pvt.lat = result.lat;
+			gnss.pvt.lon = result.lon;
+			gnss.pvt.accuracy = result.unc;
 			LOG_INF("Location: %s, %.12g, %.12g, %d", type,
 				result.lat, result.lon, result.unc);
 		}
@@ -637,7 +646,7 @@ static int do_next_test(void)
 		break;
 	case 4:
 		printk("*** %d. Sending GNSS PVT ***********************\n", cur_test);
-		err = nrf_cloud_coap_gnss_pvt_send(&pvt);
+		err = nrf_cloud_coap_location_send(&gnss);
 		if (err) {
 			LOG_ERR("Error sending GNSS PVT data: %d", err);
 			break;
@@ -661,7 +670,7 @@ static int do_next_test(void)
 		agps_req.sv_mask_ephe = 0xffffffff;
 		agps_res.buf = agps_buf;
 		agps_res.buf_sz = sizeof(agps_buf);
-		err = nrf_cloud_coap_agps(&agps_request, &agps_res);
+		err = nrf_cloud_coap_agps_data_get(&agps_request, &agps_res);
 		if (err) {
 			LOG_ERR("Failed to request A-GPS: %d", err);
 		} else {
