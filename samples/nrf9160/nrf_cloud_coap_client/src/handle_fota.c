@@ -13,6 +13,7 @@
 #include <zephyr/logging/log.h>
 #include <net/fota_download.h>
 #include <net/nrf_cloud_coap.h>
+#include "handle_fota.h"
 
 LOG_MODULE_REGISTER(nrf_cloud_coap_fota, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVEL);
 
@@ -431,7 +432,7 @@ static void error_reboot(void)
 	sys_reboot(SYS_REBOOT_COLD);
 }
 
-int coap_fota_handle(void)
+int handle_fota_process(void)
 {
 	int err;
 

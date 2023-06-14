@@ -24,6 +24,7 @@
 #include <net/nrf_cloud_coap.h>
 #include <version.h>
 #include "scan_wifi.h"
+#include "handle_fota.h"
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(nrf_cloud_coap_client, CONFIG_NRF_CLOUD_COAP_CLIENT_LOG_LEVEL);
@@ -95,9 +96,6 @@ static K_SEM_DEFINE(wifi_scan_sem, 0, 1);
 static void get_cell_info(void);
 static int do_pgps(struct gps_pgps_request *pgps_req);
 static int update_shadow(void);
-int handle_fota_init(void);
-int handle_fota_begin(void);
-int coap_fota_handle(void);
 
 static bool ver_check(int32_t reqd_maj, int32_t reqd_min, int32_t reqd_rev,
 		      int32_t maj, int32_t min, int32_t rev)
@@ -553,17 +551,17 @@ static int do_next_test(void)
 	struct wifi_scan_info *wifi_info = NULL;
 	char buf[512];
 
-	LOG_INF("\n***********************************");
+	printk("\n***********************************************\n");
 	switch (cur_test) {
 	case 1:
-		LOG_INF("******** %d. Getting pending FOTA job execution", cur_test);
-		err = coap_fota_handle();
+		printk("**** %d. Getting pending FOTA job execution ****\n", cur_test);
+		err = handle_fota_process();
 		if (err != -EAGAIN) {
 			LOG_INF("FOTA completed.");
 		}
 		break;
 	case 2:
-		LOG_INF("******** %d. Sending temperature", cur_test);
+		printk("*** %d. Sending temperature ********************\n", cur_test);
 		err = nrf_cloud_coap_sensor_send(NRF_CLOUD_JSON_APPID_VAL_TEMP, temp);
 		if (err) {
 			LOG_ERR("Error sending sensor data: %d", err);
@@ -572,7 +570,7 @@ static int do_next_test(void)
 		temp += 0.1;
 		break;
 	case 3:
-		LOG_INF("******** %d. Getting position", cur_test);
+		printk("*** %d. Getting position ***********************\n", cur_test);
 		LOG_INF("Waiting for neighbor cells..");
 		err = k_sem_take(&cell_info_ready_sem, K_SECONDS(APP_WAIT_CELLS_S));
 		if (err) {
@@ -622,7 +620,7 @@ static int do_next_test(void)
 		request_cells = true;
 		break;
 	case 4:
-		LOG_INF("******** %d. Sending GNSS PVT", cur_test);
+		printk("*** %d. Sending GNSS PVT ***********************\n", cur_test);
 		err = nrf_cloud_coap_gnss_pvt_send(&pvt);
 		if (err) {
 			LOG_ERR("Error sending GNSS PVT data: %d", err);
@@ -633,7 +631,7 @@ static int do_next_test(void)
 		if (got_agps) {
 			break;
 		}
-		LOG_INF("******** %d. Getting A-GPS data", cur_test);
+		printk("*** %d. Getting A-GPS data *********************\n", cur_test);
 		memset(&agps_request, 0, sizeof(agps_request));
 		memset(&agps_req, 0, sizeof(agps_req));
 		agps_request.type = NRF_CLOUD_REST_AGPS_REQ_ASSISTANCE;
@@ -659,7 +657,7 @@ static int do_next_test(void)
 		}
 		break;
 	case 6:
-		LOG_INF("******** %d. Getting shadow delta", cur_test);
+		printk("*** %d. Getting shadow delta *******************\n", cur_test);
 		buf[0] = '\0';
 		err = nrf_cloud_coap_shadow_get(buf, sizeof(buf) - 1, true);
 		if (err) {
