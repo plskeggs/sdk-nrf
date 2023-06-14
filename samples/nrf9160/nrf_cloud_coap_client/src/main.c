@@ -95,6 +95,9 @@ static K_SEM_DEFINE(wifi_scan_sem, 0, 1);
 static void get_cell_info(void);
 static int do_pgps(struct gps_pgps_request *pgps_req);
 static int update_shadow(void);
+int handle_fota_init(void);
+int handle_fota_begin(void);
+int coap_fota_handle(void);
 
 static bool ver_check(int32_t reqd_maj, int32_t reqd_min, int32_t reqd_rev,
 		      int32_t maj, int32_t min, int32_t rev)
@@ -307,8 +310,11 @@ static void modem_configure(void)
 	int err;
 
 	err = nrf_modem_lib_init();
-	if (err) {
+	if (err < 0) {
 		LOG_ERR("Modem library initialization failed, error: %d", err);
+		return;
+	} else if (err > 0) {
+		LOG_INF("Modem firmware update in progress: 0x%X", err);
 		return;
 	}
 
@@ -367,7 +373,17 @@ int init(void)
 {
 	int err;
 
+	err = handle_fota_init();
+	if (err) {
+		LOG_ERR("Error initializing FOTA: %d", err);
+	}
+
 	modem_configure();
+
+	err = handle_fota_begin();
+	if (err) {
+		return err;
+	}
 
 #if defined(CONFIG_WIFI)
 	err = scan_wifi_init();
@@ -531,7 +547,6 @@ static int do_next_test(void)
 	static bool got_agps = false;
 	int err = 0;
 	struct nrf_cloud_location_result result;
-	struct nrf_cloud_fota_job_info job;
 	struct nrf_cloud_rest_agps_request agps_request;
 	struct nrf_modem_gnss_agps_data_frame agps_req;
 	struct nrf_cloud_rest_agps_result agps_res;
@@ -541,6 +556,13 @@ static int do_next_test(void)
 	LOG_INF("\n***********************************");
 	switch (cur_test) {
 	case 1:
+		LOG_INF("******** %d. Getting pending FOTA job execution", cur_test);
+		err = coap_fota_handle();
+		if (err != -EAGAIN) {
+			LOG_INF("FOTA completed.");
+		}
+		break;
+	case 2:
 		LOG_INF("******** %d. Sending temperature", cur_test);
 		err = nrf_cloud_coap_sensor_send(NRF_CLOUD_JSON_APPID_VAL_TEMP, temp);
 		if (err) {
@@ -549,7 +571,7 @@ static int do_next_test(void)
 		}
 		temp += 0.1;
 		break;
-	case 2:
+	case 3:
 		LOG_INF("******** %d. Getting position", cur_test);
 		LOG_INF("Waiting for neighbor cells..");
 		err = k_sem_take(&cell_info_ready_sem, K_SECONDS(APP_WAIT_CELLS_S));
@@ -599,26 +621,6 @@ static int do_next_test(void)
 		}
 		request_cells = true;
 		break;
-	case 3:
-		LOG_INF("******** %d. Getting pending FOTA job execution", cur_test);
-		err = nrf_cloud_coap_current_fota_job_get(&job);
-		if (err) {
-			LOG_ERR("Failed to request pending FOTA job: %u.%02u",
-				err / 32, err & 0x1f);
-		} else {
-			LOG_INF("******** %d. Updating FOTA job status", cur_test);
-			/* process the job */
-			err = nrf_cloud_coap_fota_job_update(job.id, NRF_CLOUD_FOTA_REJECTED,
-						"Connection to rest of NCS FOTA not yet enabled.");
-			if (err) {
-				LOG_ERR("Unable to reject job: %d", err);
-			} else {
-				LOG_WRN("Rejected job because FOTA not hooked up yet.");
-			}
-			LOG_INF("Freeing fota job");
-			nrf_cloud_coap_fota_job_free(&job);
-		}
-		break;
 	case 4:
 		LOG_INF("******** %d. Sending GNSS PVT", cur_test);
 		err = nrf_cloud_coap_gnss_pvt_send(&pvt);
@@ -664,11 +666,13 @@ static int do_next_test(void)
 			LOG_ERR("Failed to request shadow delta: %d", err);
 		} else {
 			LOG_INF("Delta: %s", buf);
-			err = nrf_cloud_coap_shadow_state_update(buf);
-			if (err) {
-				LOG_ERR("Failed to acknowledge delta: %d", err);
-			} else {
-				LOG_INF("Delta acknowledged");
+			if (strlen(buf)) {
+				err = nrf_cloud_coap_shadow_state_update(buf);
+				if (err) {
+					LOG_ERR("Failed to acknowledge delta: %d", err);
+				} else {
+					LOG_INF("Delta acknowledged");
+				}
 			}
 		}
 		break;

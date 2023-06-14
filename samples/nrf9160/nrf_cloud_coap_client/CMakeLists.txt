@@ -12,7 +12,7 @@ zephyr_compile_definitions(PROJECT_NAME=${PROJECT_NAME})
 find_program(ZCBOR zcbor REQUIRED)
 
 # NORDIC SDK APP START
-target_sources(app PRIVATE src/main.c)
+target_sources(app PRIVATE src/main.c src/handle_fota.c)
 target_sources_ifdef(CONFIG_WIFI app PRIVATE src/scan_wifi.c)
 # NORDIC SDK APP END
 
