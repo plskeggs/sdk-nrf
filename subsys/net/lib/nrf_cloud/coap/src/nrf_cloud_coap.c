@@ -233,7 +233,7 @@ int nrf_cloud_coap_location_get(struct lte_lc_cells_info const *const cell_info,
 				   get_location_callback, result);
 
 	if (!err && !loc_err) {
-		LOG_INF("Location: %d, %.12g, %.12g, %d", result->type,
+		LOG_DBG("Location: %d, %.12g, %.12g, %d", result->type,
 			result->lat, result->lon, result->unc);
 	} else if (err == -EAGAIN) {
 		LOG_ERR("Timeout waiting for location");
@@ -255,10 +255,12 @@ static void get_fota_callback(int16_t result_code,
 		result_code / 32u, result_code & 0x1f, offset, len, last_block);
 	if (result_code != COAP_RESPONSE_CODE_CONTENT) {
 		fota_err = result_code;
-	} else {
+	} else if (payload && len) {
 		LOG_INF("Got FOTA response: %.*s", len, (const char *)payload);
 		fota_err = coap_codec_fota_resp_decode(user, payload, len,
 						       COAP_CONTENT_FORMAT_APP_JSON);
+	} else {
+		fota_err = 0;
 	}
 }
 
@@ -274,11 +276,13 @@ int nrf_cloud_coap_current_fota_job_get(struct nrf_cloud_fota_job_info *const jo
 	if (!err && !fota_err) {
 		LOG_INF("FOTA job received; type:%d, id:%s, host:%s, path:%s, size:%d",
 			job->type, job->id, job->host, job->path, job->file_size);
+	} else if (!err && (fota_err == COAP_RESPONSE_CODE_NOT_FOUND)) {
+		LOG_INF("No pending FOTA job");
 	} else if (err == -EAGAIN) {
 		LOG_ERR("Timeout waiting for FOTA job");
 	} else {
-		LOG_ERR("Error getting current FOTA job; FOTA err:%d, err:%d",
-			fota_err, err);
+		LOG_ERR("Error getting current FOTA job; FOTA rc:%d.%02d, err:%d",
+			fota_err / 32u, fota_err & 0x1f, err);
 		err = fota_err;
 	}
 	return err;
