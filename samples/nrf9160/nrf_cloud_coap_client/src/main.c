@@ -543,6 +543,11 @@ static int do_next_test(void)
 	static struct nrf_cloud_gnss_pvt pvt = {
 		.lat = 45.525616, .lon = -122.685978, .accuracy = 30};
 	static bool got_agps = false;
+	static const char *location_types[] = {
+		"SINGLE_CELL",
+		"MULTI_CELL",
+		"WIFI"
+	};
 	int err = 0;
 	struct nrf_cloud_location_result result;
 	struct nrf_cloud_rest_agps_request agps_request;
@@ -557,7 +562,7 @@ static int do_next_test(void)
 		printk("**** %d. Getting pending FOTA job execution ****\n", cur_test);
 		err = handle_fota_process();
 		if (err != -EAGAIN) {
-			LOG_INF("FOTA completed.");
+			LOG_INF("FOTA check completed.");
 		}
 		break;
 	case 2:
@@ -566,6 +571,8 @@ static int do_next_test(void)
 		if (err) {
 			LOG_ERR("Error sending sensor data: %d", err);
 			break;
+		} else {
+			LOG_INF("Sent %.1f C", temp);
 		}
 		temp += 0.1;
 		break;
@@ -612,10 +619,19 @@ static int do_next_test(void)
 			LOG_ERR("Unable to get location: %d", err);
 			break;
 		} else {
+			const char *type;
+
+			if ((result.type >= 0) && (result.type < LOCATION_TYPE__INVALID)) {
+				type = location_types[result.type];
+			} else {
+				type = "unknown";
+			}
 			/* Process the returned location once it arrives */
 			pvt.lat = result.lat;
 			pvt.lon = result.lon;
 			pvt.accuracy = result.unc;
+			LOG_INF("Location: %s, %.12g, %.12g, %d", type,
+				result.lat, result.lon, result.unc);
 		}
 		request_cells = true;
 		break;
@@ -625,13 +641,16 @@ static int do_next_test(void)
 		if (err) {
 			LOG_ERR("Error sending GNSS PVT data: %d", err);
 			break;
+		} else {
+			LOG_INF("PVT sent");
 		}
 		break;
 	case 5:
+		printk("*** %d. Getting A-GPS data *********************\n", cur_test);
 		if (got_agps) {
+			LOG_INF("Not required yet.");
 			break;
 		}
-		printk("*** %d. Getting A-GPS data *********************\n", cur_test);
 		memset(&agps_request, 0, sizeof(agps_request));
 		memset(&agps_req, 0, sizeof(agps_req));
 		agps_request.type = NRF_CLOUD_REST_AGPS_REQ_ASSISTANCE;
@@ -663,8 +682,10 @@ static int do_next_test(void)
 		if (err) {
 			LOG_ERR("Failed to request shadow delta: %d", err);
 		} else {
-			LOG_INF("Delta: %s", buf);
-			if (strlen(buf)) {
+			size_t len = strlen(buf);
+
+			LOG_INF("Delta: %s", len ? buf : "None");
+			if (len) {
 				err = nrf_cloud_coap_shadow_state_update(buf);
 				if (err) {
 					LOG_ERR("Failed to acknowledge delta: %d", err);
@@ -750,10 +771,10 @@ int main(void)
 			}
 
 			delta_ms = APP_COAP_SEND_INTERVAL_MS * i;
-			LOG_INF("Next transfer in %d minutes, %d seconds",
-				delta_ms / 60000, (delta_ms / 1000) % 60);
 			next_msg_time += delta_ms;
 #if defined(DELAY_INTERPACKET_PERIOD)
+			LOG_INF("Next transfer in %d minutes, %d seconds",
+				delta_ms / 60000, (delta_ms / 1000) % 60);
 			if (++i > APP_COAP_INTERVAL_LIMIT) {
 				i = APP_COAP_INTERVAL_LIMIT;
 			}
