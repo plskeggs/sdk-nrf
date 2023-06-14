@@ -383,6 +383,11 @@ int nrf_cloud_coap_patch(const char *resource, const char *query,
 
 int nrf_cloud_coap_close(void)
 {
-	return close(sock);
+	int orig_sock = sock;
+
+	/* Note: this does not teardown the thread in coap_client -- no way to do so */
+	authorized = false;
+	sock = 0;
+	return close(orig_sock);
 }
 
