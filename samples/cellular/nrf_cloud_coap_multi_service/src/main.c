@@ -10,7 +10,7 @@
 #include "connection.h"
 #include "led_control.h"
 
-LOG_MODULE_REGISTER(main, CONFIG_MQTT_MULTI_SERVICE_LOG_LEVEL);
+LOG_MODULE_REGISTER(main, CONFIG_COAP_MULTI_SERVICE_LOG_LEVEL);
 
 /* Here, we start the various threads that our application will run in */
 
@@ -45,6 +45,6 @@ K_THREAD_DEFINE(con_thread, CONFIG_CONNECTION_THREAD_STACK_SIZE, connection_mana
  */
 int main(void)
 {
-	LOG_INF("nRF Cloud MQTT multi-service sample has started, version: %s", CONFIG_APP_VERSION);
+	LOG_INF("nRF Cloud CoAP multi-service sample has started, version: %s", CONFIG_APP_VERSION);
 	return 0;
 }

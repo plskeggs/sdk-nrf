@@ -1,4 +1,4 @@
-/* Copyright (c) 2022 Nordic Semiconductor ASA
+/* Copyright (c) 2023 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
@@ -7,18 +7,19 @@
 #include <stdio.h>
 #include <zephyr/net/socket.h>
 #include <net/nrf_cloud.h>
-#include <net/nrf_cloud_codec.h>
+#include <net/nrf_cloud_coap.h>
 #include <date_time.h>
 #include <zephyr/logging/log.h>
 #include <modem/nrf_modem_lib.h>
 
 #include "connection.h"
 
-#include "fota_support.h"
+#include "nrf_cloud_codec_internal.h"
+#include "handle_fota.h"
 #include "location_tracking.h"
 #include "led_control.h"
 
-LOG_MODULE_REGISTER(connection, CONFIG_MQTT_MULTI_SERVICE_LOG_LEVEL);
+LOG_MODULE_REGISTER(connection, CONFIG_COAP_MULTI_SERVICE_LOG_LEVEL);
 
 /* Flow control event identifiers */
 
@@ -27,15 +28,12 @@ LOG_MODULE_REGISTER(connection, CONFIG_MQTT_MULTI_SERVICE_LOG_LEVEL);
 
 /* CLOUD_CONNECTED is fired when we first connect to the nRF Cloud.
  * CLOUD_READY is fired when the connection is fully associated and ready to send device messages.
- * CLOUD_ASSOCIATION_REQUEST is a special state only used when first associating a device with
- *				an nRF Cloud user account.
  * CLOUD_DISCONNECTED is fired when disconnection is detected or requested, and will trigger
  *				a total reset of the nRF cloud connection, and the event flag state.
  */
 #define CLOUD_CONNECTED			(1 << 1)
 #define CLOUD_READY			(1 << 2)
-#define CLOUD_ASSOCIATION_REQUEST	(1 << 3)
-#define CLOUD_DISCONNECTED		(1 << 4)
+#define CLOUD_DISCONNECTED		(1 << 3)
 
 /* Time either is or is not known. This is only fired once, and is never cleared. */
 #define DATE_TIME_KNOWN			(1 << 1)
@@ -47,9 +45,9 @@ static K_EVENT_DEFINE(datetime_connection_events);
 
 /* Message Queue for enqueing outgoing messages during offline periods. */
 K_MSGQ_DEFINE(device_message_queue,
-	      sizeof(struct nrf_cloud_obj *),
+	      sizeof(struct nrf_cloud_sensor_data *),
 	      CONFIG_MAX_OUTGOING_MESSAGES,
-	      sizeof(struct nrf_cloud_obj *));
+	      sizeof(struct nrf_cloud_sensor_data *));
 
 /* Tracks the number of consecutive message-send failures. A total count greater than
  * CONFIG_MAX_CONSECUTIVE_SEND_FAILURES will trigger a connection reset and cooldown.
@@ -58,6 +56,14 @@ K_MSGQ_DEFINE(device_message_queue,
 static int send_failure_count;
 
 static dev_msg_handler_cb_t general_dev_msg_handler;
+
+/* Modem info struct used for modem FW version and cell info used for single-cell requests */
+#if defined(CONFIG_MODEM_INFO)
+static struct modem_param_info mdm_param;
+#endif
+
+static void free_queued_dev_msg_message(struct nrf_cloud_sensor_data *msg);
+
 /**
  * @brief Notify that LTE connection has been established.
  */
@@ -85,12 +91,12 @@ bool await_lte_connection(k_timeout_t timeout)
  */
 static void notify_date_time_known(void)
 {
-	k_event_post(&cloud_connection_events, DATE_TIME_KNOWN);
+	k_event_post(&datetime_connection_events, DATE_TIME_KNOWN);
 }
 
 bool await_date_time_known(k_timeout_t timeout)
 {
-	return k_event_wait(&cloud_connection_events, DATE_TIME_KNOWN, false, timeout) != 0;
+	return k_event_wait(&datetime_connection_events, DATE_TIME_KNOWN, false, timeout) != 0;
 }
 
 /**
@@ -128,30 +134,6 @@ static bool await_cloud_connected(k_timeout_t timeout)
 {
 	LOG_DBG("Awaiting Cloud Connection");
 	return k_event_wait(&cloud_connection_events, CLOUD_CONNECTED, false, timeout) != 0;
-}
-
-/**
- * @brief Notify that a cloud association request has been made.
- */
-static void notify_cloud_requested_association(void)
-{
-	k_event_post(&cloud_connection_events, CLOUD_ASSOCIATION_REQUEST);
-}
-
-/**
- * @brief Check whether a user association request has been received from nRF Cloud.
- *
- * If true, we have received an association request, and we must restart the nRF Cloud connection
- * after association succeeds.
- *
- * This flag is reset by the reconnection attempt.
- *
- * @return bool - Whether we have been requested to associate with an nRF Cloud user.
- */
-static bool cloud_has_requested_association(void)
-{
-	return k_event_wait(&cloud_connection_events, CLOUD_ASSOCIATION_REQUEST,
-			    false, K_NO_WAIT) != 0;
 }
 
 /**
@@ -223,118 +205,6 @@ static void date_time_evt_handler(const struct date_time_evt *date_time_evt)
 }
 
 /**
- * @brief Handler for events from nRF Cloud Lib.
- *
- * @param nrf_cloud_evt Passed in event.
- */
-static void cloud_event_handler(const struct nrf_cloud_evt *nrf_cloud_evt)
-{
-	switch (nrf_cloud_evt->type) {
-	case NRF_CLOUD_EVT_TRANSPORT_CONNECTED:
-		LOG_DBG("NRF_CLOUD_EVT_TRANSPORT_CONNECTED");
-		/* Notify that we have connected to the nRF Cloud. */
-		notify_cloud_connected();
-		break;
-	case NRF_CLOUD_EVT_TRANSPORT_CONNECTING:
-		LOG_DBG("NRF_CLOUD_EVT_TRANSPORT_CONNECTING");
-		break;
-	case NRF_CLOUD_EVT_TRANSPORT_CONNECT_ERROR:
-		LOG_DBG("NRF_CLOUD_EVT_TRANSPORT_CONNECT_ERROR: %d", nrf_cloud_evt->status);
-		break;
-	case NRF_CLOUD_EVT_USER_ASSOCIATION_REQUEST:
-		LOG_DBG("NRF_CLOUD_EVT_USER_ASSOCIATION_REQUEST");
-		/* This event indicates that the user must associate the device with their
-		 * nRF Cloud account in the nRF Cloud portal.
-		 */
-		LOG_INF("Please add this device to your cloud account in the nRF Cloud portal.");
-
-		/* Notify that we have been requested to associate with a user account.
-		 * This will cause the next NRF_CLOUD_EVT_USER_ASSOCIATED event to
-		 * disconnect and reconnect the device to nRF Cloud, which is required
-		 * when devices are first associated with an nRF Cloud account.
-		 */
-		notify_cloud_requested_association();
-		break;
-	case NRF_CLOUD_EVT_USER_ASSOCIATED:
-		LOG_DBG("NRF_CLOUD_EVT_USER_ASSOCIATED");
-		/* Indicates successful association with an nRF Cloud account.
-		 * Will be fired every time the device connects.
-		 * If an association request has been previously received from nRF Cloud,
-		 * this means this is the first association of the device, and we must disconnect
-		 * and reconnect to ensure proper function of the nRF Cloud connection.
-		 */
-
-		if (cloud_has_requested_association()) {
-			/* We rely on the connection loop to reconnect automatically afterwards. */
-			LOG_INF("Device successfully associated with cloud!");
-			disconnect_cloud();
-		}
-		break;
-	case NRF_CLOUD_EVT_READY:
-		LOG_DBG("NRF_CLOUD_EVT_READY");
-		/* Notify that nRF Cloud is ready for communications from us. */
-		notify_cloud_ready();
-		break;
-	case NRF_CLOUD_EVT_SENSOR_DATA_ACK:
-		LOG_DBG("NRF_CLOUD_EVT_SENSOR_DATA_ACK");
-		break;
-	case NRF_CLOUD_EVT_TRANSPORT_DISCONNECTED:
-		LOG_DBG("NRF_CLOUD_EVT_TRANSPORT_DISCONNECTED");
-		/* Notify that we have lost contact with nRF Cloud. */
-		disconnect_cloud();
-		break;
-	case NRF_CLOUD_EVT_ERROR:
-		LOG_DBG("NRF_CLOUD_EVT_ERROR: %d", nrf_cloud_evt->status);
-		break;
-	case NRF_CLOUD_EVT_RX_DATA_GENERAL:
-		LOG_DBG("NRF_CLOUD_EVT_RX_DATA_GENERAL");
-		LOG_DBG("%d bytes received from cloud", nrf_cloud_evt->data.len);
-
-		/* Pass the device message along to the application, if it is listening */
-		if (general_dev_msg_handler) {
-			/* To keep the sample simple, we invoke the callback directly.
-			 * If you want to do complex operations in this callback without blocking
-			 * receipt of data from nRF Cloud, you should set up a work queue and pass
-			 * messages to it either here, or from inside the callback.
-			 */
-			general_dev_msg_handler(&nrf_cloud_evt->data);
-		}
-
-		break;
-	case NRF_CLOUD_EVT_RX_DATA_SHADOW:
-		LOG_DBG("NRF_CLOUD_EVT_RX_DATA_SHADOW");
-		break;
-	case NRF_CLOUD_EVT_FOTA_START:
-		LOG_DBG("NRF_CLOUD_EVT_FOTA_START");
-		break;
-	case NRF_CLOUD_EVT_FOTA_DONE: {
-		enum nrf_cloud_fota_type fota_type = NRF_CLOUD_FOTA_TYPE__INVALID;
-
-		if (nrf_cloud_evt->data.ptr) {
-			fota_type = *((enum nrf_cloud_fota_type *) nrf_cloud_evt->data.ptr);
-		}
-
-		LOG_DBG("NRF_CLOUD_EVT_FOTA_DONE, FOTA type: %s",
-			fota_type == NRF_CLOUD_FOTA_APPLICATION	  ?		"Application"	:
-			fota_type == NRF_CLOUD_FOTA_MODEM_DELTA	  ?		"Modem (delta)"	:
-			fota_type == NRF_CLOUD_FOTA_MODEM_FULL	  ?		"Modem (full)"	:
-			fota_type == NRF_CLOUD_FOTA_BOOTLOADER	  ?		"Bootloader"	:
-										"Invalid");
-
-		/* Notify fota_support of the completed download. */
-		on_fota_downloaded();
-		break;
-	}
-	case NRF_CLOUD_EVT_FOTA_ERROR:
-		LOG_DBG("NRF_CLOUD_EVT_FOTA_ERROR");
-		break;
-	default:
-		LOG_DBG("Unknown event type: %d", nrf_cloud_evt->type);
-		break;
-	}
-}
-
-/**
  * @brief Handler for LTE events coming from modem.
  *
  * @param evt Events from modem.
@@ -387,7 +257,7 @@ static void lte_event_handler(const struct lte_lc_evt *const evt)
 		/* This check is necessary to silence compiler warnings by
 		 * sprintf when debug logs are not enabled.
 		 */
-		if (IS_ENABLED(CONFIG_MQTT_MULTI_SERVICE_LOG_LEVEL_DBG)) {
+		if (IS_ENABLED(CONFIG_COAP_MULTI_SERVICE_LOG_LEVEL_DBG)) {
 			char log_buf[60];
 			ssize_t len;
 
@@ -448,7 +318,6 @@ static void update_shadow(void)
 		.modem = nrf_cloud_fota_is_type_enabled(NRF_CLOUD_FOTA_MODEM_DELTA),
 		.modem_full = nrf_cloud_fota_is_type_enabled(NRF_CLOUD_FOTA_MODEM_FULL)
 	};
-
 	struct nrf_cloud_svc_info_ui ui_info = {
 		.gnss = location_tracking_enabled(),
 		.temperature = IS_ENABLED(CONFIG_TEMP_TRACKING),
@@ -461,41 +330,71 @@ static void update_shadow(void)
 		.fota = &fota_info,
 		.ui = &ui_info
 	};
+	struct nrf_cloud_modem_info modem_info = {
+		.device = NRF_CLOUD_INFO_SET,
+		.network = NRF_CLOUD_INFO_SET,
+		.sim = IS_ENABLED(CONFIG_MODEM_INFO_ADD_SIM) ? NRF_CLOUD_INFO_SET : 0,
+		/* Use the modem info already obtained */
+#if defined(CONFIG_MODEM_INFO)
+		.mpi = &mdm_param,
+#endif
+		/* Include the application version */
+		.application_version = CONFIG_APP_VERSION
+	};
 	struct nrf_cloud_device_status device_status = {
-		.modem = NULL,
+		.modem = &modem_info,
 		.svc = &service_info
 	};
 
-	err = nrf_cloud_shadow_device_status_update(&device_status);
+	err = nrf_cloud_coap_shadow_device_status_update(&device_status);
 	if (err) {
 		LOG_ERR("Failed to update device shadow, error: %d", err);
 	}
 }
-static struct nrf_cloud_obj *allocate_dev_msg_for_queue(struct nrf_cloud_obj *msg_to_copy)
-{
-	struct nrf_cloud_obj *new_msg = k_malloc(sizeof(struct nrf_cloud_obj));
 
-	if (new_msg && msg_to_copy) {
+static struct nrf_cloud_sensor_data *allocate_dev_msg_for_queue(struct nrf_cloud_sensor_data *
+								msg_to_copy)
+{
+	struct nrf_cloud_sensor_data *new_msg = k_malloc(sizeof(struct nrf_cloud_sensor_data));
+
+	LOG_INF("type:%d, data_type:%d", msg_to_copy->type, msg_to_copy->data_type);
+	if (new_msg == NULL) {
+		LOG_ERR("Out of memory error");
+	} else if (msg_to_copy) {
 		*new_msg = *msg_to_copy;
+		if (msg_to_copy->data_type == NRF_CLOUD_DATA_TYPE_BLOCK) {
+			uint8_t *new_data = k_malloc(msg_to_copy->data.len);
+
+			if (new_data != NULL) {
+				memcpy(new_data, msg_to_copy->data.ptr, msg_to_copy->data.len);
+				new_msg->data.ptr = new_data;
+			} else {
+				LOG_ERR("Out of memory error");
+				new_msg->data.ptr = NULL;
+				new_msg->data.len = 0;
+				k_free(new_msg);
+				new_msg = NULL;
+			}
+		}
 	}
 
 	return new_msg;
 }
 
-static int enqueue_device_message(struct nrf_cloud_obj *const msg_obj, const bool create_copy)
+static int enqueue_device_message(struct nrf_cloud_sensor_data *const msg, const bool create_copy)
 {
-	if (!msg_obj) {
+	if (!msg) {
 		return -EINVAL;
 	}
 
-	struct nrf_cloud_obj *q_msg = msg_obj;
+	struct nrf_cloud_sensor_data *q_msg = msg;
 
 	if (create_copy) {
 		/* Allocate a new nrf_cloud_obj structure for the message queue.
 		 * Copy the contents of msg_obj, which contains a pointer to the
 		 * original message data, into the new structure.
 		 */
-		q_msg = allocate_dev_msg_for_queue(msg_obj);
+		q_msg = allocate_dev_msg_for_queue(msg);
 		if (!q_msg) {
 			return -ENOMEM;
 		}
@@ -506,7 +405,7 @@ static int enqueue_device_message(struct nrf_cloud_obj *const msg_obj, const boo
 	if (k_msgq_put(&device_message_queue, &q_msg, K_NO_WAIT)) {
 		LOG_ERR("Device message rejected, outgoing message queue is full");
 		if (create_copy) {
-			k_free(q_msg);
+			free_queued_dev_msg_message(q_msg);
 		}
 		return -ENOMEM;
 	}
@@ -514,18 +413,26 @@ static int enqueue_device_message(struct nrf_cloud_obj *const msg_obj, const boo
 	return 0;
 }
 
-static void free_queued_dev_msg_message(struct nrf_cloud_obj *msg_obj)
+static void free_queued_dev_msg_message(struct nrf_cloud_sensor_data *msg)
 {
-	/* Free the memory pointed to by the msg_obj struct */
-	nrf_cloud_obj_free(msg_obj);
-	/* Free the msg_obj struct itself */
-	k_free(msg_obj);
+	if (msg == NULL) {
+		return;
+	}
+	/* Free the data block attached to the msg */
+	if (msg->data_type == NRF_CLOUD_DATA_TYPE_BLOCK) {
+		k_free((uint8_t *)msg->data.ptr);
+		msg->data.ptr = NULL;
+		msg->data.len = 0;
+	}
+	/* Free the msg itself */
+	k_free(msg);
 }
 
 int consume_device_message(void)
 {
-	struct nrf_cloud_obj *queued_msg;
+	struct nrf_cloud_sensor_data *queued_msg;
 	int ret;
+	const char *app_id;
 
 	LOG_DBG("Consuming an enqueued device message");
 
@@ -534,6 +441,11 @@ int consume_device_message(void)
 	if (ret) {
 		LOG_ERR("Failed to retrieve item from outgoing message queue, error: %d", ret);
 		return -ret;
+	}
+
+	app_id = nrf_cloud_sensor_app_id_lookup(queued_msg->type);
+	if (app_id == NULL) {
+		return -EINVAL;
 	}
 
 	/* Wait until we are able to send it. */
@@ -547,21 +459,34 @@ int consume_device_message(void)
 	 * simple and accessible. See the Asset Tracker V2 application for an example of batch
 	 * message sending.
 	 */
-	LOG_DBG("Attempting to transmit enqueued device message");
-
-	struct nrf_cloud_tx_data mqtt_msg = {
-		.qos = MQTT_QOS_1_AT_LEAST_ONCE,
-		.topic_type = NRF_CLOUD_TOPIC_MESSAGE,
-		.obj = queued_msg
-	};
+	LOG_DBG("Attempting to transmit enqueued device message type:%d, data_type:%d, app_id:%s",
+		queued_msg->type, queued_msg->data_type, app_id);
 
 	/* Send message */
-	ret = nrf_cloud_send(&mqtt_msg);
+	switch (queued_msg->data_type) {
+	case NRF_CLOUD_DATA_TYPE_BLOCK:
+		if ((queued_msg->type == NRF_CLOUD_SENSOR_GNSS) &&
+		    (queued_msg->data.ptr != NULL) &&
+		    (queued_msg->data.len == sizeof(struct nrf_cloud_gnss_data))) {
+			ret = nrf_cloud_coap_location_send((const struct nrf_cloud_gnss_data *)
+							   queued_msg->data.ptr);
+		}
+		break;
+	case NRF_CLOUD_DATA_TYPE_STR:
+		/* TODO -- implement public interface for coap string messages */
+		break;
+	case NRF_CLOUD_DATA_TYPE_DOUBLE:
+		ret = nrf_cloud_coap_sensor_send(app_id, queued_msg->double_val, queued_msg->ts_ms);
+		break;
+	case NRF_CLOUD_DATA_TYPE_INT:
+		ret = nrf_cloud_coap_sensor_send(app_id, (double)queued_msg->int_val,
+						 queued_msg->ts_ms);
+		break;
+	}
 
 	if (ret) {
-		LOG_ERR("Transmission of enqueued device message failed, nrf_cloud_send "
-			"gave error: %d. The message will be re-enqueued and tried again "
-			"later.", ret);
+		LOG_ERR("Transmission of enqueued device message failed, error: %d."
+			" The message will be re-enqueued and tried again later.", ret);
 
 		/* Re-enqueue the message for later retry.
 		 * No need to create a copy since we already copied the
@@ -608,22 +533,47 @@ int consume_device_message(void)
 	return ret;
 }
 
-int send_device_message(struct nrf_cloud_obj *const msg_obj)
+int send_device_message(struct nrf_cloud_sensor_data *const msg)
 {
 	/* Enqueue the message, creating a copy to be managed by the queue. */
-	int ret = enqueue_device_message(msg_obj, true);
+	int ret = enqueue_device_message(msg, true);
 
 	if (ret) {
 		LOG_ERR("Cannot add message to queue");
-		nrf_cloud_obj_free(msg_obj);
-	} else {
-		/* The message data now belongs to the queue.
-		 * Reset the provided object so it cannot be modified.
-		 */
-		nrf_cloud_obj_reset(msg_obj);
 	}
 
 	return ret;
+}
+
+/**
+ * @brief Set up the nRF Cloud library
+ * Must be called before setup_lte, so that pending FOTA jobs can be checked before LTE init.
+ * @return int - 0 on success, otherwise negative error code.
+ */
+static int setup_cloud(void)
+{
+	int err;
+
+#if defined(CONFIG_NRF_CLOUD_FOTA)
+	err = handle_fota_init();
+	if (err) {
+		LOG_ERR("Error initializing FOTA: %d", err);
+		return err;
+	}
+	err = handle_fota_begin();
+	if (err) {
+		LOG_ERR("Error initializing FOTA: %d", err);
+		return err;
+	}
+#endif
+
+	err = nrf_cloud_coap_init();
+	if (err) {
+		LOG_ERR("Failed to initialize CoAP client: %d", err);
+		return err;
+	}
+
+	return err;
 }
 
 /**
@@ -639,12 +589,8 @@ static void reset_cloud(void)
 	k_sleep(K_SECONDS(20));
 
 	/* Disconnect from nRF Cloud */
-	err = nrf_cloud_disconnect();
-
-	/* nrf_cloud_uninit returns -EACCES if we are not currently in a connected state. */
-	if (err == -EACCES) {
-		LOG_INF("Cannot disconnect from nRF Cloud because we are not currently connected");
-	} else if (err) {
+	err = nrf_cloud_coap_disconnect();
+	if (err) {
 		LOG_ERR("Cannot disconnect from nRF Cloud, error: %d. Continuing anyways", err);
 	} else {
 		LOG_INF("Successfully disconnected from nRF Cloud");
@@ -663,33 +609,29 @@ static int connect_cloud(void)
 {
 	int err;
 
-	LOG_INF("Connecting to nRF Cloud...");
+	LOG_INF("Connecting to nRF Cloud using CoAP...");
 
 	/* Begin attempting to connect persistently. */
 	while (true) {
 		LOG_INF("Next connection retry in %d seconds",
 			CONFIG_CLOUD_CONNECTION_RETRY_TIMEOUT_SECONDS);
 
-		err = nrf_cloud_connect();
+		err = nrf_cloud_coap_connect();
 		if (err) {
-			LOG_ERR("cloud_connect, error: %d", err);
+			LOG_ERR("Failed to connect and get authorized: %d", err);
+		} else {
+			notify_cloud_connected();
 		}
 
 		/* Wait for cloud connection success. If succeessful, break out of the loop. */
 		if (await_cloud_connected(
 			K_SECONDS(CONFIG_CLOUD_CONNECTION_RETRY_TIMEOUT_SECONDS))) {
+			notify_cloud_ready();
 			break;
 		}
 	}
 
-	/* Wait for cloud to become ready, resetting if we time out or are disconnected. */
-	if (!await_cloud_ready(K_SECONDS(CONFIG_CLOUD_READY_TIMEOUT_SECONDS), true)) {
-		LOG_INF("nRF Cloud failed to become ready. Resetting connection.");
-		reset_cloud();
-		return -ETIMEDOUT;
-	}
-
-	LOG_INF("Connected to nRF Cloud");
+	LOG_INF("Connected to nRF Cloud using CoAP");
 
 	return err;
 }
@@ -727,34 +669,45 @@ static int setup_modem(void)
 	/* Register to be notified when the modem has figured out the current time. */
 	date_time_register_handler(date_time_evt_handler);
 
-	return 0;
-}
-
-
-/**
- * @brief Set up the nRF Cloud library
- * Must be called before setup_lte, so that pending FOTA jobs can be checked before LTE init.
- * @return int - 0 on success, otherwise negative error code.
- */
-static int setup_cloud(void)
-{
-	/* Initialize nrf_cloud library. */
-	struct nrf_cloud_init_param params = {
-		.event_handler = cloud_event_handler,
-		.fmfu_dev_inf = get_full_modem_fota_fdev(),
-		.application_version = CONFIG_APP_VERSION
-	};
-
-	int err = nrf_cloud_init(&params);
-
-	if (err) {
-		LOG_ERR("nRF Cloud library could not be initialized, error: %d", err);
-		return err;
+	/* Modem info library is used to obtain the modem FW version
+	 * and network info for single-cell requests
+	 */
+#if defined(CONFIG_MODEM_INFO)
+	ret = modem_info_init();
+	if (ret) {
+		LOG_ERR("Modem info initialization failed, error: %d", ret);
+		return ret;
 	}
 
+	ret = modem_info_params_init(&mdm_param);
+	if (ret) {
+		LOG_ERR("Modem info params initialization failed, error: %d", ret);
+		return ret;
+	}
+#endif
+
 	return 0;
 }
 
+static void get_modem_info(void)
+{
+#if defined(CONFIG_MODEM_INFO)
+	int ret;
+
+	ret = modem_info_params_get(&mdm_param);
+	if (ret) {
+		LOG_ERR("Modem info params reading failed, error: %d", ret);
+	}
+
+	char mfwv_str[128];
+
+	if (modem_info_string_get(MODEM_INFO_FW_VERSION, mfwv_str, sizeof(mfwv_str)) <= 0) {
+		LOG_WRN("Failed to get modem FW version");
+	} else {
+		LOG_INF("Modem FW version: %s", mfwv_str);
+	}
+#endif
+}
 
 /**
  * @brief Set up LTE and start trying to connect.
@@ -767,22 +720,14 @@ static int setup_lte(void)
 	int err;
 
 	/* Perform Configuration */
-	if (IS_ENABLED(CONFIG_POWER_SAVING_MODE_ENABLE)) {
-		/* Requesting PSM before connecting allows the modem to inform
-		 * the network about our wish for certain PSM configuration
-		 * already in the connection procedure instead of in a separate
-		 * request after the connection is in place, which may be
-		 * rejected in some networks.
-		 */
-		LOG_INF("Requesting PSM mode");
+	LOG_INF("Requesting PSM mode");
 
-		err = lte_lc_psm_req(true);
-		if (err) {
-			LOG_ERR("Failed to set PSM parameters, error: %d", err);
-			return err;
-		} else {
-			LOG_INF("PSM mode requested");
-		}
+	err = lte_lc_psm_req(true);
+	if (err) {
+		LOG_ERR("Failed to set PSM parameters, error: %d", err);
+		return err;
+	} else {
+		LOG_INF("PSM mode requested");
 	}
 
 	/* Modem events must be enabled before we can receive them. */
@@ -860,6 +805,8 @@ void connection_management_thread_fn(void)
 
 		(void)await_lte_connection(K_FOREVER);
 		LOG_INF("Connected to LTE network");
+
+		get_modem_info();
 
 		/* Attempt to connect to nRF Cloud. */
 		if (!connect_cloud()) {
