@@ -1,6 +1,6 @@
-.. _nrf_cloud_mqtt_multi_service:
+.. _nrf_cloud_coap_multi_service:
 
-Cellular: nRF Cloud MQTT multi-service
+Cellular: nRF Cloud CoAP multi-service
 ######################################
 
 .. contents::
@@ -11,7 +11,7 @@ This sample is a minimal, error tolerant, integrated demonstration of the :ref:`
 It demonstrates how you can integrate Firmware-Over-The-Air (FOTA), Location Services, Alert and Log Services, periodic sensor sampling, and more in your `nRF Cloud`_-enabled application.
 It also demonstrates how to implement error tolerance in your cellular applications without relying on reboot loops.
 
-.. _nrf_cloud_mqtt_multi_service_requirements:
+.. _nrf_cloud_coap_multi_service_requirements:
 
 Requirements
 ************
@@ -24,28 +24,26 @@ The sample supports the following development kits:
 
 .. include:: /includes/external_flash_nrf91.txt
 
-.. _nrf_cloud_mqtt_multi_service_features:
+Modem firmware version 1.3.5 or above is recommended, in order to benefit from the power savings provided by DTLS Connection ID.
+
+.. _nrf_cloud_coap_multi_service_features:
 
 Features
 ********
 
 This sample implements or demonstrates the following features:
 
-* Error-tolerant use of the `nRF Cloud MQTT API`_ using the :ref:`nrf_modem` and :ref:`lib_nrf_cloud` library.
+* Error-tolerant use of the `nRF Cloud CoAP API`_ using the :ref:`nrf_modem` and :ref:`lib_nrf_cloud` library.
 * Support for `Firmware-Over-The-Air (FOTA) update service <nRF Cloud Getting Started FOTA documentation_>`_ using the `nRF Cloud`_ portal.
 * Support for `modem AT commands <AT Commands Reference Guide_>`_ over UART using the :ref:`lib_at_host` library.
-* Support for remote execution of modem AT commands using application-specific device messages.
 * Periodic cellular, Wi-Fi, and GNSS location tracking using the :ref:`lib_location` library.
 * Periodic temperature sensor sampling on your `Nordic Thingy:91`_, or fake temperature  measurements on your `Nordic nRF9160 DK`_.
 * Transmission of sensor and GNSS location samples to the nRF Cloud portal as `nRF Cloud device messages <nRF Cloud Device Messages_>`_.
-* Construction of valid `nRF Cloud device messages <nRF Cloud Device Messages_>`_.
 * Minimal LED status indication using the `Zephyr LED API`_.
 * Transmission of an alert on sample startup using the :ref:`lib_nrf_cloud_alert` library.
 * Transmission of additional alerts, whenever a specified temperature limit is exceeded.
-* Optional transmission of log messages to the cloud using the :ref:`lib_nrf_cloud_log` library.
 
-
-.. _nrf_cloud_mqtt_multi_service_structure_and_theory_of_operation:
+.. _nrf_cloud_coap_multi_service_structure_and_theory_of_operation:
 
 Structure and theory of operation
 *********************************
@@ -54,13 +52,13 @@ This sample is separated into a number of smaller functional units.
 The top level functional unit and entry point for the sample is the :file:`src/main.c` file.
 This file starts three primary threads, each with a distinct function:
 
-* The connection thread (``con_thread``) runs the :ref:`nrf_cloud_mqtt_multi_service_connection_management_loop`, which maintains a connection to `nRF Cloud`_.
-* The application thread (``app_thread``) Runs the :ref:`nrf_cloud_mqtt_multi_service_application_thread_and_main_application_loop`, which may add `device messages <nRF Cloud Device Messages_>`_ to the :ref:`nrf_cloud_mqtt_multi_service_device_message_queue`.
-* The message thread (``msg_thread``) processes the :ref:`nrf_cloud_mqtt_multi_service_device_message_queue` whenever there is an active connection.
+* The connection thread (``con_thread``) runs the :ref:`nrf_cloud_coap_multi_service_connection_management_loop`, which maintains a connection to `nRF Cloud`_.
+* The application thread (``app_thread``) Runs the :ref:`nrf_cloud_coap_multi_service_application_thread_and_main_application_loop`, which may add `device messages <nRF Cloud Device Messages_>`_ to the :ref:`nrf_cloud_coap_multi_service_device_message_queue`.
+* The message thread (``msg_thread``) processes the :ref:`nrf_cloud_coap_multi_service_device_message_queue` whenever there is an active connection.
 
-:file:`src/main.c` also optionally starts a fourth thread, the ``led_thread``, which animates any onboard LEDs if :ref:`nrf_cloud_mqtt_multi_service_led_status_indication` is enabled.
+:file:`src/main.c` also optionally starts a fourth thread, the ``led_thread``, which animates any onboard LEDs if :ref:`nrf_cloud_coap_multi_service_led_status_indication` is enabled.
 
-.. _nrf_cloud_mqtt_multi_service_connection_management_loop:
+.. _nrf_cloud_coap_multi_service_connection_management_loop:
 
 Connection management loop
 ==========================
@@ -83,7 +81,7 @@ The connection management loop relies on these events to control its progression
 
 The connection management loop must conform to the :ref:`nRF Cloud connection process <lib_nrf_cloud_connect>`.
 This is mostly handled by the :ref:`lib_nrf_cloud` library, with exception to the following behavior:
-When a device is first being associated with an nRF Cloud account, the `nRF Cloud MQTT API`_ will send a user association request notification to the device.
+When a device is first being associated with an nRF Cloud account, the `nRF Cloud CoAP API`_ will send a user association request notification to the device.
 Upon receiving this notification, the device must wait for a user association success notification, and then manually disconnect from and reconnect to nRF Cloud.
 Notifications of user association success are sent for every subsequent connection after this as well, so the device must only disconnect and reconnect if it previously received a user association request notification.
 This behavior is handled by the ``NRF_CLOUD_EVT_USER_ASSOCIATION_REQUEST`` and ``NRF_CLOUD_EVT_USER_ASSOCIATED`` cases inside the :c:func:`cloud_event_handler` function in the :file:`src/connection.c` file.
@@ -95,7 +93,7 @@ The ``LTE_LC_EVT_NW_REG_STATUS`` case inside the :c:func:`lte_event_handler` fun
 Upon startup, the connection management loop also updates the `Device Shadow <nRF Cloud Device Shadows_>`_.
 This is performed in the :c:func:`update_shadow` function of the :file:`src/connection.c` file.
 
-.. _nrf_cloud_mqtt_multi_service_device_message_queue:
+.. _nrf_cloud_coap_multi_service_device_message_queue:
 
 Device message queue
 ====================
@@ -107,7 +105,7 @@ If more than :ref:`CONFIG_MAX_CONSECUTIVE_SEND_FAILURES <CONFIG_MAX_CONSECUTIVE_
 The transmission pauses again whenever connection to nRF Cloud is lost.
 Management of the device message queue is implemented entirely in the :file:`src/connection.c` file.
 
-.. _nrf_cloud_mqtt_multi_service_application_thread_and_main_application_loop:
+.. _nrf_cloud_coap_multi_service_application_thread_and_main_application_loop:
 
 Application thread and main application loop
 ============================================
@@ -118,18 +116,18 @@ It performs the following major tasks:
 * Establishes periodic position tracking (which the :ref:`lib_location` library performs).
 * Periodically samples temperature data (using the :file:`src/temperature.c` file).
 * Constructs timestamped sensor sample and location `device messages <nRF Cloud Device Messages_>`_.
-* Sends sensor sample and location device messages to the :ref:`nrf_cloud_mqtt_multi_service_device_message_queue`.
-* Checks for and executes :ref:`remote modem AT command requests <nrf_cloud_mqtt_multi_service_remote_at>`.
+* Sends sensor sample and location device messages to the :ref:`nrf_cloud_coap_multi_service_device_message_queue`.
+* Checks for and executes :ref:`remote modem AT command requests <nrf_cloud_coap_multi_service_remote_at>`.
 
 .. note::
    Periodic location tracking is handled by the :ref:`lib_location` library once it has been requested, whereas temperature samples are individually requested by the Main Application Loop.
 
-.. _nrf_cloud_mqtt_multi_service_fota:
+.. _nrf_cloud_coap_multi_service_fota:
 
 FOTA
 ====
 
-The `FOTA update <nRF Cloud Getting Started FOTA Documentation_>`_ support is almost entirely implemented by enabling the :kconfig:option:`CONFIG_NRF_CLOUD_FOTA` option (which is implicitly enabled by :kconfig:option:`CONFIG_NRF_CLOUD_MQTT`).
+The `FOTA update <nRF Cloud Getting Started FOTA Documentation_>`_ support is almost entirely implemented by enabling the :kconfig:option:`CONFIG_NRF_CLOUD_FOTA` option (which is implicitly enabled by :kconfig:option:`CONFIG_NRF_CLOUD_COAP`).
 
 However, even with :kconfig:option:`CONFIG_NRF_CLOUD_FOTA` enabled, applications must still reboot themselves manually after FOTA download completion, and must still update their `Device Shadow <nRF Cloud Device Shadows_>`_ to reflect FOTA support.
 
@@ -156,7 +154,7 @@ To enable this, add the following parameter to your build command:
 
 Then specify your development kit version as described earlier.
 
-.. _nrf_cloud_mqtt_multi_service_temperature_sensing:
+.. _nrf_cloud_coap_multi_service_temperature_sensing:
 
 Temperature sensing
 ===================
@@ -172,7 +170,7 @@ The required Kconfig options are implicitly enabled by :ref:`CONFIG_TEMP_DATA_US
   For temperature readings to be visible in the nRF Cloud portal, they must be marked as enabled in the `Device Shadow <nRF Cloud Device Shadows_>`_.
   This is performed by the :file:`src/connection.c` file.
 
-.. _nrf_cloud_mqtt_multi_service_location_tracking:
+.. _nrf_cloud_coap_multi_service_location_tracking:
 
 Location tracking
 =================
@@ -187,13 +185,13 @@ Each enabled location method is tried in the following order until one succeeds:
 
 The GNSS and cellular location tracking methods are enabled by default and will work on both Thingy:91 and nRF9160 DK targets.
 
-.. _nrf_cloud_mqtt_multi_service_wifi_location_tracking:
+.. _nrf_cloud_coap_multi_service_wifi_location_tracking:
 
 The Wi-Fi location tracking method is not enabled by default and requires the nRF7002 Wi-Fi companion chip.
 
 When enabled, this location method scans the MAC addresses of nearby access points and submits them to nRF Cloud to obtain a location estimate.
 
-See :ref:`nrf_cloud_mqtt_multi_service_building_wifi` for details on how to enable Wi-Fi location tracking.
+See :ref:`nrf_cloud_coap_multi_service_building_wifi` for details on how to enable Wi-Fi location tracking.
 
 This sample supports placing P-GPS data in external flash for the nRF9160 development kit version 0.14.0 and later.
 To enable this, add the following parameter to your build command:
@@ -205,36 +203,7 @@ For example, if your development kit version is 1.0.1, use the following board n
 
 ``nrf9160dk_nrf9160_ns@1_0_1``
 
-.. _nrf_cloud_mqtt_multi_service_remote_at:
-
-Remote execution of modem AT commands
-=====================================
-
-If the :ref:`CONFIG_AT_CMD_REQUESTS <CONFIG_AT_CMD_REQUESTS>` Kconfig option is enabled, you can remotely execute modem AT commands on your device by sending a device message with appId ``MODEM``, messageType ``CMD``, and the data key set to the command you would like to execute.
-
-The application executes the command stored in the data key, and responds with a device message containing either an error code or the response from the modem to the AT command.
-
-For example, if you send the following device message to a device running this sample with :ref:`CONFIG_AT_CMD_REQUESTS <CONFIG_AT_CMD_REQUESTS>` enabled:
-
-.. code-block:: json
-
-   {"appId":"MODEM", "messageType":"CMD", "data":"AT+CGMR"}
-
-It executes the modem AT command ``AT+CGMR`` and sends a device message similar to the following back to nRF Cloud:
-
-.. code-block:: json
-
-   {
-      "appId": "MODEM",
-      "messageType": "DATA",
-      "ts": 1669244834095,
-      "data": "mfw_nrf9160_1.3.2\r\nOK"
-   }
-
-
-To do this in the nRF Cloud portal, write `{"appId":"MODEM", "messageType":"CMD", "data":"AT+CGMR"}` into the **Send a message** box of the **Terminal** card and click :guilabel:`Send`.
-
-.. _nrf_cloud_mqtt_multi_service_led_status_indication:
+.. _nrf_cloud_coap_multi_service_led_status_indication:
 
 LED status indication
 =====================
@@ -269,36 +238,18 @@ Under all other circumstances, on-board LEDs are turned off.
 .. note::
   The :ref:`CONFIG_LED_VERBOSE_INDICATION <CONFIG_LED_VERBOSE_INDICATION>` and :ref:`CONFIG_LED_CONTINUOUS_INDICATION <CONFIG_LED_CONTINUOUS_INDICATION>` options are enabled by default.
 
-See :ref:`nrf_cloud_mqtt_multi_service_customizing_LED_status_indication` for details on customizing the LED behavior.
+See :ref:`nrf_cloud_coap_multi_service_customizing_LED_status_indication` for details on customizing the LED behavior.
 
-See :ref:`nrf_cloud_mqtt_multi_service_led_third_party` for details on configuring LED status indication on third-party boards.
+See :ref:`nrf_cloud_coap_multi_service_led_third_party` for details on configuring LED status indication on third-party boards.
 
-.. _nrf_cloud_mqtt_multi_service_test_counter:
-
-Test counter
-============
-
-You can enable a test counter by enabling the :ref:`CONFIG_TEST_COUNTER <CONFIG_TEST_COUNTER>` option.
-Every time a sensor sample is sent, this counter is incremented by one, and its current value is sent to `nRF Cloud`_.
-A plot of the value of the counter over time is automatically shown in the nRF Cloud portal.
-This plot is useful for tracking, visualizing, and debugging connection loss, resets, and re-establishment behavior.
-
-
-.. _nrf_cloud_mqtt_multi_service_device_message_formatting:
+.. _nrf_cloud_coap_multi_service_device_message_formatting:
 
 Device message formatting
 =========================
 
-This sample constructs JSON-based `device messages <nRF Cloud Device Messages_>`_.
+To be updated.
 
-While any valid JSON string can be sent as a device message, and accepted and stored by `nRF Cloud`_, there are some pre-designed message structures, known as schemas.
-The nRF Cloud portal knows how to interpret these schemas.
-These schemas are described in `nRF Cloud application protocols for long-range devices <nRF Cloud JSON protocol schemas_>`_.
-The device messages constructed in the :file:`src/application.c` file all adhere to the general message schema.
-
-GNSS and temperature data device messages conform to the ``gnss`` and ``temp`` ``deviceToCloud`` schemas respectively.
-
-.. _nrf_cloud_mqtt_multi_service_configuration:
+.. _nrf_cloud_coap_multi_service_configuration:
 
 Configuration
 *************
@@ -311,6 +262,7 @@ The following key features of this sample may be independently disabled:
 
 * GNSS-based location tracking - by setting the :ref:`CONFIG_LOCATION_TRACKING_GNSS <CONFIG_LOCATION_TRACKING_GNSS>` option to disabled.
 * Cellular-based location tracking - by setting the :ref:`CONFIG_LOCATION_TRACKING_CELLULAR <CONFIG_LOCATION_TRACKING_CELLULAR>` option to disabled.
+* Wi-Fi-based location tracking - by setting the :ref:`CONFIG_LOCATION_TRACKING_WIFI <CONFIG_LOCATION_TRACKING_CELLULAR>` option to disabled.
 * Temperature tracking - by setting the :ref:`CONFIG_TEMP_TRACKING <CONFIG_TEMP_TRACKING>` option to disabled.
 * GNSS assistance (A-GPS) - by setting the :kconfig:option:`CONFIG_NRF_CLOUD_AGPS` option to disabled.
 * Predictive GNSS assistance (P-GPS) - by setting the :kconfig:option:`CONFIG_NRF_CLOUD_PGPS` option to disabled.
@@ -318,8 +270,8 @@ The following key features of this sample may be independently disabled:
 If you disable both GNSS and cellular-based location tracking, location tracking is completely disabled.
 
 .. note::
-  MQTT should only be used with applications that need to stay connected constantly or transfer data frequently.
-  While this sample does allow its core features to be slowed or completely disabled, in real-world applications, you should carefully consider your data throughput and whether MQTT is an appropriate solution.
+  CoAP should only be used with applications that need to stay connected constantly or transfer data frequently.
+  While this sample does allow its core features to be slowed or completely disabled, in real-world applications, you should carefully consider your data throughput and whether CoAP is an appropriate solution.
   If you want to disable or excessively slow all of these features for a real-world application, other solutions, such as the `nRF Cloud Rest API`_, may be more appropriate.
 
 Customizing GNSS antenna configuration
@@ -331,7 +283,7 @@ If you are using a different board or build target, or would like to use a custo
 
 Enable :kconfig:option:`CONFIG_MODEM_ANTENNA_GNSS_EXTERNAL` to use an external antenna.
 
-.. _nrf_cloud_mqtt_multi_service_customizing_LED_status_indication:
+.. _nrf_cloud_coap_multi_service_customizing_LED_status_indication:
 
 Customizing LED status indication
 =================================
@@ -342,7 +294,7 @@ To turn the LED off while the sample is idle (rather than show an idle pattern),
 
 If you disable both of these options together, the status indicator LED remains off after a connection to nRF Cloud has been established at least once.
 
-.. _nrf_cloud_mqtt_multi_service_led_third_party:
+.. _nrf_cloud_coap_multi_service_led_third_party:
 
 Configuring LED status indication for third-party boards
 ========================================================
@@ -367,20 +319,20 @@ Search for nodes with ``compatible = "gpio-leds";`` and ``compatible = "pwm-leds
 Useful debugging options
 ========================
 
-To see all debug output for this sample, enable the :ref:`CONFIG_MQTT_MULTI_SERVICE_LOG_LEVEL_DBG <CONFIG_MQTT_MULTI_SERVICE_LOG_LEVEL_DBG>` option.
+To see all debug output for this sample, enable the :ref:`CONFIG_COAP_MULTI_SERVICE_LOG_LEVEL_DBG <CONFIG_COAP_MULTI_SERVICE_LOG_LEVEL_DBG>` option.
 
 To monitor the GNSS module (for instance, to see whether A-GPS or P-GPS assistance data is being consumed), enable the :kconfig:option:`CONFIG_NRF_CLOUD_GPS_LOG_LEVEL_DBG` option.
 
-See also the :ref:`nrf_cloud_mqtt_multi_service_test_counter`.
+See also the :ref:`nrf_cloud_coap_multi_service_test_counter`.
 
 Configuration options
 =====================
 
 Set the following configuration options for the sample:
 
-.. _CONFIG_MQTT_MULTI_SERVICE_LOG_LEVEL_DBG:
+.. _CONFIG_COAP_MULTI_SERVICE_LOG_LEVEL_DBG:
 
-CONFIG_MQTT_MULTI_SERVICE_LOG_LEVEL_DBG - Sample debug logging
+CONFIG_COAP_MULTI_SERVICE_LOG_LEVEL_DBG - Sample debug logging
    Sets the log level for this sample to debug.
 
 .. _CONFIG_POWER_SAVING_MODE_ENABLE:
@@ -461,12 +413,7 @@ CONFIG_SENSOR_SAMPLE_INTERVAL_SECONDS - Sensor sampling interval (seconds)
    In good conditions, and with A-GPS data, one minute is a reasonable interval for reliably getting a location estimate.
    This allows using long enough value for :ref:`CONFIG_GNSS_FIX_TIMEOUT_SECONDS <CONFIG_GNSS_FIX_TIMEOUT_SECONDS>`, while still leaving enough time for falling back to cellular positioning if needed.
 
-   The default sensor sampling interval, 60 seconds, will quickly consume cellular data, and should not be used in a production environment.
-   Instead, consider using a less frequent interval, and if necessary, combining multiple sensor samples into a single `device message <nRF Cloud Device Messages_>`_ , or combining multiple device messages using the `d2c/bulk device message topic <nRF Cloud MQTT Topics_>`_.
-
-   If you significantly increase the sampling interval, you must keep the :kconfig:option:`CONFIG_MQTT_KEEPALIVE` short to avoid the carrier silently closing the MQTT connection due to inactivity, which could result in dropped device messages.
-   The exact maximum value depends on your carrier.
-   In general, a few minutes or less should work well.
+   The default sensor sampling interval, 60 seconds, will quickly consume cellular data, and should not be used in a production environment unless required for a particular use case.
 
 .. _CONFIG_GNSS_FIX_TIMEOUT_SECONDS:
 
@@ -511,7 +458,6 @@ CONFIG_TEMP_DATA_USE_SENSOR - Use genuine temperature data
 CONFIG_TEMP_TRACKING - Track temperature data
    Enables tracking and reporting of temperature data to `nRF Cloud`_.
    Defaults to enabled.
-
 
 .. _CONFIG_LED_INDICATION_PWM:
 
@@ -561,33 +507,48 @@ CONFIG_LED_CONTINUOUS_INDICATION - Continuous LED status indication
 CONFIG_TEST_COUNTER - Enable test counter
    Enables the test counter.
 
-.. _CONFIG_AT_CMD_REQUESTS:
-
-CONFIG_AT_CMD_REQUESTS - Enable AT command requests
-   Allow remote execution of modem AT commands, requested using application-specific device messages.
-   See :ref:`nrf_cloud_mqtt_multi_service_remote_at` for details.
-
-.. _CONFIG_AT_CMD_REQUEST_RESPONSE_BUFFER_LENGTH:
-
-CONFIG_AT_CMD_REQUEST_RESPONSE_BUFFER_LENGTH - Length of AT command request response buffer (bytes)
-   Sets the size of the buffer for storing responses to modem AT commands before they are forwarded to the cloud.
-   Modem responses longer than this length will be replaced with an error code message (-NRF_E2BIG).
-   Cannot be less than 40 bytes.
-
 .. include:: /libraries/modem/nrf_modem_lib/nrf_modem_lib_trace.rst
    :start-after: modem_lib_sending_traces_UART_start
    :end-before: modem_lib_sending_traces_UART_end
 
-.. _nrf_cloud_mqtt_multi_service_building_and_running:
+.. _nrf_cloud_coap_multi_service_building_and_running:
 
 Building and running
 ********************
 
-.. |sample path| replace:: :file:`samples/cellular/nrf_cloud_mqtt_multi_service`
+.. |sample path| replace:: :file:`samples/cellular/nrf_cloud_coap_multi_service`
 
 .. include:: /includes/build_and_run_ns.txt
 
-.. _nrf_cloud_mqtt_multi_service_building_wifi:
+
+.. _nrf_cloud_coap_multi_service_provisioning:
+
+Provisioning device on nRF Cloud
+********************************
+
+For more information, see `nRF Cloud Utilities documentation`_.
+
+Only do the first step below once.
+
+  .. code-block:: console
+
+     python3 create_ca_cert.py -c US -st OR -l Portland -o "My Company" -ou "RD" -cn example.com -e admin@example.com -f CA
+     Creating self-signed CA certificate...
+     File created: CA0x3bc7f3b014a8ad492999c594f08bbc2fcffc5fd1_ca.pem
+     File created: CA0x3bc7f3b014a8ad492999c594f08bbc2fcffc5fd1_prv.pem
+     File created: CA0x3bc7f3b014a8ad492999c594f08bbc2fcffc5fd1_pub.pem
+
+     python3 device_credentials_installer.py --ca CA0x3bc7f3b014a8ad492999c594f08bbc2fcffc5fd1_ca.pem \
+     --ca_key CA0x3bc7f3b014a8ad492999c594f08bbc2fcffc5fd1_prv.pem --id_str nrf- --id_imei -s -d --coap
+     ...
+     <- OK
+     Saving provisioning endpoint CSV file provision.csv...
+     Provisioning CSV file saved
+
+Once the script creates the provision.csv file, visit http://nrfcloud.com/#/provision-devices to provision the device in nRF Cloud.
+This registers the device with nRF Cloud, so that the device can use any nRF Cloud services via CoAP, MQTT, or REST connectivity.
+
+.. _nrf_cloud_coap_multi_service_building_wifi:
 
 Building with nRF7002 EK Wi-Fi scanning support (for nRF9160 DK)
 ================================================================
@@ -604,25 +565,14 @@ For example:
 
 This is only supported on the `Nordic nRF9160 DK`_ with an attached nRF7002 EK.
 
-See also :ref:`the paragraphs on the Wi-Fi location tracking method <nrf_cloud_mqtt_multi_service_wifi_location_tracking>`.
+See also :ref:`the paragraphs on the Wi-Fi location tracking method <nrf_cloud_coap_multi_service_wifi_location_tracking>`.
 
-Building with nRF Cloud logging support
-=======================================
+.. _nrf_cloud_coap_multi_service_dependencies:
 
-To enable transmission of `logs <Zephyr Logging_>`_ to nRF Cloud using the :ref:`lib_nrf_cloud_log` library, add the following parameter to your build command:
+References
+**********
 
-``-DOVERLAY_CONFIG=overlay_nrfcloud_logging.conf``
-
-This overlay enables transmission of `logs <Zephyr Logging_>`_ to nRF Cloud.
-Set the :kconfig:option:`CONFIG_NRF_CLOUD_LOG_OUTPUT_LEVEL` Kconfig option to the log level of messages to send to nRF Cloud, such as ``4`` for debug log messages.
-
-The overlay selects the :kconfig:option:`CONFIG_LOG_BACKEND_NRF_CLOUD_OUTPUT_TEXT` Kconfig option that enables log messages in JSON format.
-You can read JSON log messages in real-time in the nRF Cloud user interface.
-However, because JSON logs are large, you may want to edit the overlay file to change to using dictionary logging.
-Deselect the :kconfig:option:`CONFIG_LOG_BACKEND_NRF_CLOUD_OUTPUT_TEXT` Kconfig option and select :kconfig:option:`CONFIG_LOG_BACKEND_NRF_CLOUD_OUTPUT_DICTIONARY` instead.
-See `Dictionary-based Logging`_ to learn how dictionary-based logging works, how the dictionary is built, and how to decode the binary log output.
-
-.. _nrf_cloud_mqtt_multi_service_dependencies:
+`RFC 7252 - The Constrained Application Protocol`_
 
 Dependencies
 ************
@@ -634,11 +584,15 @@ This sample uses the following |NCS| libraries and drivers:
 * :ref:`lib_at_host`
 * :ref:`lte_lc_readme`
 * :ref:`lib_nrf_cloud_alert`
-* :ref:`lib_nrf_cloud_log`
 
 It uses the following `sdk-nrfxlib`_ library:
 
 * :ref:`nrfxlib:nrf_modem`
+
+It uses the following Zephyr libraries:
+
+* :ref:`CoAP <zephyr:networking_api>`
+* :ref:`CoAP Client <zephyr:coap_client_interface>`
 
 In addition, it uses the following secure firmware component:
 
