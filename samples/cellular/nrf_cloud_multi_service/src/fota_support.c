@@ -7,18 +7,24 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/reboot.h>
 #include <zephyr/logging/log_ctrl.h>
+#include <modem/lte_lc.h>
 #include <net/nrf_cloud.h>
 
 #include "fota_support.h"
 
-LOG_MODULE_REGISTER(fota_support, CONFIG_MQTT_MULTI_SERVICE_LOG_LEVEL);
+LOG_MODULE_REGISTER(fota_support, CONFIG_MULTI_SERVICE_LOG_LEVEL);
 
 /* Called from nRF Cloud event handler in connection.c */
-void on_fota_downloaded(void)
+void fota_reboot(const unsigned int delay_s, const bool error)
 {
-	/* Reboot on successful FOTA download. (Thus, enabling the new firmware!) */
-	LOG_WRN("Rebooting...");
+	LOG_INF("Rebooting in %us%s", delay_s, error ? " due to error" : "...");
+
+	if (error) {
+		(void)lte_lc_deinit();
+	}
+
 	LOG_PANIC();
+	k_sleep(K_SECONDS(delay_s));
 	sys_reboot(SYS_REBOOT_COLD);
 }
 

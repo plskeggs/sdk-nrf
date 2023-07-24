@@ -16,7 +16,7 @@
  * after FOTA download completes.
  *
  */
-void on_fota_downloaded(void);
+void fota_reboot(const unsigned int delay_s, const bool error);
 
 /**
  * @brief Get the external flash device used for full modem FOTA updates.
