@@ -287,7 +287,7 @@ Cellular samples (renamed from nRF9160 samples)
 
 * Added the :ref:`battery` sample to show how to use the :ref:`modem_battery_readme` library.
 
-* :ref:`nrf_cloud_mqtt_multi_service` sample:
+* :ref:`nrf_cloud_multi_service` sample:
 
   * Added documentation for using the :ref:`lib_nrf_cloud_alert` and :ref:`lib_nrf_cloud_log` libraries.
   * Changed the :file:`overlay_nrfcloud_logging.conf` file to enable JSON logs by default.
