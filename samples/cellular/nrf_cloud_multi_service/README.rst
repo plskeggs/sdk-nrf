@@ -318,8 +318,10 @@ The following key features of this sample may be independently disabled:
 * Temperature tracking - by setting the :ref:`CONFIG_TEMP_TRACKING <CONFIG_TEMP_TRACKING>` option to disabled.
 * GNSS assistance (A-GPS) - by setting the :kconfig:option:`CONFIG_NRF_CLOUD_AGPS` option to disabled.
 * Predictive GNSS assistance (P-GPS) - by setting the :kconfig:option:`CONFIG_NRF_CLOUD_PGPS` option to disabled.
+* FOTA when using MQTT - by setting the :kconfig:option:`CONFIG_NRF_CLOUD_FOTA` option to disabled.
+* FOTA when using CoAP - by setting the :kconfig:option:`NRF_CLOUD_COAP_FOTA` option to disabled.
 
-If you disable both GNSS and cellular-based location tracking, location tracking is completely disabled.
+If you disable GNSS, Wi-Fi-based, and cellular-based location tracking, location tracking is completely disabled.
 
 .. note::
   MQTT should only be used with applications that need to stay connected constantly or transfer data frequently.

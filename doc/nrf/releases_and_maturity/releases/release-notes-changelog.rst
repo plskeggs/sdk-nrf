@@ -289,6 +289,7 @@ Cellular samples (renamed from nRF9160 samples)
 
 * :ref:`nrf_cloud_multi_service` sample:
 
+  * Renamed Cellular: nRF Cloud MQTT multi-service to Cellular: nRF Cloud multi-service.
   * Added documentation for using the :ref:`lib_nrf_cloud_alert` and :ref:`lib_nrf_cloud_log` libraries.
   * Changed the :file:`overlay_nrfcloud_logging.conf` file to enable JSON logs by default.
   * The :c:struct:`nrf_cloud_obj` structure and associated functions are now used to encode and decode nRF Cloud data.
