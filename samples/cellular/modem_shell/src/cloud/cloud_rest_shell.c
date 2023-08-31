@@ -8,6 +8,7 @@
 #include <zephyr/kernel.h>
 
 #include <net/nrf_cloud.h>
+#include <net/nrf_cloud_codec.h>
 #include <net/nrf_cloud_rest.h>
 
 #include <zephyr/shell/shell.h>
@@ -72,16 +73,6 @@ static int cmd_cloud_rest_shadow_device_status_update(const struct shell *shell,
 	struct nrf_cloud_svc_info service_info = {
 		.ui = &ui_info
 	};
-	struct nrf_cloud_modem_info modem_info = {
-		.device = NRF_CLOUD_INFO_SET,
-		.network = NRF_CLOUD_INFO_SET,
-		.sim = NRF_CLOUD_INFO_SET,
-		.mpi = NULL
-	};
-	struct nrf_cloud_device_status device_status = {
-		.modem = &modem_info,
-		.svc = &service_info
-	};
 	char device_id[NRF_CLOUD_CLIENT_ID_MAX_LEN + 1];
 #define REST_RX_BUF_SZ 300 /* No payload in response, "just" headers */
 	static char rx_buf[REST_RX_BUF_SZ];
@@ -92,13 +83,15 @@ static int cmd_cloud_rest_shadow_device_status_update(const struct shell *shell,
 						   .timeout_ms = NRF_CLOUD_REST_TIMEOUT_NONE,
 						   .fragment_size = 0 };
 
+	nrf_cloud_set_app_version("Modem Shell");
+
 	err = nrf_cloud_client_id_get(device_id, sizeof(device_id));
 	if (err) {
 		mosh_error("Failed to get device ID, error: %d", err);
 		return err;
 	}
 
-	err = nrf_cloud_rest_shadow_device_status_update(&rest_ctx, device_id, &device_status);
+	err = nrf_cloud_rest_shadow_device_status_update(&rest_ctx, device_id, &service_info);
 	if (err) {
 		mosh_error("REST: shadow update failed: %d", err);
 		return err;

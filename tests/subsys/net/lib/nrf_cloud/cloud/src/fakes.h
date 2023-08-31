@@ -34,7 +34,7 @@ FAKE_VALUE_FUNC(int, nct_dc_send, const struct nct_dc_data *);
 FAKE_VALUE_FUNC(int, nct_dc_stream, const struct nct_dc_data *);
 FAKE_VALUE_FUNC(int, nct_dc_bulk_send, const struct nct_dc_data *, enum mqtt_qos);
 FAKE_VALUE_FUNC(int, nrf_cloud_shadow_dev_status_encode,
-				const struct nrf_cloud_device_status *,
+				const struct nrf_cloud_svc_info * const,
 				struct nrf_cloud_data *, const bool, const bool);
 FAKE_VALUE_FUNC(int, nct_dc_bin_send, const struct nct_dc_data *, enum mqtt_qos);
 FAKE_VOID_FUNC(nrf_cloud_device_status_free, struct nrf_cloud_data *);
@@ -249,11 +249,11 @@ int fake_nct_dc_bulk_send__fails(const struct nct_dc_data *data, enum mqtt_qos q
 }
 
 int fake_device_status_shadow_encode__succeeds(
-	const struct nrf_cloud_device_status * const dev_status,
+	const struct nrf_cloud_svc_info * const svc_info,
 	struct nrf_cloud_data * const output,
 	const bool include_state, const bool include_reported)
 {
-	ARG_UNUSED(dev_status);
+	ARG_UNUSED(svc_info);
 	ARG_UNUSED(output);
 	ARG_UNUSED(include_state);
 	ARG_UNUSED(include_reported);
@@ -261,11 +261,11 @@ int fake_device_status_shadow_encode__succeeds(
 }
 
 int fake_device_status_shadow_encode__fails(
-	const struct nrf_cloud_device_status * const dev_status,
+	const struct nrf_cloud_svc_info * const svc_info,
 	struct nrf_cloud_data * const output,
 	const bool include_state, const bool include_reported)
 {
-	ARG_UNUSED(dev_status);
+	ARG_UNUSED(svc_info);
 	ARG_UNUSED(output);
 	ARG_UNUSED(include_state);
 	ARG_UNUSED(include_reported);

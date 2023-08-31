@@ -747,12 +747,6 @@ ZTEST(nrf_cloud_test, test_disconnect_success)
  */
 ZTEST(nrf_cloud_test, test_shadow_device_status_update_not_dc_connected)
 {
-	/* Data for shadow device status update */
-	struct nrf_cloud_device_status dev_status = {
-		.modem = NULL,
-		.svc = NULL
-	};
-
 	/* Custom fakes for nrf_cloud_send */
 	nct_cc_send_fake.custom_fake = fake_nct_cc_send__succeeds;
 	nct_dc_stream_fake.custom_fake = fake_nct_dc_stream__succeeds;
@@ -767,19 +761,19 @@ ZTEST(nrf_cloud_test, test_shadow_device_status_update_not_dc_connected)
 	zassert_equal(STATE_IDLE, nfsm_get_current_state(),
 		"nrf_cloud lib should be in the idle state (uninitialized) at the start of test");
 
-	int ret = nrf_cloud_shadow_device_status_update(&dev_status);
+	int ret = nrf_cloud_shadow_device_status_update(NULL);
 
 	zassert_equal(-EACCES, ret, "return should be -EACCES when not in dc_connected state");
 
 	/* Cloud is initialized */
 	init_cloud_success();
 
-	ret = nrf_cloud_shadow_device_status_update(&dev_status);
+	ret = nrf_cloud_shadow_device_status_update(NULL);
 	zassert_equal(-EACCES, ret, "return should be -EACCES when not in dc_connected state");
 
 	/* Cloud is connected */
 	connect_cloud_success();
-	ret = nrf_cloud_shadow_device_status_update(&dev_status);
+	ret = nrf_cloud_shadow_device_status_update(NULL);
 	zassert_equal(-EACCES, ret, "return should be -EACCES when not in dc_connected state");
 }
 
@@ -788,12 +782,6 @@ ZTEST(nrf_cloud_test, test_shadow_device_status_update_not_dc_connected)
  */
 ZTEST(nrf_cloud_test, test_shadow_device_status_update_status_encode_failed)
 {
-	/* Data for shadow device status update */
-	struct nrf_cloud_device_status dev_status = {
-		.modem = NULL,
-		.svc = NULL
-	};
-
 	/* Custom fakes for nrf_cloud_send */
 	nct_cc_send_fake.custom_fake = fake_nct_cc_send__succeeds;
 	nct_dc_stream_fake.custom_fake = fake_nct_dc_stream__succeeds;
@@ -813,7 +801,7 @@ ZTEST(nrf_cloud_test, test_shadow_device_status_update_status_encode_failed)
 	/* Connect to the cloud with dc_connect */
 	connect_cloud_dc_success();
 
-	int ret = nrf_cloud_shadow_device_status_update(&dev_status);
+	int ret = nrf_cloud_shadow_device_status_update(NULL);
 
 	zassert_not_equal(0, ret, "return should not be 0 when status encoding fails");
 }
@@ -823,12 +811,6 @@ ZTEST(nrf_cloud_test, test_shadow_device_status_update_status_encode_failed)
  */
 ZTEST(nrf_cloud_test, test_shadow_device_status_update_cloud_send_failed)
 {
-	/* Data for shadow device status update */
-	struct nrf_cloud_device_status dev_status = {
-		.modem = NULL,
-		.svc = NULL
-	};
-
 	/* Custom fakes for nrf_cloud_send */
 	nct_cc_send_fake.custom_fake = fake_nct_cc_send__fails;
 	nct_dc_stream_fake.custom_fake = fake_nct_dc_stream__succeeds;
@@ -848,7 +830,7 @@ ZTEST(nrf_cloud_test, test_shadow_device_status_update_cloud_send_failed)
 	/* Connect to the cloud with dc_connect */
 	connect_cloud_dc_success();
 
-	int ret = nrf_cloud_shadow_device_status_update(&dev_status);
+	int ret = nrf_cloud_shadow_device_status_update(NULL);
 
 	zassert_not_equal(0, ret, "return should not be 0 when cloud send fails");
 }
@@ -858,12 +840,6 @@ ZTEST(nrf_cloud_test, test_shadow_device_status_update_cloud_send_failed)
  */
 ZTEST(nrf_cloud_test, test_shadow_device_status_update_success)
 {
-	/* Data for shadow device status update */
-	struct nrf_cloud_device_status dev_status = {
-		.modem = NULL,
-		.svc = NULL
-	};
-
 	/* Custom fakes for nrf_cloud_send */
 	nct_cc_send_fake.custom_fake = fake_nct_cc_send__succeeds;
 	nct_dc_stream_fake.custom_fake = fake_nct_dc_stream__succeeds;
@@ -883,7 +859,7 @@ ZTEST(nrf_cloud_test, test_shadow_device_status_update_success)
 	/* Connect to the cloud with dc_connect */
 	connect_cloud_dc_success();
 
-	int ret = nrf_cloud_shadow_device_status_update(&dev_status);
+	int ret = nrf_cloud_shadow_device_status_update(NULL);
 
 	zassert_ok(ret, "return should be 0 when success");
 }

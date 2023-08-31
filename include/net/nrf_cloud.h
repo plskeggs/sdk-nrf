@@ -723,13 +723,17 @@ int nrf_cloud_sensor_data_send(const struct nrf_cloud_sensor_data *param);
 /**
  * @brief Update the device status in the shadow.
  *
- * @param[in] dev_status Device status to be encoded.
+ * The information that is encoded is specified by CONFIG_NRF_CLOUD_SEND_DEVICE_STATUS
+ * and CONFIG_MODEM_INFO and related configs, in addition to the information passed
+ * in svc_inf, if any.
+ *
+ * @param[in] svc_inf Service info; may be NULL.
  *
  * @retval 0       If successful.
  * @retval -EACCES Cloud connection is not established; wait for @ref NRF_CLOUD_EVT_READY.
  * @return A negative value indicates an error.
  */
-int nrf_cloud_shadow_device_status_update(const struct nrf_cloud_device_status * const dev_status);
+int nrf_cloud_shadow_device_status_update(const struct nrf_cloud_svc_info * const svc_inf);
 
 /**
  * @brief Stream sensor data. Uses lowest QoS; no acknowledgment,

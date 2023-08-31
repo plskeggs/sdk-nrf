@@ -139,13 +139,8 @@ static int send_service_info(void)
 		.fota = &fota_info,
 		.ui = &ui_info
 	};
-	struct nrf_cloud_device_status device_status = {
-		.modem = NULL,
-		.svc = &service_info
 
-	};
-
-	err = nrf_cloud_shadow_device_status_update(&device_status);
+	err = nrf_cloud_shadow_device_status_update(&service_info);
 	if (err) {
 		LOG_ERR("nrf_cloud_shadow_device_status_update, error: %d", err);
 		return err;

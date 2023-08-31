@@ -28,7 +28,6 @@
 LOG_MODULE_REGISTER(nrf_cloud_codec_internal, CONFIG_NRF_CLOUD_LOG_LEVEL);
 
 bool initialized;
-static const char *application_version;
 
 #if defined(CONFIG_MODEM_INFO)
 static struct modem_param_info modem_inf;
@@ -40,6 +39,8 @@ static int init_modem_info(void);
 static gateway_state_handler_t gateway_state_handler;
 #endif
 static int shadow_connection_info_update(cJSON * device_obj);
+static int device_status_encode(cJSON * const reported_obj,
+				const struct nrf_cloud_svc_info * const svc_inf);
 
 static const char *const sensor_type_str[] = {
 	[NRF_CLOUD_SENSOR_GNSS] = NRF_CLOUD_JSON_APPID_VAL_GNSS,
@@ -155,11 +156,6 @@ int json_add_bool_cs(cJSON *parent, const char *str, bool item)
 	}
 
 	return cJSON_AddBoolToObjectCS(parent, str, item) ? 0 : -ENOMEM;
-}
-
-void nrf_cloud_set_app_version(const char * const app_ver)
-{
-	application_version = app_ver;
 }
 
 static int json_add_num_cs(cJSON *parent, const char *str, double item)
@@ -286,6 +282,34 @@ static int info_encode(cJSON * const root_obj, const struct nrf_cloud_modem_info
 	}
 
 	return ret;
+}
+
+static int device_status_encode(cJSON * const reported_obj,
+				const struct nrf_cloud_svc_info * const svc_inf)
+{
+	enum nrf_cloud_shadow_info conn_inf;
+	struct nrf_cloud_modem_info mdm_inf = {
+		.application_version = nrf_cloud_get_app_version()
+	};
+	cJSON *device_obj = cJSON_AddObjectToObjectCS(reported_obj, NRF_CLOUD_JSON_KEY_DEVICE);
+
+	if (!device_obj) {
+		return -ENOMEM;
+	}
+
+	mdm_inf.device = IS_ENABLED(CONFIG_NRF_CLOUD_SEND_DEVICE_STATUS) ?
+					NRF_CLOUD_INFO_SET : NRF_CLOUD_INFO_CLEAR;
+
+	mdm_inf.network = IS_ENABLED(CONFIG_NRF_CLOUD_SEND_DEVICE_STATUS_NETWORK) ?
+					NRF_CLOUD_INFO_SET : NRF_CLOUD_INFO_CLEAR;
+
+	mdm_inf.sim = IS_ENABLED(CONFIG_NRF_CLOUD_SEND_DEVICE_STATUS_SIM) ?
+					NRF_CLOUD_INFO_SET : NRF_CLOUD_INFO_CLEAR;
+
+	conn_inf = IS_ENABLED(CONFIG_NRF_CLOUD_SEND_DEVICE_STATUS_CONN_INF) ?
+					NRF_CLOUD_INFO_SET : NRF_CLOUD_INFO_CLEAR;
+
+	return info_encode(device_obj, &mdm_inf, svc_inf, conn_inf);
 }
 
 #if defined(CONFIG_NRF_CLOUD_MQTT)
@@ -676,31 +700,6 @@ end:
 	return err;
 }
 
-static int device_status_encode(cJSON * const reported_obj)
-{
-	enum nrf_cloud_shadow_info conn_inf;
-	struct nrf_cloud_modem_info mdm_inf = {
-		.device = NRF_CLOUD_INFO_SET,
-		.application_version = application_version
-	};
-	cJSON *device_obj = cJSON_AddObjectToObjectCS(reported_obj, NRF_CLOUD_JSON_KEY_DEVICE);
-
-	if (!device_obj) {
-		return -ENOMEM;
-	}
-
-	mdm_inf.network = IS_ENABLED(CONFIG_NRF_CLOUD_SEND_DEVICE_STATUS_NETWORK) ?
-					NRF_CLOUD_INFO_SET : NRF_CLOUD_INFO_CLEAR;
-
-	mdm_inf.sim = IS_ENABLED(CONFIG_NRF_CLOUD_SEND_DEVICE_STATUS_SIM) ?
-					NRF_CLOUD_INFO_SET : NRF_CLOUD_INFO_CLEAR;
-
-	conn_inf = IS_ENABLED(CONFIG_NRF_CLOUD_SEND_DEVICE_STATUS_CONN_INF) ?
-					NRF_CLOUD_INFO_SET : NRF_CLOUD_INFO_CLEAR;
-
-	return info_encode(device_obj, &mdm_inf, NULL, conn_inf);
-}
-
 int nrf_cloud_state_encode(uint32_t reported_state, const bool update_desired_topic,
 			   const bool add_dev_status, struct nrf_cloud_data *output)
 {
@@ -776,7 +775,7 @@ int nrf_cloud_state_encode(uint32_t reported_state, const bool update_desired_to
 		}
 
 		if (add_dev_status) {
-			ret += device_status_encode(reported_obj);
+			ret += device_status_encode(reported_obj, NULL);
 		}
 
 		if (ret != 0) {
@@ -1723,10 +1722,10 @@ void nrf_cloud_device_status_free(struct nrf_cloud_data *status)
 	}
 }
 
-int nrf_cloud_shadow_dev_status_encode(const struct nrf_cloud_device_status *const dev_status,
+int nrf_cloud_shadow_dev_status_encode(const struct nrf_cloud_svc_info * const svc_inf,
 	struct nrf_cloud_data * const output, const bool include_state, const bool include_reported)
 {
-	if (!dev_status || !output || (include_state && !include_reported)) {
+	if (!output || (include_state && !include_reported)) {
 		return -EINVAL;
 	}
 
@@ -1744,14 +1743,7 @@ int nrf_cloud_shadow_dev_status_encode(const struct nrf_cloud_device_status *con
 		parent_obj = cJSON_AddObjectToObjectCS(root_obj, NRF_CLOUD_JSON_KEY_REP);
 	}
 
-	cJSON *device_obj = cJSON_AddObjectToObjectCS(parent_obj, NRF_CLOUD_JSON_KEY_DEVICE);
-
-	if (device_obj == NULL) {
-		err = -ENOMEM;
-		goto cleanup;
-	}
-
-	err = info_encode(device_obj, dev_status->modem, dev_status->svc, dev_status->conn_inf);
+	err = device_status_encode(parent_obj, svc_inf);
 	if (err) {
 		goto cleanup;
 	}

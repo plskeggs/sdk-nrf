@@ -10,6 +10,7 @@
 #include <modem/modem_info.h>
 #include <zephyr/settings/settings.h>
 #include <net/nrf_cloud.h>
+#include <net/nrf_cloud_codec.h>
 #include <net/nrf_cloud_rest.h>
 #include <net/nrf_cloud_log.h>
 #include <net/nrf_cloud_alert.h>
@@ -171,6 +172,21 @@ static void send_message_on_button(void)
 				      "Button pressed %u times", ++count);
 }
 
+static void send_device_status(void)
+{
+	int err;
+
+	nrf_cloud_set_app_version(CONFIG_REST_DEVICE_MESSAGE_SAMPLE_VERSION);
+
+	LOG_INF("Sending device status...");
+	err = nrf_cloud_rest_shadow_device_status_update(&rest_ctx, device_id, NULL);
+	if (err) {
+		LOG_ERR("Failed to send device status; error: %d", err);
+	} else {
+		LOG_INF("Updated device shadow");
+	}
+}
+
 static int do_jitp(void)
 {
 	int ret = 0;
@@ -303,6 +319,8 @@ static int setup_connection(void)
 			return err;
 		}
 	}
+
+	send_device_status();
 
 	return 0;
 }

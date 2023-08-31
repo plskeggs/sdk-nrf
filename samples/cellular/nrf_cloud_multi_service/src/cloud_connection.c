@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <date_time.h>
 #include <net/nrf_cloud.h>
+#include <net/nrf_cloud_codec.h>
 #include <net/nrf_cloud_log.h>
 #if defined(CONFIG_NRF_CLOUD_COAP)
 #include <net/nrf_cloud_coap.h>
@@ -223,33 +224,17 @@ static void update_shadow(void)
 		.fota = &fota_info,
 		.ui = &ui_info
 	};
-#if defined(CONFIG_NRF_MODEM)
-	struct nrf_cloud_modem_info modem_info = {
-		.device = NRF_CLOUD_INFO_SET,
-		.network = NRF_CLOUD_INFO_SET,
-		.sim = IS_ENABLED(CONFIG_MODEM_INFO_ADD_SIM) ? NRF_CLOUD_INFO_SET : 0,
-		.mpi = NULL,
-		/* Include the application version */
-		.application_version = CONFIG_APP_VERSION
-	};
-	struct nrf_cloud_modem_info *mdm = &modem_info;
-#else
-	struct nrf_cloud_modem_info *mdm = NULL;
-#endif
-	struct nrf_cloud_device_status device_status = {
-		.modem = mdm,
-		.svc = &service_info,
-		.conn_inf = NRF_CLOUD_INFO_SET
-	};
 
 	if (updated) {
 		return; /* It is not necessary to do this more than once per boot. */
 	}
+	nrf_cloud_set_app_version(CONFIG_APP_VERSION);
+
 	LOG_DBG("Updating shadow");
 #if defined(CONFIG_NRF_CLOUD_MQTT)
-	err = nrf_cloud_shadow_device_status_update(&device_status);
+	err = nrf_cloud_shadow_device_status_update(&service_info);
 #elif defined(CONFIG_NRF_CLOUD_COAP)
-	err = nrf_cloud_coap_shadow_device_status_update(&device_status);
+	err = nrf_cloud_coap_shadow_device_status_update(&service_info);
 #endif
 
 	if (err) {

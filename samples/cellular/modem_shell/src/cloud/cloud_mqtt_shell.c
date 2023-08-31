@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <zephyr/kernel.h>
 #include <net/nrf_cloud.h>
+#include <net/nrf_cloud_codec.h>
 #include <nrf_cloud_fsm.h>
 #include <zephyr/shell/shell.h>
 #include "mosh_print.h"
@@ -124,19 +125,11 @@ static void shadow_update_work_fn(struct k_work *work)
 	struct nrf_cloud_svc_info service_info = {
 		.ui = &ui_info
 	};
-	struct nrf_cloud_modem_info modem_info = {
-		.device = NRF_CLOUD_INFO_SET,
-		.network = NRF_CLOUD_INFO_SET,
-		.sim = NRF_CLOUD_INFO_SET,
-		.mpi = NULL /* Modem data will be fetched */
-	};
-	struct nrf_cloud_device_status device_status = {
-		.modem = &modem_info,
-		.svc = &service_info
-	};
+
+	nrf_cloud_set_app_version("Modem Shell");
 
 	ARG_UNUSED(work);
-	err = nrf_cloud_shadow_device_status_update(&device_status);
+	err = nrf_cloud_shadow_device_status_update(&service_info);
 	if (err) {
 		mosh_error("Failed to update device shadow, error: %d", err);
 	}

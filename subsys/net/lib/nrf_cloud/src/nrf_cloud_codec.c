@@ -15,6 +15,19 @@
 
 LOG_MODULE_REGISTER(nrf_cloud_codec, CONFIG_NRF_CLOUD_LOG_LEVEL);
 
+/* Pointer to string containing the application name and version. */
+static const char *application_version;
+
+void nrf_cloud_set_app_version(const char * const app_ver)
+{
+	application_version = app_ver;
+}
+
+const char *nrf_cloud_get_app_version(void)
+{
+	return application_version;
+}
+
 static int json_decode(struct nrf_cloud_obj *const obj, const struct nrf_cloud_data *const input)
 {
 	cJSON *json = NULL;

@@ -257,23 +257,16 @@ int nrf_cloud_coap_shadow_state_update(const char * const shadow_json);
 /**
  * @brief Update the device status in the shadow.
  *
- * @param[in]     dev_status Device status to be encoded.
+ * The information that is encoded is specified by CONFIG_NRF_CLOUD_SEND_DEVICE_STATUS
+ * and CONFIG_MODEM_INFO and related configs, in addition to the information passed
+ * in svc_inf, if any.
+ *
+ * @param[in]     svc_inf Service info. May be NULL.
  *
  * @return 0 if the request succeeded, a positive value indicating a CoAP result code,
  * or a negative error number.
  */
-int nrf_cloud_coap_shadow_device_status_update(const struct nrf_cloud_device_status
-					       *const dev_status);
-
-/**
- * @brief Update the device's "serviceInfo" in the shadow.
- *
- * @param[in]     svc_inf Service info items to be updated in the shadow.
- *
- * @return 0 if the request succeeded, a positive value indicating a CoAP result code,
- * or a negative error number.
- */
-int nrf_cloud_coap_shadow_service_info_update(const struct nrf_cloud_svc_info * const svc_inf);
+int nrf_cloud_coap_shadow_device_status_update(const struct nrf_cloud_svc_info * const svc_inf);
 
 /**
  * @brief Send an nRF Cloud object

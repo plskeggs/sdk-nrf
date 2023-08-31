@@ -268,7 +268,7 @@ int nrf_cloud_disconnect(void)
 	return nct_disconnect();
 }
 
-int nrf_cloud_shadow_device_status_update(const struct nrf_cloud_device_status *const dev_status)
+int nrf_cloud_shadow_device_status_update(const struct nrf_cloud_svc_info * const svc_inf)
 {
 	int err = 0;
 	struct nrf_cloud_tx_data tx_data = {
@@ -280,7 +280,7 @@ int nrf_cloud_shadow_device_status_update(const struct nrf_cloud_device_status *
 		return -EACCES;
 	}
 
-	err = nrf_cloud_shadow_dev_status_encode(dev_status, &tx_data.data, true, true);
+	err = nrf_cloud_shadow_dev_status_encode(svc_inf, &tx_data.data, true, true);
 	if (err) {
 		return err;
 	}

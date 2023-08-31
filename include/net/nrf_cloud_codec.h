@@ -645,6 +645,25 @@ int nrf_cloud_error_msg_decode(const char * const buf,
 			       const char * const msg_type,
 			       enum nrf_cloud_error * const err);
 
+/** @brief Set the application version.
+ *
+ *  This version string is reported to nRF Cloud if CONFIG_NRF_CLOUD_SEND_DEVICE_STATUS is enabled.
+ *  Typically this string includes the name of the application. The string should be stored in
+ *  memory that is not reused.
+ *
+ *  @param[in] app_ver A version string.
+ */
+void nrf_cloud_set_app_version(const char *const app_ver);
+
+/** @brief Get the previously set application version.
+ *
+ *  This version string is reported to nRF Cloud if CONFIG_NRF_CLOUD_SEND_DEVICE_STATUS is enabled.
+ *  Typically this string includes the name of the application.
+ *
+ *  @return Pointer to a version string.
+ */
+const char *nrf_cloud_get_app_version(void);
+
 /** @} */
 
 #ifdef __cplusplus

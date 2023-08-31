@@ -142,8 +142,8 @@ int nrf_cloud_shadow_control_response_encode(struct nrf_cloud_ctrl_data const *c
  * neither the "state" nor the "reported" keys should be included.
  * The user is responsible for freeing the memory by calling @ref nrf_cloud_device_status_free.
  */
-int nrf_cloud_shadow_dev_status_encode(const struct nrf_cloud_device_status *const dev_status,
-				       struct nrf_cloud_data *const output,
+int nrf_cloud_shadow_dev_status_encode(const struct nrf_cloud_svc_info * const svc_inf,
+				       struct nrf_cloud_data * const output,
 				       const bool include_state, const bool include_reported);
 
 /** @brief Encode the device status data as an nRF Cloud device message in the provided
@@ -298,11 +298,6 @@ bool nrf_cloud_set_wildcard_c2d_topic(char *const topic, size_t topic_len);
 
 /** @brief Decode a dc receive topic string into an enum value */
 enum nrf_cloud_rcv_topic nrf_cloud_dc_rx_topic_decode(const char *const topic);
-
-/** @brief Set the application version that is reported to nRF Cloud if
- * CONFIG_NRF_CLOUD_SEND_DEVICE_STATUS is enabled.
- */
-void nrf_cloud_set_app_version(const char *const app_ver);
 
 /** @brief Encode the data payload of an nRF Cloud A-GPS request into the provided object */
 int nrf_cloud_agps_req_data_json_encode(const enum nrf_cloud_agps_type *const types,

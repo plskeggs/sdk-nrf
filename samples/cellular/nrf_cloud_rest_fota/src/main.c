@@ -10,6 +10,7 @@
 #include <modem/modem_info.h>
 #include <zephyr/settings/settings.h>
 #include <net/nrf_cloud.h>
+#include <net/nrf_cloud_codec.h>
 #include <net/nrf_cloud_rest.h>
 #include <zephyr/sys/reboot.h>
 #include <zephyr/logging/log.h>
@@ -355,22 +356,7 @@ static void send_device_status(void)
 		.ui = NULL
 	};
 
-	struct nrf_cloud_modem_info mdm_inf = {
-		/* Include all available modem info */
-		.device = NRF_CLOUD_INFO_SET,
-		.network = NRF_CLOUD_INFO_SET,
-		.sim = NRF_CLOUD_INFO_SET,
-		/* Use the modem info already obtained */
-		.mpi = &mdm_param,
-		/* Include the application version */
-		.application_version = CONFIG_REST_FOTA_SAMPLE_VERSION
-	};
-
-	struct nrf_cloud_device_status dev_status = {
-		.modem = &mdm_inf,
-		.svc = &svc_inf,
-		.conn_inf = NRF_CLOUD_INFO_SET
-	};
+	nrf_cloud_set_app_version(CONFIG_REST_FOTA_SAMPLE_VERSION);
 
 	err = generate_jwt();
 	if (err) {
@@ -379,7 +365,7 @@ static void send_device_status(void)
 	}
 
 	LOG_INF("Sending device status...");
-	err = nrf_cloud_rest_shadow_device_status_update(&rest_ctx, device_id, &dev_status);
+	err = nrf_cloud_rest_shadow_device_status_update(&rest_ctx, device_id, &svc_inf);
 	if (err) {
 		LOG_ERR("Failed to send device status, FOTA not enabled; error: %d", err);
 	} else {
