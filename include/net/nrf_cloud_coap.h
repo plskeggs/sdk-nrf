@@ -277,6 +277,8 @@ int nrf_cloud_coap_shadow_device_status_update(const struct nrf_cloud_device_sta
  */
 int nrf_cloud_coap_shadow_service_info_update(const struct nrf_cloud_svc_info * const svc_inf);
 
+int nrf_cloud_coap_shadow_process(const struct nrf_cloud_data *in_data);
+
 /**
  * @brief Send an nRF Cloud object
  *

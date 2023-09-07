@@ -132,6 +132,22 @@ int nrf_cloud_shadow_control_decode(struct nrf_cloud_data const *const input,
 int nrf_cloud_shadow_control_response_encode(struct nrf_cloud_ctrl_data const *const data,
 					     struct nrf_cloud_data *const output);
 
+/** @brief Parse shadow delta for config section. If needed, generate output
+ * JSON to send back to cloud to confirm change. Set *config_found if it did exist on
+ * input, regardless of whether we need to send anything back.
+ */
+int nrf_cloud_device_config_update(const struct nrf_cloud_data *const in_data,
+				   struct nrf_cloud_data *out_data,
+				   bool *const config_found);
+
+/** @brief Parse shadow delta for control section. Act on any changes to logging or alerts.
+ * If needed, generate output JSON to send back to cloud to confirm change.
+ * Set *control_found if it did exist on input, regardless of whether we need to send anything back.
+ */
+int nrf_cloud_device_control_update(const struct nrf_cloud_data *const in_data,
+				    struct nrf_cloud_data *out_data,
+				    bool *const control_found);
+
 /** @brief Encode the device status data into a JSON formatted buffer to be saved to
  * the device shadow.
  * The include_state flag controls if the "state" JSON key is included in the output.

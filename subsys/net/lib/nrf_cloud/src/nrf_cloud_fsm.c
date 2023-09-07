@@ -35,10 +35,6 @@ static int dc_tx_ack_handler(const struct nct_evt *nct_evt);
 static int dc_disconnection_handler(const struct nct_evt *nct_evt);
 static int cc_rx_data_handler(const struct nct_evt *nct_evt);
 static int handle_pin_complete(const struct nct_evt *nct_evt);
-static int handle_device_config_update(const struct nct_evt *const evt,
-				       bool *const config_found);
-static int handle_device_control_update(const struct nct_evt *const evt,
-					bool *const control_found);
 
 static const fsm_transition idle_fsm_transition[NCT_EVT_TOTAL] = {
 	[NCT_EVT_DISCONNECTED] = disconnection_handler,
@@ -195,120 +191,6 @@ static int state_ua_pin_wait(void)
 	nfsm_set_current_state_and_notify(STATE_UA_PIN_WAIT, &evt);
 
 	return 0;
-}
-
-static int handle_device_config_update(const struct nct_evt *const evt,
-				       bool *const config_found)
-{
-	int err;
-	struct nct_cc_data msg = {
-		.opcode = NCT_CC_OPCODE_UPDATE_REQ,
-		.message_id = NCT_MSG_ID_STATE_REPORT,
-	};
-
-	if ((evt == NULL) || (config_found == NULL)) {
-		return -EINVAL;
-	}
-
-	if (evt->param.cc == NULL) {
-		return -ENOENT;
-	}
-
-	err = nrf_cloud_shadow_config_response_encode(&evt->param.cc->data, &msg.data,
-					       config_found);
-	if ((err) && (err != -ESRCH)) {
-		LOG_ERR("nrf_cloud_shadow_config_response_encode failed %d", err);
-		return err;
-	}
-
-	if (*config_found == false) {
-		return 0;
-	}
-
-	if (msg.data.ptr) {
-		err = nct_cc_send(&msg);
-		nrf_cloud_free((void *)msg.data.ptr);
-
-		if (err) {
-			LOG_ERR("nct_cc_send failed %d", err);
-		}
-	}
-
-	return err;
-}
-
-static int handle_device_control_update(const struct nct_evt *const evt,
-					bool *const control_found)
-{
-	int err;
-	enum nrf_cloud_ctrl_status status = NRF_CLOUD_CTRL_NOT_PRESENT;
-	struct nrf_cloud_ctrl_data ctrl_data;
-
-	if ((evt == NULL) || (control_found == NULL)) {
-		return -EINVAL;
-	}
-
-	if (evt->param.cc == NULL) {
-		return -ENOENT;
-	}
-
-#if IS_ENABLED(CONFIG_NRF_CLOUD_ALERT)
-	ctrl_data.alerts_enabled = nrf_cloud_alert_control_get();
-#else
-	ctrl_data.alerts_enabled = false;
-#endif /* CONFIG_NRF_CLOUD_ALERT */
-
-	ctrl_data.log_level = nrf_cloud_log_control_get();
-
-	err = nrf_cloud_shadow_control_decode(&evt->param.cc->data, &status, &ctrl_data);
-	if (err) {
-		return (err == -ESRCH) ? 0 : err;
-	}
-
-	*control_found = (status != NRF_CLOUD_CTRL_NOT_PRESENT);
-	if (*control_found) {
-#if IS_ENABLED(CONFIG_NRF_CLOUD_ALERT)
-		nrf_cloud_alert_control_set(ctrl_data.alerts_enabled);
-#endif /* CONFIG_NRF_CLOUD_ALERT */
-		nrf_cloud_log_control_set(ctrl_data.log_level);
-	} else {
-#if IS_ENABLED(CONFIG_NRF_CLOUD_ALERT)
-		ctrl_data.alerts_enabled = nrf_cloud_alert_control_get();
-#else
-		ctrl_data.alerts_enabled = false;
-#endif
-		ctrl_data.log_level = nrf_cloud_log_control_get();
-		nrf_cloud_log_enable(ctrl_data.log_level != LOG_LEVEL_NONE);
-		/* First boot, so update shadow with our current settings. */
-		status = NRF_CLOUD_CTRL_REPLY;
-		LOG_INF("Updating shadow with alertEn:%u and logLvl:%u",
-			ctrl_data.alerts_enabled, ctrl_data.log_level);
-	}
-
-	/* Acknowledge that shadow delta changes have been made. */
-	if (status == NRF_CLOUD_CTRL_REPLY) {
-		struct nct_cc_data msg = {
-			.opcode = NCT_CC_OPCODE_UPDATE_REQ,
-			.message_id = NCT_MSG_ID_STATE_REPORT,
-		};
-		LOG_DBG("Confirming shadow delta");
-		err = nrf_cloud_shadow_control_response_encode(&ctrl_data, &msg.data);
-		if (err) {
-			LOG_ERR("nrf_cloud_shadow_control_response_encode failed %d", err);
-			return err;
-		}
-
-		if (msg.data.ptr) {
-			err = nct_cc_send(&msg);
-			nrf_cloud_free((void *)msg.data.ptr);
-
-			if (err) {
-				LOG_ERR("nct_cc_send failed %d", err);
-			}
-		}
-	}
-
-	return err;
 }
 
 static int state_ua_pin_complete(void)
@@ -486,12 +368,45 @@ static int cc_rx_data_handler(const struct nct_evt *nct_evt)
 	bool config_found = false;
 	bool control_found = false;
 	const enum nfsm_state current_state = nfsm_get_current_state();
+	struct nct_cc_data msg = {
+		.opcode = NCT_CC_OPCODE_UPDATE_REQ,
+		.message_id = NCT_MSG_ID_STATE_REPORT
+	};
 
-	LOG_DBG("CC RX on topic %s: %s",
-		(const char *)nct_evt->param.cc->topic.ptr,
-		(const char *)nct_evt->param.cc->data.ptr);
-	handle_device_config_update(nct_evt, &config_found);
-	handle_device_control_update(nct_evt, &control_found);
+	if ((nct_evt != NULL) && (nct_evt->param.cc != NULL)) {
+		struct nrf_cloud_topic *t = &nct_evt->param.cc->topic;
+		int dlen = strlen(NRF_CLOUD_JSON_KEY_DELTA);
+		bool is_delta = (strncmp(&((const char *)t->ptr)[t->len - dlen],
+					 NRF_CLOUD_JSON_KEY_DELTA, dlen) == 0);
+
+		LOG_DBG("CC %sRX on topic %s: %s",
+			is_delta ? "DELTA ": "",
+			(const char *)nct_evt->param.cc->topic.ptr,
+			(const char *)nct_evt->param.cc->data.ptr);
+
+		err = nrf_cloud_device_config_update(&nct_evt->param.cc->data, &msg.data, &config_found);
+		if (!err && msg.data.ptr) {
+			LOG_DBG("Confirming config shadow delta: %s", (const char *)msg.data.ptr);
+			err = nct_cc_send(&msg);
+			nrf_cloud_free((void *)msg.data.ptr);
+			if (err) {
+				LOG_ERR("nct_cc_send failed %d", err);
+			}
+		}
+		err = nrf_cloud_device_control_update(&nct_evt->param.cc->data, &msg.data, &control_found);
+		if (!err && msg.data.ptr) {
+			LOG_DBG("Confirming control shadow delta: %s", (const char *)msg.data.ptr);
+			err = nct_cc_send(&msg);
+			nrf_cloud_free((void *)msg.data.ptr);
+			if (err) {
+				LOG_ERR("nct_cc_send failed %d", err);
+			}
+		}
+
+		if (is_delta) {
+
+		}
+	}
 
 	if (config_found || control_found) {
 		struct nrf_cloud_evt cloud_evt = {

@@ -550,3 +550,30 @@ int nrf_cloud_coap_shadow_service_info_update(const struct nrf_cloud_svc_info * 
 
 	return nrf_cloud_coap_shadow_device_status_update(&dev_status);
 }
+
+int nrf_cloud_coap_shadow_process(const struct nrf_cloud_data *in_data)
+{
+	int err;
+	struct nrf_cloud_data out_data;
+	bool found = false;
+
+	err = nrf_cloud_device_control_update(in_data, &out_data, &found);
+	if (!err && out_data.ptr) {
+		LOG_INF("Ack delta: len:%zd, %s", out_data.len, (const char *)out_data.ptr);
+		/* Acknowledge it so we do not receive it again. */
+		err = nrf_cloud_coap_shadow_state_update(out_data.ptr);
+		if (err) {
+			LOG_ERR("Failed to acknowledge delta: %d", err);
+		} else {
+			LOG_DBG("Delta acknowledged");
+		}
+		nrf_cloud_free((void *)out_data.ptr);
+	}
+	if (!err && !out_data.ptr) {
+	}
+	if (found) {
+		LOG_INF("Processed control change");
+	}
+	return err;
+}
+
