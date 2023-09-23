@@ -23,6 +23,7 @@
 #include <zephyr/sys/util.h>
 #include <zephyr/logging/log.h>
 #include <modem/modem_info.h>
+#include <cJSON_Utils.h>
 #include "cJSON_os.h"
 
 LOG_MODULE_REGISTER(nrf_cloud_codec_internal, CONFIG_NRF_CLOUD_LOG_LEVEL);
@@ -438,7 +439,7 @@ int nrf_cloud_requested_state_decode(const struct nrf_cloud_data *input,
 	pairing_obj = json_object_decode(desired_obj, NRF_CLOUD_JSON_KEY_PAIRING);
 	pairing_state_obj = json_object_decode(pairing_obj, NRF_CLOUD_JSON_KEY_STATE);
 
-	if (!pairing_state_obj || pairing_state_obj->type != cJSON_String) {
+	if (!pairing_state_obj || (pairing_state_obj->type != cJSON_String)) {
 #ifndef CONFIG_NRF_CLOUD_GATEWAY
 		if ((cJSON_HasObjectItem(desired_obj, NRF_CLOUD_JSON_KEY_CFG) == false) &&
 		    (cJSON_HasObjectItem(desired_obj, NRF_CLOUD_JSON_KEY_CTRL) == false)) {
@@ -793,9 +794,8 @@ int json_send_to_cloud(cJSON *const request)
 
 #endif /* CONFIG_NRF_CLOUD_MQTT */
 
-int nrf_cloud_shadow_config_response_encode(struct nrf_cloud_data const *const input,
-					    struct nrf_cloud_data *const output,
-					    bool *const has_config)
+int nrf_cloud_shadow_delta_response_encode(struct nrf_cloud_data const *const input,
+					   struct nrf_cloud_data *const output)
 {
 	__ASSERT_NO_MSG(output != NULL);
 	__ASSERT_NO_MSG(input != NULL);
@@ -804,7 +804,8 @@ int nrf_cloud_shadow_config_response_encode(struct nrf_cloud_data const *const i
 	cJSON *root_obj = NULL;
 	cJSON *reported_obj = NULL;
 	cJSON *state_obj = NULL;
-	cJSON *config_obj = NULL;
+	cJSON *delta_obj = NULL;
+	cJSON *output_obj = NULL;
 	cJSON *input_obj = input ? cJSON_Parse(input->ptr) : NULL;
 
 	if (input_obj == NULL) {
@@ -812,22 +813,18 @@ int nrf_cloud_shadow_config_response_encode(struct nrf_cloud_data const *const i
 		return -ESRCH; /* invalid input or no JSON parsed */
 	}
 
-	/* A delta update will have the config inside of state */
-	state_obj = cJSON_DetachItemFromObject(input_obj, NRF_CLOUD_JSON_KEY_STATE);
-	config_obj = cJSON_DetachItemFromObject(
-		state_obj ? state_obj : input_obj, NRF_CLOUD_JSON_KEY_CFG);
+	/* A delta update will have the config inside of state, for example:
+	 * {"version":2413,"timestamp":1695404679,
+	 * "state":{"control":{"alertsEn":false,"logLvl":4},"config":{"activeMode":false}},
+	 * "metadata":{"control":{"alertsEn":{"timestamp":1695404601},
+	 * "logLvl":{"timestamp":1695404593}},"config":{"activeMode":{"timestamp":1695404646}}}}
+	 */
+	delta_obj = cJSON_DetachItemFromObject(input_obj, NRF_CLOUD_JSON_KEY_STATE);
 	cJSON_Delete(input_obj);
 
-	if (has_config) {
-		*has_config = (config_obj != NULL);
-		LOG_DBG("has_config: %d", *has_config);
-	}
-
 	/* If this is not a delta update, no response data is required */
-	if ((state_obj == NULL) || (config_obj == NULL)) {
+	if (delta_obj == NULL) {
 		LOG_DBG("Not a delta");
-		cJSON_Delete(state_obj);
-		cJSON_Delete(config_obj);
 		output->ptr = NULL;
 		output->len = 0;
 		return 0;
@@ -835,29 +832,20 @@ int nrf_cloud_shadow_config_response_encode(struct nrf_cloud_data const *const i
 
 	/* Prepare JSON response for the delta */
 	root_obj = cJSON_CreateObject();
-	reported_obj = cJSON_AddObjectToObjectCS(root_obj, NRF_CLOUD_JSON_KEY_REP);
+	state_obj = cJSON_AddObjectToObjectCS(root_obj, NRF_CLOUD_JSON_KEY_STATE);
+	reported_obj = cJSON_AddObjectToObjectCS(state_obj, NRF_CLOUD_JSON_KEY_REP);
 
-	/* Add the delta config to reported */
-	if (json_add_obj_cs(reported_obj, NRF_CLOUD_JSON_KEY_CFG, config_obj)) {
-		cJSON_Delete(root_obj);
-		cJSON_Delete(config_obj);
-		cJSON_Delete(state_obj);
-		return -ENOMEM;
-	}
+	/* Add the delta to reported:
+	 *  {"state":{"reported":{"control":{"alertsEn":true,"logLvl":2},
+	 *  "config":{"activeMode":false}}}}
+	 */
+	 output_obj = cJSONUtils_MergePatch(reported_obj, delta_obj);
 
-	/* Cleanup received state obj and re-use for the response */
-	cJSON_Delete(state_obj);
-	state_obj = cJSON_CreateObject();
-	if (state_obj) {
-		if (json_add_obj_cs(state_obj, NRF_CLOUD_JSON_KEY_STATE, root_obj)) {
-			cJSON_Delete(root_obj);
-		} else {
-			buffer = cJSON_PrintUnformatted(state_obj);
-		}
-		cJSON_Delete(state_obj);
-	} else {
-		cJSON_Delete(root_obj);
+	if (output_obj) {
+		buffer = cJSON_PrintUnformatted(root_obj);
+		LOG_DBG("patched: %s", buffer);
 	}
+	cJSON_Delete(root_obj);
 
 	if (buffer == NULL) {
 		return -ENOMEM;
@@ -1016,46 +1004,18 @@ end:
 	return err;
 }
 
-int nrf_cloud_device_config_update(const struct nrf_cloud_data *const in_data,
-				   struct nrf_cloud_data *out_data,
-				   bool *const config_found)
-{
-	int err;
-
-	if ((in_data == NULL) || (out_data == NULL) || (config_found == NULL)) {
-		return -EINVAL;
-	}
-
-	out_data->ptr = NULL;
-	out_data->len = 0;
-
-	err = nrf_cloud_shadow_config_response_encode(in_data, out_data, config_found);
-	if ((err) && (err != -ESRCH)) {
-		LOG_ERR("nrf_cloud_shadow_config_response_encode failed %d", err);
-		return err;
-	}
-
-	if (*config_found == false) {
-		return 0;
-	}
-
-	return err;
-}
-
 int nrf_cloud_device_control_update(const struct nrf_cloud_data *const in_data,
-				    struct nrf_cloud_data *out_data,
+				    enum nrf_cloud_ctrl_status *status,
 				    bool *const control_found)
 {
 	int err;
-	enum nrf_cloud_ctrl_status status = NRF_CLOUD_CTRL_NOT_PRESENT;
 	struct nrf_cloud_ctrl_data ctrl_data;
 
-	if ((in_data == NULL) || (out_data == NULL) || (control_found == NULL)) {
+	if ((in_data == NULL) || (status == NULL) || (control_found == NULL)) {
 		return -EINVAL;
 	}
 
-	out_data->ptr = NULL;
-	out_data->len = 0;
+	*status = NRF_CLOUD_CTRL_NOT_PRESENT;
 
 #if IS_ENABLED(CONFIG_NRF_CLOUD_ALERT)
 	ctrl_data.alerts_enabled = nrf_cloud_alert_control_get();
@@ -1065,18 +1025,18 @@ int nrf_cloud_device_control_update(const struct nrf_cloud_data *const in_data,
 
 	ctrl_data.log_level = nrf_cloud_log_control_get();
 
-	err = nrf_cloud_shadow_control_decode(in_data, &status, &ctrl_data);
+	err = nrf_cloud_shadow_control_decode(in_data, status, &ctrl_data);
 	if (err) {
 		return (err == -ESRCH) ? 0 : err;
 	}
 
-	*control_found = (status != NRF_CLOUD_CTRL_NOT_PRESENT);
+	*control_found = (*status != NRF_CLOUD_CTRL_NOT_PRESENT);
 	if (*control_found) {
 #if IS_ENABLED(CONFIG_NRF_CLOUD_ALERT)
 		nrf_cloud_alert_control_set(ctrl_data.alerts_enabled);
 #endif /* CONFIG_NRF_CLOUD_ALERT */
 		nrf_cloud_log_control_set(ctrl_data.log_level);
-	} else if (0) {
+	} else {
 #if IS_ENABLED(CONFIG_NRF_CLOUD_ALERT)
 		ctrl_data.alerts_enabled = nrf_cloud_alert_control_get();
 #else
@@ -1085,18 +1045,9 @@ int nrf_cloud_device_control_update(const struct nrf_cloud_data *const in_data,
 		ctrl_data.log_level = nrf_cloud_log_control_get();
 		nrf_cloud_log_enable(ctrl_data.log_level != LOG_LEVEL_NONE);
 		/* First boot, so update shadow with our current settings. */
-		status = NRF_CLOUD_CTRL_REPLY;
+		*status = NRF_CLOUD_CTRL_REPLY;
 		LOG_INF("Updating shadow with alertEn:%u and logLvl:%u",
 			ctrl_data.alerts_enabled, ctrl_data.log_level);
-	}
-
-	/* Acknowledge that shadow delta changes have been made. */
-	if (status == NRF_CLOUD_CTRL_REPLY) {
-		err = nrf_cloud_shadow_control_response_encode(&ctrl_data, out_data);
-		if (err) {
-			LOG_ERR("nrf_cloud_shadow_control_response_encode failed %d", err);
-			return err;
-		}
 	}
 
 	return err;

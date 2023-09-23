@@ -365,7 +365,6 @@ static int cc_rx_data_handler(const struct nct_evt *nct_evt)
 	int err;
 	enum nfsm_state new_state;
 	const struct nrf_cloud_data *payload = &nct_evt->param.cc->data;
-	bool config_found = false;
 	bool control_found = false;
 	const enum nfsm_state current_state = nfsm_get_current_state();
 	struct nct_cc_data msg = {
@@ -378,62 +377,55 @@ static int cc_rx_data_handler(const struct nct_evt *nct_evt)
 		int dlen = strlen(NRF_CLOUD_JSON_KEY_DELTA);
 		bool is_delta = (strncmp(&((const char *)t->ptr)[t->len - dlen],
 					 NRF_CLOUD_JSON_KEY_DELTA, dlen) == 0);
+		enum nrf_cloud_ctrl_status status;
 
 		LOG_DBG("CC %sRX on topic %s: %s",
 			is_delta ? "DELTA ": "",
 			(const char *)nct_evt->param.cc->topic.ptr,
 			(const char *)nct_evt->param.cc->data.ptr);
 
-		err = nrf_cloud_device_config_update(&nct_evt->param.cc->data, &msg.data, &config_found);
-		if (!err && msg.data.ptr) {
-			LOG_DBG("Confirming config shadow delta: %s", (const char *)msg.data.ptr);
-			err = nct_cc_send(&msg);
-			nrf_cloud_free((void *)msg.data.ptr);
-			if (err) {
-				LOG_ERR("nct_cc_send failed %d", err);
-			}
-		}
-		err = nrf_cloud_device_control_update(&nct_evt->param.cc->data, &msg.data, &control_found);
-		if (!err && msg.data.ptr) {
-			LOG_DBG("Confirming control shadow delta: %s", (const char *)msg.data.ptr);
-			err = nct_cc_send(&msg);
-			nrf_cloud_free((void *)msg.data.ptr);
-			if (err) {
-				LOG_ERR("nct_cc_send failed %d", err);
-			}
+		err = nrf_cloud_device_control_update(&nct_evt->param.cc->data, &status,
+						      &control_found);
+		if (!err) {
 		}
 
 		if (is_delta) {
-
+			err = nrf_cloud_shadow_delta_response_encode(&nct_evt->param.cc->data,
+								     &msg.data);
+			if (!err) {
+				/* format received desired section and output it */
+				LOG_DBG("Confirming control shadow delta: %s",
+					(const char *)msg.data.ptr);
+				err = nct_cc_send(&msg);
+				if (err) {
+					LOG_ERR("nct_cc_send failed %d", err);
+				}
+			}
+		} else if (status == NRF_CLOUD_CTRL_REPLY) {
+			/* format and output ctrl section */
 		}
 	}
 
-	if (config_found || control_found) {
-		struct nrf_cloud_evt cloud_evt = {
-			.type = NRF_CLOUD_EVT_RX_DATA_SHADOW,
-			.data = nct_evt->param.cc->data,
-			.topic = nct_evt->param.cc->topic
-		};
+	struct nrf_cloud_evt cloud_evt = {
+		.type = NRF_CLOUD_EVT_RX_DATA_SHADOW,
+		.data = nct_evt->param.cc->data,
+		.topic = nct_evt->param.cc->topic
+	};
 
-		/* Pass the current state since the state is not changing. Give
-		 * application a chance to see the change to the shadow.
-		 */
-		nfsm_set_current_state_and_notify(current_state, &cloud_evt);
-	}
+	/* Give application a chance to see the change to the shadow. */
+	nfsm_set_current_state_and_notify(current_state, &cloud_evt);
+
+	LOG_DBG("current_state:%d, control_found:%d",
+		current_state, control_found);
 
 	err = nrf_cloud_requested_state_decode(payload, &new_state);
-
 	if (err) {
-#ifndef CONFIG_NRF_CLOUD_GATEWAY
-		if (!config_found && !control_found) {
-			LOG_ERR("nrf_cloud_requested_state_decode Failed %d",
-				err);
-			return err;
-		}
-#endif
-		/* Config or control only, nothing else to do */
+		LOG_DBG("Error %d when decoding requested state; current:%d, control_found:%d",
+			err, current_state, control_found);
 		return 0;
 	}
+
+	LOG_DBG("new_state:%d", new_state);
 
 	switch (current_state) {
 	case STATE_CC_CONNECTED:
@@ -441,19 +433,6 @@ static int cc_rx_data_handler(const struct nct_evt *nct_evt)
 	case STATE_UA_PIN_WAIT:
 	case STATE_UA_PIN_COMPLETE:
 		if (new_state == STATE_UA_PIN_COMPLETE) {
-			/* If the config or control was found,
-			 * the shadow data has already been sent
-			 */
-			if (!config_found && !control_found) {
-				struct nrf_cloud_evt cloud_evt = {
-					.type = NRF_CLOUD_EVT_RX_DATA_SHADOW,
-					.data = nct_evt->param.cc->data,
-					.topic = nct_evt->param.cc->topic
-				};
-				/* Send shadow data to application */
-				nfsm_set_current_state_and_notify(nfsm_get_current_state(),
-								  &cloud_evt);
-			}
 			return handle_pin_complete(nct_evt);
 		} else if (new_state == STATE_UA_PIN_WAIT) {
 			return state_ua_pin_wait();
@@ -462,6 +441,7 @@ static int cc_rx_data_handler(const struct nct_evt *nct_evt)
 	case STATE_DC_CONNECTING:
 	case STATE_DC_CONNECTED:
 		if (new_state == STATE_UA_PIN_WAIT) {
+			/* Device was just removed from its nRF Cloud account. */
 			(void)nct_dc_disconnect();
 			return state_ua_pin_wait();
 		}
