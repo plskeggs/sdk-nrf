@@ -1014,7 +1014,8 @@ static int send_job_update(struct nrf_cloud_fota_job *const job)
 	ret = publish_and_free_obj(&update_obj, &topic_updt, &param);
 	if (ret == 0 && is_job_status_terminal(job->status)) {
 		/* If job was updated to terminal status, save job ID */
-		strncpy(last_job, job->info.id, sizeof(last_job));
+		strncpy(last_job, job->info.id, sizeof(last_job) - 1);
+		last_job[sizeof(last_job) - 1] = '\0';
 	}
 
 	return ret;
