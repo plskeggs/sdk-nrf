@@ -226,6 +226,8 @@ void location_config_defaults_set(
 	config->interval = CONFIG_LOCATION_REQUEST_DEFAULT_INTERVAL;
 	config->timeout = CONFIG_LOCATION_REQUEST_DEFAULT_TIMEOUT;
 	config->mode = LOCATION_REQ_MODE_FALLBACK;
+	config->do_reply = true;
+	config->fallback = true;
 
 	/* Handle Kconfig's for method priorities */
 	if (method_types == NULL) {

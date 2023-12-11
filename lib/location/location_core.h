@@ -14,6 +14,7 @@ struct location_request_info {
 	const struct location_wifi_config *wifi;
 	const struct location_cellular_config *cellular;
 	const struct location_gnss_config *gnss;
+	const struct nrf_cloud_location_config *loc_config;
 
 	/** Configuration given for currently ongoing location request. */
 	struct location_config config;

@@ -485,6 +485,34 @@ struct location_config {
 	 * location_config_defaults_set() function is called.
 	 */
 	enum location_req_mode mode;
+
+	/**
+	 * @brief Flag to request location back from the cloud.
+	 *
+	 * @details For cellular and Wi-Fi location methods, if this flag is set, the
+	 * cloud will return the current location, if known. The cloud default is true.
+	 */
+	bool do_reply;
+
+	/**
+	 * @brief Flag to control horizontal positioning error (HPE) for a location.
+	 *
+	 * @details For cellular and Wi-Fi location methods, if this flag is set, the
+	 * cloud will use a 95% confidence interval for the returned location and radius
+	 * than the default 68%. The cloud default is false.
+	 */
+	bool hi_conf;
+
+	/**
+	 * @brief Flag to control handling of position not found errors.
+	 *
+	 * @details For cellular and Wi-Fi location methods, if this flag is set, and the
+	 * cloud cannot determine the location based on the cell tower identification and/or
+	 * Wi-Fi access points nearby, it will fallback to coarse position based on the
+	 * cell tower tracking area code (if available). If false, a 404 error will be
+	 * returned instead. The cloud default is true.
+	 */
+	bool fallback;
 };
 
 /**

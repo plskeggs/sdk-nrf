@@ -42,6 +42,14 @@ static bool encode_ap(zcbor_state_t *state, const struct ap *input);
 static bool encode_wifi_ob(zcbor_state_t *state, const struct wifi_ob *input);
 static bool encode_repeated_ground_fix_req_wifi(zcbor_state_t *state,
 						const struct ground_fix_req_wifi *input);
+static bool encode_repeated_config_doReply(zcbor_state_t *state,
+					   const struct config_doReply *input);
+static bool encode_repeated_config_fallback(zcbor_state_t *state,
+					    const struct config_fallback *input);
+static bool encode_repeated_config_hiConf(zcbor_state_t *state, const struct config_hiConf *input);
+static bool encode_config(zcbor_state_t *state, const struct config *input);
+static bool encode_repeated_ground_fix_req_cfg(zcbor_state_t *state,
+					       const struct ground_fix_req_cfg *input);
 static bool encode_ground_fix_req(zcbor_state_t *state, const struct ground_fix_req *input);
 
 static bool encode_repeated_cell_earfcn(zcbor_state_t *state, const struct cell_earfcn *input)
@@ -416,20 +424,106 @@ static bool encode_repeated_ground_fix_req_wifi(zcbor_state_t *state,
 	return tmp_result;
 }
 
+static bool encode_repeated_config_doReply(zcbor_state_t *state, const struct config_doReply *input)
+{
+	zcbor_print("%s\r\n", __func__);
+
+	bool tmp_result = ((((zcbor_uint32_put(state, (22)))) &&
+			    (zcbor_uint32_encode(state, (&(*input)._config_doReply)))));
+
+	if (!tmp_result) {
+		zcbor_trace();
+	}
+
+	return tmp_result;
+}
+
+static bool encode_repeated_config_fallback(zcbor_state_t *state,
+					    const struct config_fallback *input)
+{
+	zcbor_print("%s\r\n", __func__);
+
+	bool tmp_result = ((((zcbor_uint32_put(state, (23)))) &&
+			    (zcbor_uint32_encode(state, (&(*input)._config_fallback)))));
+
+	if (!tmp_result) {
+		zcbor_trace();
+	}
+
+	return tmp_result;
+}
+
+static bool encode_repeated_config_hiConf(zcbor_state_t *state, const struct config_hiConf *input)
+{
+	zcbor_print("%s\r\n", __func__);
+
+	bool tmp_result = ((((zcbor_uint32_put(state, (24)))) &&
+			    (zcbor_uint32_encode(state, (&(*input)._config_hiConf)))));
+
+	if (!tmp_result) {
+		zcbor_trace();
+	}
+
+	return tmp_result;
+}
+
+static bool encode_config(zcbor_state_t *state, const struct config *input)
+{
+	zcbor_print("%s\r\n", __func__);
+
+	bool tmp_result =
+		(((zcbor_map_start_encode(state, 3) &&
+		   ((zcbor_present_encode(&((*input)._config_doReply_present),
+					  (zcbor_encoder_t *)encode_repeated_config_doReply, state,
+					  (&(*input)._config_doReply)) &&
+		     zcbor_present_encode(&((*input)._config_fallback_present),
+					  (zcbor_encoder_t *)encode_repeated_config_fallback, state,
+					  (&(*input)._config_fallback)) &&
+		     zcbor_present_encode(&((*input)._config_hiConf_present),
+					  (zcbor_encoder_t *)encode_repeated_config_hiConf, state,
+					  (&(*input)._config_hiConf))) ||
+		    (zcbor_list_map_end_force_encode(state), false)) &&
+		   zcbor_map_end_encode(state, 3))));
+
+	if (!tmp_result) {
+		zcbor_trace();
+	}
+
+	return tmp_result;
+}
+
+static bool encode_repeated_ground_fix_req_cfg(zcbor_state_t *state,
+					       const struct ground_fix_req_cfg *input)
+{
+	zcbor_print("%s\r\n", __func__);
+
+	bool tmp_result = ((((zcbor_uint32_put(state, (21)))) &&
+			    (encode_config(state, (&(*input)._ground_fix_req_cfg)))));
+
+	if (!tmp_result) {
+		zcbor_trace();
+	}
+
+	return tmp_result;
+}
+
 static bool encode_ground_fix_req(zcbor_state_t *state, const struct ground_fix_req *input)
 {
 	zcbor_print("%s\r\n", __func__);
 
 	bool tmp_result =
-		(((zcbor_map_start_encode(state, 2) &&
+		(((zcbor_map_start_encode(state, 3) &&
 		   ((zcbor_present_encode(&((*input)._ground_fix_req_lte_present),
 					  (zcbor_encoder_t *)encode_repeated_ground_fix_req_lte,
 					  state, (&(*input)._ground_fix_req_lte)) &&
 		     zcbor_present_encode(&((*input)._ground_fix_req_wifi_present),
 					  (zcbor_encoder_t *)encode_repeated_ground_fix_req_wifi,
-					  state, (&(*input)._ground_fix_req_wifi))) ||
+					  state, (&(*input)._ground_fix_req_wifi)) &&
+		     zcbor_present_encode(&((*input)._ground_fix_req_cfg_present),
+					  (zcbor_encoder_t *)encode_repeated_ground_fix_req_cfg,
+					  state, (&(*input)._ground_fix_req_cfg))) ||
 		    (zcbor_list_map_end_force_encode(state), false)) &&
-		   zcbor_map_end_encode(state, 2))));
+		   zcbor_map_end_encode(state, 3))));
 
 	if (!tmp_result) {
 		zcbor_trace();

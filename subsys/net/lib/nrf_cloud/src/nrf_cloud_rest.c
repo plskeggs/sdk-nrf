@@ -69,7 +69,8 @@ LOG_MODULE_REGISTER(nrf_cloud_rest, CONFIG_NRF_CLOUD_REST_LOG_LEVEL);
 
 #define API_LOCATION			"/location"
 #define API_GET_LOCATION		API_VER API_LOCATION "/ground-fix"
-#define API_GET_LOCATION_NO_REPLY	API_VER API_LOCATION "/ground-fix?doReply=0"
+#define API_GET_LOCATION_CONFIG		API_VER API_LOCATION "/ground-fix?"\
+							     "doReply=%d&fallback=%d&hiConf=%d"
 #define API_GET_AGNSS_BASE		API_VER API_LOCATION "/agnss"
 #define API_GET_PGPS_BASE		API_VER API_LOCATION "/pgps"
 
@@ -517,7 +518,25 @@ int nrf_cloud_rest_location_get(struct nrf_cloud_rest_context *const rest_ctx,
 	memset(&resp, 0, sizeof(resp));
 	init_rest_client_request(rest_ctx, &req, HTTP_POST);
 
-	req.url = request->disable_response ? API_GET_LOCATION_NO_REPLY : API_GET_LOCATION;
+	char url[sizeof(API_GET_LOCATION_CONFIG)];
+	bool do_reply;
+
+	if (request->config) {
+		ret = snprintk(url, sizeof(url) - 1, API_GET_LOCATION_CONFIG,
+			       request->config->do_reply,
+			       request->config->fallback,
+			       request->config->hi_conf);
+		if ((ret < 0) || (ret > (sizeof(url) - 1))) {
+			ret = -EIO;
+			goto clean_up;
+		}
+		do_reply = request->config->do_reply;
+	} else {
+		strncpy(url, API_GET_LOCATION, sizeof(url) - 1);
+		url[sizeof(url) - 1] = '\0';
+		do_reply = true; /* this is the cloud default */
+	}
+	req.url = url;
 
 	/* Format auth header */
 	ret = generate_auth_header(rest_ctx->auth, &auth_hdr);
@@ -561,16 +580,16 @@ int nrf_cloud_rest_location_get(struct nrf_cloud_rest_context *const rest_ctx,
 	req.body = payload_obj.encoded_data.ptr;
 
 	/* Make REST call */
-	ret = do_rest_client_request(rest_ctx, &req, &resp, true, !request->disable_response);
+	ret = do_rest_client_request(rest_ctx, &req, &resp, true, do_reply);
 
 	if (ret) {
 		goto clean_up;
 	}
 
-	if (result && request->disable_response) {
+	if (result && !do_reply) {
 		LOG_WRN("A result struct is provided but location response is disabled");
 		result->type = LOCATION_TYPE__INVALID;
-	} else if (result && !request->disable_response) {
+	} else if (result && do_reply) {
 		ret = nrf_cloud_location_response_decode(rest_ctx->response, result);
 		if (ret != 0) {
 			if (ret > 0) {

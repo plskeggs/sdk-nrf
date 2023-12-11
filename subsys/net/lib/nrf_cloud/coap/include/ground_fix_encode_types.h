@@ -155,11 +155,38 @@ struct ground_fix_req_wifi {
 	struct wifi_ob _ground_fix_req_wifi;
 };
 
+struct config_doReply {
+	uint32_t _config_doReply;
+};
+
+struct config_fallback {
+	uint32_t _config_fallback;
+};
+
+struct config_hiConf {
+	uint32_t _config_hiConf;
+};
+
+struct config {
+	struct config_doReply _config_doReply;
+	bool _config_doReply_present;
+	struct config_fallback _config_fallback;
+	bool _config_fallback_present;
+	struct config_hiConf _config_hiConf;
+	bool _config_hiConf_present;
+};
+
+struct ground_fix_req_cfg {
+	struct config _ground_fix_req_cfg;
+};
+
 struct ground_fix_req {
 	struct ground_fix_req_lte _ground_fix_req_lte;
 	bool _ground_fix_req_lte_present;
 	struct ground_fix_req_wifi _ground_fix_req_wifi;
 	bool _ground_fix_req_wifi_present;
+	struct ground_fix_req_cfg _ground_fix_req_cfg;
+	bool _ground_fix_req_cfg_present;
 };
 
 #ifdef __cplusplus

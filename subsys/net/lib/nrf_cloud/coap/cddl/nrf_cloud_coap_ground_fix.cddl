@@ -43,9 +43,16 @@ wifi_ob = {
 	accessPoints => [2*20 ap]
 }
 
+config = {
+	? doReply => uint,
+	? fallback => uint,
+	? hiConf => uint
+}
+
 ground_fix_req = {
 	? lte => lte_ar,
-	? wifi => wifi_ob
+	? wifi => wifi_ob,
+	? cfg => config
 }
 
 earfcn = 1
@@ -68,6 +75,10 @@ ssid = 17
 accessPoints = 18
 lte = 19
 wifi = 20
+cfg = 21
+doReply = 22
+fallback = 23
+hiConf = 24
 
 ; *******************
 ; Ground Fix Response

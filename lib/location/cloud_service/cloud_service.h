@@ -10,6 +10,7 @@
 #include <modem/location.h>
 #include <modem/lte_lc.h>
 #include <net/wifi_location_common.h>
+#include <net/nrf_cloud_location.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,6 +24,8 @@ struct cloud_service_pos_req {
 	struct lte_lc_cells_info *cell_data;
 	/** Wi-Fi scanning results data. */
 	struct wifi_scan_info *wifi_data;
+	/** For nRF Cloud, optionally specify do_reply, hi_conf, and fallback */
+	const struct nrf_cloud_location_config *config;
 	/**
 	 * @brief Timeout (in milliseconds) of the cloud positioning procedure.
 	 * SYS_FOREVER_MS means that the timer is disabled.

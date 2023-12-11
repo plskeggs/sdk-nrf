@@ -57,6 +57,19 @@ struct nrf_cloud_location_result {
 	enum nrf_cloud_error err;
 };
 
+/** @brief Location request config */
+struct nrf_cloud_location_config {
+	/** If true, nRF Cloud will send the location back to the device. */
+	bool do_reply;
+	/** If true, uncertainty of result will be 95%, otherwise 68%. */
+	bool hi_conf;
+	/** If true, and location cannot be found, result will fall back to rough estimate
+	 *  based on the cell tower tracking area code.  If false, will return an error
+	 *  if the cloud cannot provide a higher accuracy response.
+	 */
+	bool fallback;
+};
+
 /** Omit the timing advance value when submitting a location request */
 #define NRF_CLOUD_LOCATION_CELL_OMIT_TIME_ADV	LTE_LC_CELL_TIMING_ADVANCE_INVALID
 /** Omit the RSRQ value when submitting a location request */
@@ -92,8 +105,8 @@ typedef void (*nrf_cloud_location_response_t)(const struct nrf_cloud_location_re
  *                 To omit a request parameter, use the appropriate
  *                 `NRF_CLOUD_LOCATION_WIFI_OMIT_` define.
  *                 Can be NULL if cell info is provided.
- * @param request_loc If true, cloud will send location to the device.
- *                    If false, cloud will not send location to the device.
+ * @param config   Optional configuration of request.  If NULL, fall back to default
+ *                 which is do_reply = true, hi_conf = false, and fallback = true.
  * @param cb Callback function to receive parsed location result. Only used when
  *           request_loc is true. If NULL, JSON result will be sent to the cloud event
  *           handler as an NRF_CLOUD_EVT_RX_DATA_LOCATION event.
@@ -105,7 +118,8 @@ typedef void (*nrf_cloud_location_response_t)(const struct nrf_cloud_location_re
  */
 int nrf_cloud_location_request(const struct lte_lc_cells_info *const cells_inf,
 			       const struct wifi_scan_info *const wifi_inf,
-			       const bool request_loc, nrf_cloud_location_response_t cb);
+			       const struct nrf_cloud_location_config *const config,
+			       nrf_cloud_location_response_t cb);
 #endif /* CONFIG_NRF_CLOUD_MQTT */
 
 /** @brief Process location data received from nRF Cloud over MQTT or REST.

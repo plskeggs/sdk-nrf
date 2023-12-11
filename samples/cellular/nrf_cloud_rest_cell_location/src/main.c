@@ -94,7 +94,8 @@ static struct lte_lc_cells_info cell_info;
 /* REST request structure to contain cell info to be sent to nRF Cloud */
 static struct nrf_cloud_rest_location_request cell_pos_req = {
 	.cell_info = &cell_info,
-	.wifi_info = NULL
+	.wifi_info = NULL,
+	.config = NULL
 };
 
 /* Flag to indicate that the device is ready to perform requests */

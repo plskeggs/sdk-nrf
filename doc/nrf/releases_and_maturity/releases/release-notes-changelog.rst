@@ -292,6 +292,8 @@ Cellular samples
 
   * Removed the nRF7002 EK devicetree overlay file :file:`nrf91xxdk_with_nrf7002ek.overlay`, because UART1 is disabled through the shield configuration.
 
+  * Updated to use the new c:struct:`nrf_cloud_location_config` structure when calling the :c:func:`nrf_cloud_location_request` function.
+
 * :ref:`nrf_cloud_multi_service` sample:
 
   * Added a generic processing example for application-specific shadow data.
@@ -556,6 +558,8 @@ Modem libraries
     * Cellular positioning not to use GCI search when the device is in RRC connected mode, because the modem cannot search for GCI cells in that mode.
     * GNSS is not started at all if the device does not enter RRC idle mode within two minutes.
 
+  * Added do_reply, hi_conf, and fallback flags to the c:struct:`location_config` structure.
+
 * :ref:`lte_lc_readme` library:
 
   * Added:
@@ -621,6 +625,7 @@ Libraries for networking
 
     * Automatic selection of proprietary PSM mode when building for the SOC_NRF9161_LACA.
     * Support for bulk transfers to the :c:func:`nrf_cloud_coap_json_message_send` function.
+    * Optional support for ground fix configuration flags.
 
   * Updated:
 
@@ -644,11 +649,13 @@ Libraries for networking
     * An :c:struct:`nrf_cloud_obj_shadow_data` structure to the :c:struct:`nrf_cloud_evt` structure to be used during shadow update events.
     * The :kconfig:option:`CONFIG_NRF_CLOUD_SEND_SERVICE_INFO_FOTA` Kconfig option to enable sending configured FOTA service info on the device's initial connection to nRF Cloud.
     * The :kconfig:option:`CONFIG_NRF_CLOUD_SEND_SERVICE_INFO_UI` Kconfig option to enable sending configured UI service info on the device's initial connection to nRF Cloud.
+    * An :c:struct:`nrf_cloud_location_config` structure for specifying the desired behavior of an nRF Cloud ground-fix request.
 
   * Updated:
 
     * The :c:func:`nrf_cloud_obj_object_add` function to reset the added object on success.
     * Custom shadow data is now passed to the application during shadow update events.
+    * The :c:func:`nrf_cloud_obj_location_request_create` function and the :c:func:`nrf_cloud_location_request` function to accept the :c:struct:`nrf_cloud_location_config` structure.
 
 * :ref:`lib_nrf_provisioning` library:
 
@@ -662,6 +669,10 @@ Libraries for networking
 * :ref:`lib_mqtt_helper` library:
 
   * Added support for using a password when connecting to a broker.
+
+* :ref:`lib_nrf_cloud_rest` library:
+
+  * Updated the :c:struct:`nrf_cloud_rest_location_request` structure to accept a pointer to a :c:struct:`nrf_cloud_location_config` structure in place of the single disable_response flag.
 
 Libraries for NFC
 -----------------

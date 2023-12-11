@@ -10,6 +10,7 @@
 #include <zephyr/logging/log.h>
 #include <modem/location.h>
 #include <net/wifi_location_common.h>
+#include <net/nrf_cloud_location.h>
 
 #include "location_core.h"
 #include "location_utils.h"
@@ -30,9 +31,15 @@ struct method_cloud_location_start_work_args {
 	struct k_work work_item;
 	const struct location_wifi_config *wifi_config;
 	const struct location_cellular_config *cell_config;
+#if defined(CONFIG_LOCATION_SERVICE_NRF_CLOUD)
+	const struct nrf_cloud_location_config *config;
+#endif
 	int64_t locreq_timeout_uptime;
 };
 
+#if defined(CONFIG_LOCATION_SERVICE_NRF_CLOUD)
+static struct nrf_cloud_location_config cur_config;
+#endif
 static struct method_cloud_location_start_work_args method_cloud_location_start_work;
 static bool running;
 
@@ -99,6 +106,9 @@ static void method_cloud_location_positioning_work_fn(struct k_work *work)
 	struct cloud_service_pos_req params = {
 		.cell_data = scan_cellular_info,
 		.wifi_data = scan_wifi_info,
+#if defined(CONFIG_LOCATION_SERVICE_NRF_CLOUD)
+		.config = work_data->config,
+#endif
 		.service = (cell_config != NULL) ? cell_config->service : wifi_config->service,
 		.timeout_ms = SYS_FOREVER_MS
 	};
@@ -178,6 +188,12 @@ int method_cloud_location_get(const struct location_request_info *request)
 	/* Select configurations based on requested method */
 	method_cloud_location_start_work.wifi_config = NULL;
 	method_cloud_location_start_work.cell_config = NULL;
+#if defined(CONFIG_LOCATION_SERVICE_NRF_CLOUD)
+	cur_config.do_reply = request->config.do_reply;
+	cur_config.fallback = request->config.fallback;
+	cur_config.hi_conf = request->config.hi_conf;
+	method_cloud_location_start_work.config = &cur_config;
+#endif
 	if (request->current_method == LOCATION_METHOD_CELLULAR ||
 	    request->current_method == LOCATION_METHOD_INTERNAL_WIFI_CELLULAR) {
 		method_cloud_location_start_work.cell_config = request->cellular;

@@ -292,8 +292,35 @@ static void copy_wifi_info(struct wifi_ob *wifi_encode,
 	}
 }
 
+static bool copy_config(struct config *config_encode,
+			struct nrf_cloud_location_config const *const conf)
+{
+	bool needed = false;
+
+	/** Check each field and compare to the cloud's default. If different,
+	 *  enable output of the field and set the new value of it.
+	 */
+	if (conf->do_reply != true) {
+		config_encode->_config_doReply_present = true;
+		config_encode->_config_doReply._config_doReply = conf->do_reply;
+		needed = true;
+	}
+	if (conf->fallback != true) {
+		config_encode->_config_fallback_present = true;
+		config_encode->_config_fallback._config_fallback = conf->fallback;
+		needed = true;
+	}
+	if (conf->hi_conf != false) {
+		config_encode->_config_hiConf_present = true;
+		config_encode->_config_hiConf._config_hiConf = conf->hi_conf;
+		needed = true;
+	}
+	return needed;
+}
+
 int coap_codec_ground_fix_req_encode(struct lte_lc_cells_info const *const cell_info,
 				     struct wifi_scan_info const *const wifi_info,
+				     struct nrf_cloud_location_config const *const config,
 				     uint8_t *buf, size_t *len, enum coap_content_format fmt)
 {
 	__ASSERT_NO_MSG((cell_info != NULL) || (wifi_info != NULL));
@@ -317,6 +344,12 @@ int coap_codec_ground_fix_req_encode(struct lte_lc_cells_info const *const cell_
 	input._ground_fix_req_wifi_present = (wifi_info != NULL);
 	if (wifi_info) {
 		copy_wifi_info(&input._ground_fix_req_wifi._ground_fix_req_wifi, wifi_info);
+	}
+	if (config && IS_ENABLED(CONFIG_NRF_CLOUD_COAP_GF_CONF)) {
+		input._ground_fix_req_cfg_present = copy_config(
+					    &input._ground_fix_req_cfg._ground_fix_req_cfg, config);
+	} else {
+		input._ground_fix_req_cfg_present = false;
 	}
 	err = cbor_encode_ground_fix_req(buf, *len, &input, &out_len);
 	if (err) {
