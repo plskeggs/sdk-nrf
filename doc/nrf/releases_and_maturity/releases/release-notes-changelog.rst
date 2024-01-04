@@ -558,7 +558,7 @@ Modem libraries
     * Cellular positioning not to use GCI search when the device is in RRC connected mode, because the modem cannot search for GCI cells in that mode.
     * GNSS is not started at all if the device does not enter RRC idle mode within two minutes.
 
-  * Added do_reply, hi_conf, and fallback flags to the c:struct:`location_config` structure.
+  * Added ``do_reply``, ``hi_conf``, and ``fallback`` flags to the c:struct:`location_config` structure.
 
 * :ref:`lte_lc_readme` library:
 
@@ -655,7 +655,7 @@ Libraries for networking
 
     * The :c:func:`nrf_cloud_obj_object_add` function to reset the added object on success.
     * Custom shadow data is now passed to the application during shadow update events.
-    * The :c:func:`nrf_cloud_obj_location_request_create` function and the :c:func:`nrf_cloud_location_request` function to accept the :c:struct:`nrf_cloud_location_config` structure.
+    * The :c:func:`nrf_cloud_obj_location_request_create` and :c:func:`nrf_cloud_location_request` functions to accept the :c:struct:`nrf_cloud_location_config` structure.
 
 * :ref:`lib_nrf_provisioning` library:
 
@@ -672,7 +672,7 @@ Libraries for networking
 
 * :ref:`lib_nrf_cloud_rest` library:
 
-  * Updated the :c:struct:`nrf_cloud_rest_location_request` structure to accept a pointer to a :c:struct:`nrf_cloud_location_config` structure in place of the single disable_response flag.
+  * Updated the :c:struct:`nrf_cloud_rest_location_request` structure to accept a pointer to a :c:struct:`nrf_cloud_location_config` structure in place of the single ``disable_response`` flag.
 
 Libraries for NFC
 -----------------

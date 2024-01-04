@@ -59,7 +59,7 @@ struct nrf_cloud_location_result {
 
 /** @brief Location request config */
 struct nrf_cloud_location_config {
-	/** If true, nRF Cloud will send the location back to the device. */
+	/** If true, nRF Cloud will send the location to the device. */
 	bool do_reply;
 	/** If true, uncertainty of result will be 95%, otherwise 68%. */
 	bool hi_conf;
@@ -105,7 +105,7 @@ typedef void (*nrf_cloud_location_response_t)(const struct nrf_cloud_location_re
  *                 To omit a request parameter, use the appropriate
  *                 `NRF_CLOUD_LOCATION_WIFI_OMIT_` define.
  *                 Can be NULL if cell info is provided.
- * @param config   Optional configuration of request.  If NULL, fall back to default
+ * @param config   Optional configuration of request. If NULL, fall back to default
  *                 which is do_reply = true, hi_conf = false, and fallback = true.
  * @param cb Callback function to receive parsed location result. Only used when
  *           request_loc is true. If NULL, JSON result will be sent to the cloud event

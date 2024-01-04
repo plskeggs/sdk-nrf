@@ -487,7 +487,7 @@ struct location_config {
 	enum location_req_mode mode;
 
 	/**
-	 * @brief Flag to request location back from the cloud.
+	 * @brief Flag to request location from the cloud.
 	 *
 	 * @details For cellular and Wi-Fi location methods, if this flag is set, the
 	 * cloud will return the current location, if known. The cloud default is true.
@@ -504,11 +504,11 @@ struct location_config {
 	bool hi_conf;
 
 	/**
-	 * @brief Flag to control handling of position not found errors.
+	 * @brief Flag to control handling of "position not found" errors.
 	 *
 	 * @details For cellular and Wi-Fi location methods, if this flag is set, and the
-	 * cloud cannot determine the location based on the cell tower identification and/or
-	 * Wi-Fi access points nearby, it will fallback to coarse position based on the
+	 * cloud cannot determine the location based on the cell tower identification or
+	 * Wi-Fi access points nearby, it will fall back to coarse position based on the
 	 * cell tower tracking area code (if available). If false, a 404 error will be
 	 * returned instead. The cloud default is true.
 	 */
