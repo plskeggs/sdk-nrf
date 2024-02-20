@@ -487,6 +487,10 @@ Cellular samples
     * The eDRX cycle to 5.12 s for both LTE-M and NB-IoT.
     * The periodic TAU (RPTAU) to 12 hours.
 
+* :ref:`nrf_cloud_rest_device_message` sample:
+
+  * Updated the :file:`overlay-nrf_provisioning.conf` overlay to specify UUID-style device IDs for compatibility with nRF Cloud auto-onboarding.
+
 Cryptography samples
 --------------------
 
