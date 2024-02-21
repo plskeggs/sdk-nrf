@@ -459,7 +459,7 @@ static int update_download(void)
 
 	/* Functions for getting the host and file */
 	err = fota_download(CONFIG_DOWNLOAD_HOST, file, &sec_tag, sec_tag_count, 0, 0,
-			    DFU_TARGET_IMAGE_TYPE_FULL_MODEM);
+			    DFU_TARGET_IMAGE_TYPE_FULL_MODEM, AF_UNSPEC);
 	if (err != 0) {
 		printk("fota_download() failed, err %d\n", err);
 		return err;

@@ -63,7 +63,8 @@ int nrf_cloud_download_start(struct nrf_cloud_download_data *const dl)
 #if defined(CONFIG_FOTA_DOWNLOAD)
 		ret = fota_download_start_with_image_type(dl->host, dl->path,
 			dl->dl_cfg.sec_tag_count ? dl->dl_cfg.sec_tag_list[0] : -1,
-			dl->dl_cfg.pdn_id, dl->dl_cfg.frag_size_override, dl->fota.expected_type);
+			dl->dl_cfg.pdn_id, dl->dl_cfg.frag_size_override, dl->fota.expected_type,
+			dl->dl_cfg.family);
 #endif
 	} else if (dl->type == NRF_CLOUD_DL_TYPE_DL_CLIENT) {
 		ret = download_client_get(dl->dlc, dl->host, &dl->dl_cfg,

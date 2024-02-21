@@ -62,7 +62,7 @@ DEFINE_FAKE_VALUE_FUNC(int, nrf_modem_lib_shutdown);
 DEFINE_FAKE_VALUE_FUNC(int, nrf_modem_lib_init);
 DEFINE_FAKE_VALUE_FUNC(int, fota_download_init, fota_download_callback_t);
 DEFINE_FAKE_VALUE_FUNC(int, fota_download_start_with_image_type, const char *, const char *, int,
-		       uint8_t, size_t, const enum dfu_target_image_type);
+		       uint8_t, size_t, const enum dfu_target_image_type, int family);
 DEFINE_FAKE_VALUE_FUNC(int, fota_download_cancel);
 DEFINE_FAKE_VALUE_FUNC(int, fota_download_target);
 DEFINE_FAKE_VOID_FUNC(client_acknowledge);

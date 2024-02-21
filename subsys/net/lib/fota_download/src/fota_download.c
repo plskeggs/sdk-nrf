@@ -416,12 +416,12 @@ int fota_download_any(const char *host, const char *file, const int *sec_tag_lis
 		      uint8_t sec_tag_count, uint8_t pdn_id, size_t fragment_size)
 {
 	return fota_download(host, file, sec_tag_list, sec_tag_count, pdn_id,
-			     fragment_size, DFU_TARGET_IMAGE_TYPE_ANY);
+			     fragment_size, DFU_TARGET_IMAGE_TYPE_ANY, AF_UNSPEC);
 }
 
 int fota_download(const char *host, const char *file,
 	const int *sec_tag_list, uint8_t sec_tag_count, uint8_t pdn_id, size_t fragment_size,
-	const enum dfu_target_image_type expected_type)
+	const enum dfu_target_image_type expected_type, int family)
 {
 	uint32_t host_hash = 0;
 	uint32_t file_hash = 0;
@@ -431,6 +431,7 @@ int fota_download(const char *host, const char *file,
 	struct download_client_cfg config = {
 		.pdn_id = pdn_id,
 		.frag_size_override = fragment_size,
+		.family = family
 	};
 
 	if (host == NULL || file == NULL || callback == NULL) {
@@ -536,13 +537,14 @@ int fota_download_start(const char *host, const char *file, int sec_tag,
 
 int fota_download_start_with_image_type(const char *host, const char *file,
 					int sec_tag, uint8_t pdn_id, size_t fragment_size,
-					const enum dfu_target_image_type expected_type)
+					const enum dfu_target_image_type expected_type,
+					int family)
 {
 	int sec_tag_list[1] = { sec_tag };
 	uint8_t sec_tag_count = sec_tag < 0 ? 0 : 1;
 
 	return fota_download(host, file, sec_tag_list, sec_tag_count, pdn_id,
-			     fragment_size, expected_type);
+			     fragment_size, expected_type, family);
 }
 
 static int fota_download_object_init(void)

@@ -135,6 +135,8 @@ int fota_download_init(fota_download_callback_t client_callback);
  * @param fragment_size Fragment size to be used for the download.
  *			If 0, @kconfig{CONFIG_DOWNLOAD_CLIENT_HTTP_FRAG_SIZE} is used.
  * @param expected_type Type of firmware file to be downloaded and installed.
+ * @param family Address family to be used for the download, AF_INET6 or AF_INET.
+ *		 Set to AF_UNSPEC (0) to fallback to AF_INET if AF_INET6 does not work.
  *
  * @retval 0	     If download has started successfully.
  * @retval -EALREADY If download is already ongoing.
@@ -144,7 +146,7 @@ int fota_download_init(fota_download_callback_t client_callback);
  */
 int fota_download(const char *host, const char *file, const int *sec_tag_list,
 		  uint8_t sec_tag_count, uint8_t pdn_id, size_t fragment_size,
-		  const enum dfu_target_image_type expected_type);
+		  const enum dfu_target_image_type expected_type, int family);
 
 
 /**@brief Start downloading the given file of any image type from the given host.
@@ -225,6 +227,8 @@ int fota_download_start(const char *host, const char *file, int sec_tag,
  * @param fragment_size Fragment size to be used for the download.
  *			If 0, @kconfig{CONFIG_DOWNLOAD_CLIENT_HTTP_FRAG_SIZE} is used.
  * @param expected_type Type of firmware file to be downloaded and installed.
+ * @param family Address family to be used for the download, AF_INET6 or AF_INET.
+ *		 Set to AF_UNSPEC (0) to fallback to AF_INET if AF_INET6 does not work.
  *
  * @retval 0	     If download has started successfully.
  * @retval -EALREADY If download is already ongoing.
@@ -232,7 +236,7 @@ int fota_download_start(const char *host, const char *file, int sec_tag,
  */
 int fota_download_start_with_image_type(const char *host, const char *file,
 			int sec_tag, uint8_t pdn_id, size_t fragment_size,
-			const enum dfu_target_image_type expected_type);
+			const enum dfu_target_image_type expected_type, int family);
 
 /**@brief Cancel FOTA image downloading.
  *

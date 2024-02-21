@@ -221,9 +221,11 @@ static int do_fota_start(int op, const char *file_uri, int sec_tag,
 			LOG_ERR("Missing sec_tag");
 			return -EINVAL;
 		}
-		ret = fota_download_start_with_image_type(hostname, path, sec_tag, pdn_id, 0, type);
+		ret = fota_download_start_with_image_type(hostname, path, sec_tag, pdn_id, 0, type,
+							  AF_UNSPEC);
 	} else if (slm_util_casecmp(schema, SCHEMA_HTTP)) {
-		ret = fota_download_start_with_image_type(hostname, path, -1, pdn_id, 0, type);
+		ret = fota_download_start_with_image_type(hostname, path, -1, pdn_id, 0, type,
+							  AF_UNSPEC);
 	} else {
 		ret = -EINVAL;
 	}

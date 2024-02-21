@@ -360,6 +360,7 @@ static int start_download(void)
 			.sec_tag_count = (sec_tag < 0 ? 0 : 1),
 			.pdn_id = 0,
 			.frag_size_override = FOTA_DL_FRAGMENT_SZ,
+			.family = AF_INET
 		},
 		.fota = { .expected_type = img_type }
 	};

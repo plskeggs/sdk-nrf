@@ -54,7 +54,8 @@ void fota_download_test_callback(const struct fota_download_evt *evt)
 
 int fota_download_start_with_image_type(const char *host, const char *file, int sec_tag,
 					uint8_t pdn_id, size_t fragment_size,
-					const enum dfu_target_image_type expected_type)
+					const enum dfu_target_image_type expected_type,
+					int family)
 {
 
 	return 0;

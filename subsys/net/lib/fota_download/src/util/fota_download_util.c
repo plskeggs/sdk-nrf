@@ -196,7 +196,7 @@ static void start_fota_download(struct k_work *work)
 	int ret;
 
 	ret = fota_download_start_with_image_type(fota_host, fota_path, fota_sec_tag, 0, 0,
-						  active_dfu_type);
+						  active_dfu_type, AF_UNSPEC);
 	if (ret) {
 		struct fota_download_evt evt;
 

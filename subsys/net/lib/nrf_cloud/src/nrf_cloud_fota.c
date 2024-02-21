@@ -795,6 +795,7 @@ static int start_job(struct nrf_cloud_fota_job *const job, const bool send_evt)
 			.sec_tag_count = (sec_tag < 0 ? 0 : 1),
 			.pdn_id = 0,
 			.frag_size_override = CONFIG_NRF_CLOUD_FOTA_DOWNLOAD_FRAGMENT_SIZE,
+			.family = AF_INET
 		},
 		.fota = { .expected_type = img_type }
 	};
