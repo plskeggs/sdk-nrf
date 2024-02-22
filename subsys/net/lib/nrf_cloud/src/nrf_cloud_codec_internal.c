@@ -768,9 +768,19 @@ int nrf_cloud_shadow_data_state_decode(const struct nrf_cloud_obj_shadow_data *c
 	cJSON *pairing_state_obj = NULL;
 	cJSON *topic_prefix_obj = NULL;
 
+	if (input->type == NRF_CLOUD_OBJ_SHADOW_TYPE_ACCEPTED) {
+		desired_obj = input->accepted->desired.json;
+	} else if (input->type == NRF_CLOUD_OBJ_SHADOW_TYPE_DELTA) {
+		desired_obj = input->delta->state.json;
+	} else {
+		return -ENOTSUP;
+	}
+
 #ifdef CONFIG_NRF_CLOUD_GATEWAY
+	int ret;
+
 	if (gateway_state_handler) {
-		ret = gateway_state_handler(input->json);
+		ret = gateway_state_handler(desired_obj);
 		if (ret != 0) {
 			LOG_ERR("Error from gateway_state_handler: %d", ret);
 			return ret;
@@ -780,14 +790,6 @@ int nrf_cloud_shadow_data_state_decode(const struct nrf_cloud_obj_shadow_data *c
 		return -EINVAL;
 	}
 #endif /* CONFIG_NRF_CLOUD_GATEWAY */
-
-	if (input->type == NRF_CLOUD_OBJ_SHADOW_TYPE_ACCEPTED) {
-		desired_obj = input->accepted->desired.json;
-	} else if (input->type == NRF_CLOUD_OBJ_SHADOW_TYPE_DELTA) {
-		desired_obj = input->delta->state.json;
-	} else {
-		return -ENOTSUP;
-	}
 
 	topic_prefix_obj = json_object_decode(desired_obj, NRF_CLOUD_JSON_KEY_TOPIC_PRFX);
 	pairing_obj = json_object_decode(desired_obj, NRF_CLOUD_JSON_KEY_PAIRING);
