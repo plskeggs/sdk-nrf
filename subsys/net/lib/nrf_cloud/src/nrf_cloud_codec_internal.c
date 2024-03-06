@@ -755,10 +755,21 @@ int nrf_cloud_shadow_data_state_decode(const struct nrf_cloud_obj_shadow_data *c
 	cJSON *topic_prefix_obj = NULL;
 
 	if (input->type == NRF_CLOUD_OBJ_SHADOW_TYPE_ACCEPTED) {
-		desired_obj = input->accepted->desired.json;
+		if (input->accepted) {
+			desired_obj = input->accepted->desired.json;
+		} else {
+			LOG_ERR("input->accepted is NULL");
+			return -ENOTSUP;
+		}
 	} else if (input->type == NRF_CLOUD_OBJ_SHADOW_TYPE_DELTA) {
-		desired_obj = input->delta->state.json;
+		if (input->delta) {
+			desired_obj = input->delta->state.json;
+		} else {
+			LOG_ERR("input->delta is NULL");
+			return -ENOTSUP;
+		}
 	} else {
+		LOG_ERR("input->type: %d", (int)input->type);
 		return -ENOTSUP;
 	}
 
@@ -766,6 +777,10 @@ int nrf_cloud_shadow_data_state_decode(const struct nrf_cloud_obj_shadow_data *c
 	int ret;
 
 	if (gateway_state_handler) {
+		if (desired_obj == NULL) {
+			LOG_ERR("No desired_obj");
+			return -ENOTSUP;
+		}
 		ret = gateway_state_handler(desired_obj);
 		if (ret != 0) {
 			LOG_ERR("Error from gateway_state_handler: %d", ret);
@@ -835,7 +850,7 @@ int nrf_cloud_shadow_control_get(struct nrf_cloud_obj_shadow_data *const input,
 
 	int err;
 
-	if (input->type == NRF_CLOUD_OBJ_SHADOW_TYPE_ACCEPTED) {
+	if ((input->type == NRF_CLOUD_OBJ_SHADOW_TYPE_ACCEPTED) && input->accepted) {
 		/* First check desired, then reported */
 		err = detach_item(&input->accepted->desired, NRF_CLOUD_JSON_KEY_CTRL, ctrl_obj);
 
@@ -845,7 +860,7 @@ int nrf_cloud_shadow_control_get(struct nrf_cloud_obj_shadow_data *const input,
 		}
 
 		return err;
-	} else if (input->type == NRF_CLOUD_OBJ_SHADOW_TYPE_DELTA) {
+	} else if ((input->type == NRF_CLOUD_OBJ_SHADOW_TYPE_DELTA) && input->delta) {
 		return detach_item(&input->delta->state, NRF_CLOUD_JSON_KEY_CTRL, ctrl_obj);
 	} else {
 		return -ENODATA;
@@ -3829,7 +3844,7 @@ bool nrf_cloud_shadow_app_send_check(struct nrf_cloud_obj_shadow_data *const inp
 	if (input->type == NRF_CLOUD_OBJ_SHADOW_TYPE_ACCEPTED) {
 		/* Always send accepted shadow */
 		return true;
-	} else if (input->type == NRF_CLOUD_OBJ_SHADOW_TYPE_DELTA) {
+	} else if ((input->type == NRF_CLOUD_OBJ_SHADOW_TYPE_DELTA) && input->delta) {
 		/* Check delta: if anything is in state, send to app */
 		return (cJSON_GetArraySize(input->delta->state.json) > 0);
 	}
