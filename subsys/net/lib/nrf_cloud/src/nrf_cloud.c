@@ -380,7 +380,11 @@ int nrf_cloud_send(const struct nrf_cloud_tx_data *msg)
 			send_data.ptr = msg->obj->encoded_data.ptr;
 			send_data.len = msg->obj->encoded_data.len;
 		} else {
-			LOG_WRN("Included object contains no sendable data");
+			if (msg->obj->json) {
+				LOG_WRN("JSON provided but not rendered");
+			} else {
+				LOG_WRN("Included object contains no sendable data");
+			}
 		}
 	}
 
