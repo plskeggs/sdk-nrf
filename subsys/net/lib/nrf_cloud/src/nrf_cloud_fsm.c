@@ -455,7 +455,6 @@ static int cc_rx_data_handler(const struct nct_evt *nct_evt)
 		nct_evt->param.cc->topic.len,
 		(const char *)nct_evt->param.cc->topic.ptr,
 		(const char *)nct_evt->param.cc->data.ptr);
-#ifndef CONFIG_NRF_CLOUD_GATEWAY
 
 	if ((nct_evt->param.cc->opcode != NCT_CC_OPCODE_UPDATE_ACCEPTED) &&
 	    (nct_evt->param.cc->opcode != NCT_CC_OPCODE_UPDATE_DELTA)) {
@@ -485,7 +484,6 @@ static int cc_rx_data_handler(const struct nct_evt *nct_evt)
 			LOG_DBG("Delta shadow decoded");
 		}
 	}
-#endif
 
 	nrf_cloud_obj_free(&shadow_obj);
 

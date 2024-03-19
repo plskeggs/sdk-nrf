@@ -759,18 +759,18 @@ int nrf_cloud_shadow_data_state_decode(const struct nrf_cloud_obj_shadow_data *c
 			desired_obj = input->accepted->desired.json;
 		} else {
 			LOG_ERR("input->accepted is NULL");
-			return -ENOTSUP;
+			return 0;
 		}
 	} else if (input->type == NRF_CLOUD_OBJ_SHADOW_TYPE_DELTA) {
 		if (input->delta) {
 			desired_obj = input->delta->state.json;
 		} else {
 			LOG_ERR("input->delta is NULL");
-			return -ENOTSUP;
+			return 0;
 		}
 	} else {
 		LOG_ERR("input->type: %d", (int)input->type);
-		return -ENOTSUP;
+		return 0;
 	}
 
 #ifdef CONFIG_NRF_CLOUD_GATEWAY
@@ -781,6 +781,11 @@ int nrf_cloud_shadow_data_state_decode(const struct nrf_cloud_obj_shadow_data *c
 			LOG_ERR("No desired_obj");
 			return -ENOTSUP;
 		}
+		LOG_DBG("printing...");
+		char *buffer = cJSON_PrintUnformatted(desired_obj);
+		LOG_DBG("desired: %s", buffer);
+		cJSON_free(buffer);
+
 		ret = gateway_state_handler(desired_obj);
 		if (ret != 0) {
 			LOG_ERR("Error from gateway_state_handler: %d", ret);
