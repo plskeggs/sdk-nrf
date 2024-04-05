@@ -349,6 +349,16 @@ void main_application_thread_fn(void)
 #endif
 	int counter = 0;
 
+#if defined(CONFIG_NRF_CLOUD_COAP)
+	int err;
+	uint8_t buf[64];
+	int64_t start = k_uptime_get();
+
+	for (int i = 8; i < 64; i++) {
+		buf[i] = 0x5a ^ i;
+	}
+#endif
+
 	/* Begin sampling sensors. */
 	while (true) {
 		/* Start the sensor sample interval timer.
@@ -375,6 +385,14 @@ void main_application_thread_fn(void)
 			LOG_INF("Sent test counter = %d", counter);
 			(void)send_sensor_sample("COUNT", counter++);
 		}
+
+#if defined(CONFIG_NRF_CLOUD_COAP)
+		*((int64_t *)buf) = k_uptime_delta(&start);
+		err = nrf_cloud_coap_bytes_send(buf, sizeof(buf), true);
+		if (err) {
+			LOG_ERR("Error sending binary data: %d", err);
+		}
+#endif
 
 		/* Wait out any remaining time on the sample interval timer. */
 		k_timer_status_sync(&sensor_sample_timer);
