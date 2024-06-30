@@ -29,6 +29,7 @@
 #include <net/nrf_cloud.h>
 #include <net/nrf_cloud_codec.h>
 #include <net/nrf_cloud_coap.h>
+#include <net/nrf_cloud_log.h>
 #include <cJSON.h>
 #include <version.h>
 #include "nrf_cloud_codec_internal.h"
@@ -365,6 +366,8 @@ static void client_callback(int16_t result_code, size_t offset, const uint8_t *p
 		xfer->nrfc_cc->authenticated = false;
 	} else if ((result_code >= COAP_RESPONSE_CODE_BAD_REQUEST) && len) {
 		LOG_ERR("Unexpected response: %*s", len, payload);
+		(void)nrf_cloud_log_send(LOG_LEVEL_ERR,
+				 "Unexpected response: %*s", len, payload);
 	}
 	/* Sanitize the xfer struct to ensure callback is valid, in case transfer
 	 * was cancelled or timed out.

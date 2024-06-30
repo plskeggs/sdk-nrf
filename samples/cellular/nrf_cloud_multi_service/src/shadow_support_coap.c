@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <net/nrf_cloud.h>
 #include <net/nrf_cloud_coap.h>
+#include <net/nrf_cloud_alert.h>
 
 #include "cloud_connection.h"
 #include "shadow_support_coap.h"
@@ -87,6 +88,7 @@ static int check_shadow(void)
 		return err;
 	} else if (err) {
 		LOG_ERR("Failed to request shadow delta: %d", err);
+		(void)nrf_cloud_alert_send(ALERT_TYPE_MSG, 0, "Error getting shadow delta");
 		return err;
 	}
 
