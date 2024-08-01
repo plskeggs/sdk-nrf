@@ -184,6 +184,9 @@ int nct_stage_get(char *cur_stage, const int cur_stage_len);
 /** @brief Troubleshooting function to query the current nrfcloud tenant ID. */
 int nct_tenant_id_get(char *cur_tenant, const int cur_tenant_len);
 
+/** @brief Ping the MQTT connection. */
+int nct_ping(void);
+
 #ifdef __cplusplus
 }
 #endif

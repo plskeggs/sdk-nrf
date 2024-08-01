@@ -219,7 +219,12 @@ static int endp_send(const struct nct_dc_data *dc_data, struct mqtt_utf8 *endp, 
 	if (qos != MQTT_QOS_0_AT_MOST_ONCE) {
 		publish.message_id = get_message_id(dc_data->message_id);
 	}
-
+	LOG_DBG("mqtt_publish: id = %d len = %d, topic: %.*s", publish.message_id,
+		dc_data->data.len,
+		publish.message.topic.topic.size,
+		publish.message.topic.topic.utf8);
+	LOG_DBG("%.*s", publish.message.payload.len,
+	     publish.message.payload.data ? (const char *)publish.message.payload.data : "<empty>");
 	return mqtt_publish(&nct.client, &publish);
 }
 
@@ -1068,6 +1073,11 @@ int nct_cc_connect(void)
 	return mqtt_subscribe(&nct.client, &subscription_list);
 }
 
+int nct_ping(void)
+{
+	return mqtt_ping(&nct.client);
+}
+
 int nct_cc_send(const struct nct_cc_data *cc_data)
 {
 	if (cc_data == NULL) {
@@ -1096,11 +1106,12 @@ int nct_cc_send(const struct nct_cc_data *cc_data)
 
 	publish.message_id = get_message_id(cc_data->message_id);
 
-	LOG_DBG("mqtt_publish: id = %d opcode = %d len = %d, topic: %*s", publish.message_id,
+	LOG_DBG("mqtt_publish: id = %d opcode = %d len = %d, topic: %.*s", publish.message_id,
 		cc_data->opcode, cc_data->data.len,
 		publish.message.topic.topic.size,
 		publish.message.topic.topic.utf8);
-
+	LOG_DBG("%.*s", publish.message.payload.len,
+	     publish.message.payload.data ? (const char *)publish.message.payload.data : "<empty>");
 	int err = mqtt_publish(&nct.client, &publish);
 
 	if (err) {
