@@ -312,8 +312,12 @@ Cellular samples
 
 * :ref:`nrf_cloud_multi_service` sample:
 
-  * Updated Wi-Fi overlays from newlibc to picolib.
   * Added the :kconfig:option:`CONFIG_TEST_COUNTER_MULTIPLIER` Kconfig option to multiply the number of test counter messages sent, for testing purposes.
+
+  * Updated:
+
+    * Wi-Fi overlays from newlibc to picolib.
+    * Handling of JITP association to improve speed and reliability.
 
 * :ref:`nrf_cloud_rest_device_message` sample:
 
@@ -611,6 +615,7 @@ Libraries for networking
     * The :kconfig:option:`CONFIG_NRF_CLOUD_CLIENT_ID_SRC_RUNTIME` Kconfig option to be available with CoAP and REST.
     * The JSON string representing longitude in ``PVT`` reports from ``lng`` to ``lon`` to align with nRF Cloud.
       nRF Cloud still accepts ``lng`` for backward compatibility.
+    * The handling of MQTT JITP device association to improve speed and reliability.
 
 * :ref:`lib_nrf_cloud_coap` library:
 
