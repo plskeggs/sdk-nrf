@@ -1,0 +1,12 @@
+common:
+  platform_allow: native_posix
+  integration_platforms:
+    - native_posix
+  tags: ci_build nrf_cloud_test nrf_cloud_lib ci_tests_subsys_net
+tests:
+  net.lib.nrf_cloud.client_id:
+    sysbuild: true
+    timeout: 60
+    extra_args:
+      - CONFIG_NRF_CLOUD_FOTA_FULL_MODEM_UPDATE=y
+    tags: sysbuild ci_tests_subsys_net
