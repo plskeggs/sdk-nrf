@@ -61,6 +61,9 @@ static void rest_client_http_response_cb(struct http_response *rsp,
 			resp_ctx->total_response_len,
 			rsp->http_status_code,
 			rsp->http_status);
+		if (resp_ctx && resp_ctx->response && resp_ctx->total_response_len) {
+			LOG_DBG("Response: %*s", resp_ctx->response_len, resp_ctx->response);
+		}
 	}
 }
 
@@ -331,7 +334,39 @@ static int rest_client_do_api_call(struct http_request *http_req,
 	resp_ctx->used_socket_is_alive = false;
 	resp_ctx->http_status_code = 0;
 
+#if defined(CONFIG_REST_CLIENT_LOG_LEVEL_DBG)
+	size_t len = 1;
+
+	for (const char **p = req_ctx->header_fields; *p != NULL; p++) {
+		len += strlen(*p);
+	}
+
+	char header_fields[len]; /* Temporary allocation on the stack */
+	char lastc;
+
+	header_fields[0] = '\0';
+
+	for (const char **p = req_ctx->header_fields; *p != NULL; p++) {
+		lastc = header_fields[strlen(header_fields) - 1];
+		if ((lastc != '\r') && (lastc != '\n')) {
+			strncat(header_fields, "\r\n", 512); /* Arbitrarily limit size to this. */
+		}
+		strncat(header_fields, *p, 512);
+	}
+
+	LOG_DBG("Request: host:%s", req_ctx->host ? req_ctx->host : "n/a");
+	LOG_DBG("Request: url:%s, method:%u",
+		req_ctx->url ? req_ctx->url : "n/a", (unsigned int)req_ctx->http_method);
+	LOG_DBG("Request: headers:%s", header_fields);
+	LOG_DBG("Request: body:%*s", req_ctx->body_len,
+		(req_ctx->body && req_ctx->body_len) ? req_ctx->body : "n/a");
+#endif
+
 	err = http_client_req(req_ctx->connect_socket, http_req, req_ctx->timeout_ms, resp_ctx);
+
+	LOG_DBG("Response: len:%zd, status:%s", resp_ctx->response_len,
+						resp_ctx->http_status_code_str);
+
 	if (err < 0) {
 		LOG_ERR("http_client_req() error: %d", err);
 	} else if (resp_ctx->total_response_len >= req_ctx->resp_buff_len) {
